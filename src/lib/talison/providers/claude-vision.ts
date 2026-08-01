@@ -15,7 +15,9 @@ import type { VisionProvider } from "@/lib/talison/types";
 
 const DEFAULT_VISION_MODEL = "claude-haiku-4-5";
 const DEFAULT_FALLBACK_MODEL = "claude-sonnet-4-6";
-const MAX_TOKENS = 512;
+// 512 cortava a descrição no meio quando o anúncio tinha muito texto — e o que
+// se perdia no fim era justamente preço e condição de venda.
+const MAX_TOKENS = 800;
 const REQUEST_TIMEOUT_MS = 30_000;
 const DOWNLOAD_TIMEOUT_MS = 15_000;
 // Teto de tamanho da imagem (Claude aceita até ~5MB por imagem em base64).
@@ -81,7 +83,10 @@ const DEFAULT_PROMPT =
   "cliente para avaliação ou troca, um defeito, ou um comprovante de pagamento. " +
   "Responda em português, em tópicos curtos:\n" +
   "PRODUTO: modelo exato, capacidade e cor, se der pra identificar.\n" +
-  "TEXTOS: transcreva preços, condições de pagamento e qualquer texto visível.\n" +
+  "CONDIÇÃO DE VENDA: se a imagem disser novo, seminovo, usado, lacrado ou de vitrine, " +
+  "escreva qual — palavra por palavra. Não deduza pelo estado aparente; se não estiver escrito, 'não informado'.\n" +
+  "TEXTOS: transcreva TODOS os preços e condições de pagamento exatamente como aparecem, " +
+  "e qualquer outro texto visível.\n" +
   "ESTADO: condição física aparente (tela, carcaça, danos), se houver aparelho.\n" +
   "DEFEITO: o problema aparente, se houver.\n" +
   "Escreva 'não informado' no que não estiver visível. Nunca invente.";

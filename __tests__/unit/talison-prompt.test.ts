@@ -155,6 +155,15 @@ describe("Talison prompt", () => {
     expect(prompt).toContain("Sua primeira palavra já é a mensagem pro cliente");
   });
 
+  it("consulta de conserto: pede CPF e número da OS juntos e não repete o pedido", () => {
+    const prompt = buildSystemPrompt({ contactName: null, businessContext: buildTalisonBusinessContext() });
+
+    expect(prompt).toContain("CONSULTA DE CONSERTO");
+    expect(prompt).toContain("o aparelho em conserto quase sempre É o celular cadastrado");
+    expect(prompt).toContain("numa ÚNICA mensagem o CPF");
+    expect(prompt).toContain("transfira pra um atendente na hora");
+  });
+
   it("exige coletar dados antes de avaliar troca (não deduzir)", () => {
     const prompt = buildSystemPrompt({ contactName: null, businessContext: buildTalisonBusinessContext() });
 

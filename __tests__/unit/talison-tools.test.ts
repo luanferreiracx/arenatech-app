@@ -53,6 +53,101 @@ function makeCtx(tx: Partial<TalisonTx>): TalisonToolContext {
   };
 }
 
+/** Contato que o webhook não conseguiu casar com nenhum cadastro. */
+function makeCtxSemCadastro(tx: Partial<TalisonTx>): TalisonToolContext {
+  return {
+    ...makeCtx(tx),
+    conversation: { ...baseConversation, customerId: null },
+  };
+}
+
+const pedidoPronto = {
+  number: "OS202600311",
+  status: "READY_FOR_PICKUP",
+  deviceModel: "iPhone 13",
+  estimatedDate: null,
+  totalAmount: { toString: () => "350.00" },
+  deliveredDate: null,
+};
+
+/**
+ * Caso real de 01/08/2026: cliente sem cadastro casado pelo telefone pediu
+ * notícia do conserto, mandou CPF e número da OS, e o bot repetiu o pedido de
+ * CPF cinco vezes em 13 minutos porque a posse só existia via `customerId`.
+ * CPF + número juntos provam a posse sem reabrir o IDOR de 2026-07-25 (que era
+ * aceitar o número SOZINHO, sequencial e fácil de adivinhar).
+ */
+describe("consultar_status_os — posse por CPF + número", () => {
+  it("libera a OS quando CPF e número batem, mesmo sem contato vinculado", async () => {
+    const tx = {
+      customer: { findFirst: vi.fn().mockResolvedValue({ id: "cust-9" }) },
+      serviceOrder: { findFirst: vi.fn().mockResolvedValue(pedidoPronto) },
+    } as unknown as Partial<TalisonTx>;
+
+    const result = await consultarStatusOs.execute(
+      { numero_os: "OS202600311", cpf: "912.931.893-91" },
+      makeCtxSemCadastro(tx),
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.display).toContain("pronto para retirada");
+    // CPF normalizado (só dígitos) e OS filtrada pelo dono encontrado.
+    expect(tx.customer?.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ cpf: "91293189391" }) }),
+    );
+    expect(tx.serviceOrder?.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ customerId: "cust-9", number: "OS202600311" }),
+      }),
+    );
+  });
+
+  it("recusa quando o CPF não corresponde a nenhum cadastro", async () => {
+    const tx = {
+      customer: { findFirst: vi.fn().mockResolvedValue(null) },
+      serviceOrder: { findFirst: vi.fn() },
+    } as unknown as Partial<TalisonTx>;
+
+    const result = await consultarStatusOs.execute(
+      { numero_os: "OS202600311", cpf: "11122233344" },
+      makeCtxSemCadastro(tx),
+    );
+
+    expect(result.ok).toBe(false);
+    expect(tx.serviceOrder?.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("recusa número de OS sem CPF quando o contato não tem cadastro (IDOR de 25/jul)", async () => {
+    const tx = {
+      customer: { findFirst: vi.fn() },
+      serviceOrder: { findFirst: vi.fn() },
+    } as unknown as Partial<TalisonTx>;
+
+    const result = await consultarStatusOs.execute(
+      { numero_os: "OS202600311" },
+      makeCtxSemCadastro(tx),
+    );
+
+    expect(result.ok).toBe(false);
+    expect(tx.serviceOrder?.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("recusa CPF sem o número da OS", async () => {
+    const tx = {
+      customer: { findFirst: vi.fn() },
+      serviceOrder: { findFirst: vi.fn() },
+    } as unknown as Partial<TalisonTx>;
+
+    const result = await consultarStatusOs.execute(
+      { cpf: "912.931.893-91" },
+      makeCtxSemCadastro(tx),
+    );
+
+    expect(result.ok).toBe(false);
+    expect(tx.serviceOrder?.findFirst).not.toHaveBeenCalled();
+  });
+});
+
 describe("consultar_status_os", () => {
   it("traduz o status do enum pra linguagem de cliente", async () => {
     const tx = {
