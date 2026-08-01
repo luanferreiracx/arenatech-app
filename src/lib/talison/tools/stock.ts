@@ -214,7 +214,7 @@ export const buscarAparelho: TalisonTool<typeof buscarAparelhoSchema> = {
       if (foundDevices.length === 0) {
         return {
           ok: false as const,
-          reason: `Não encontrei "${model}" entre os aparelhos disponíveis. Diga que no momento não aparece disponível no catálogo e ofereça transferir para um atendente confirmar alternativas.`,
+          reason: `Não encontrei "${model}" entre os aparelhos disponíveis. NÃO encerre o atendimento: siga ajudando com o que você já tem (a imagem/vídeo que o cliente mandou, o que ele descreveu, alternativas próximas, troca e formas de pagamento) e deixe explícito na mesma mensagem que a disponibilidade precisa ser confirmada com um atendente. Não afirme que temos o produto e não invente preço.`,
         };
       }
 
@@ -250,7 +250,7 @@ export const buscarAcessorio: TalisonTool<typeof buscarAcessorioSchema> = {
     "perguntar por qualquer produto que não seja um aparelho. A tool procura nos dois catálogos (acessórios " +
     "e aparelhos) antes de dizer que não tem. O retorno inclui um LINK do catálogo público já com a busca do " +
     "cliente aplicada — compartilhe esse link com o cliente pra ele ver fotos e variações (cor/modelo). " +
-    "Se mesmo assim vier vazio, informe indisponibilidade e ofereça transferir.",
+    "Se mesmo assim vier vazio, siga atendendo com o que tiver e condicione a disponibilidade a um atendente — não encerre.",
   schema: buscarAcessorioSchema,
   async execute(args, ctx) {
     return ctx.withTenant(async (tx) => {
