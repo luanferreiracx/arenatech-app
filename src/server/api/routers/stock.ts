@@ -3235,21 +3235,28 @@ export const stockRouter = createTRPCRouter({
           productsList = productsList.filter((p) => catIds.has(p.id));
         }
 
-        // Fetch categories for products
+        // Categoria e NOME ATUAL do produto. O rótulo vinha do snapshot do item
+        // de venda (`description`), que trazia dois problemas numa linha que
+        // agrega POR PRODUTO: a caixa de quando a venda foi feita (o acervo só
+        // virou caixa alta em 2026-08-01) e o sufixo de UMA variação
+        // ("... - Acabamento: Fosco") rotulando a soma de todas. O nome do
+        // catálogo é a resposta certa nos dois casos.
         const productIds = productsList.map((p) => p.id);
         const productsWithCat = await tx.product.findMany({
           where: { id: { in: productIds } },
-          select: { id: true, category: { select: { name: true } } },
+          select: { id: true, name: true, category: { select: { name: true } } },
         });
         const catMap = new Map(
           productsWithCat.map((p) => [p.id, p.category?.name ?? null]),
         );
+        const nameMap = new Map(productsWithCat.map((p) => [p.id, p.name]));
 
         productsList.sort((a, b) => b.qty - a.qty);
 
         const result = productsList.map((p) => ({
           id: p.id,
-          name: p.name,
+          // Snapshot só como rede: produto apagado do catálogo ainda aparece.
+          name: nameMap.get(p.id) ?? p.name,
           category: catMap.get(p.id) ?? null,
           quantity: p.qty,
           numSales: p.salesSet.size,
