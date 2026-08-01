@@ -86,8 +86,9 @@ export function ProductBrandSelect({ value, onChange }: ProductBrandSelectProps)
       </select>
 
       {creating && (
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Input
+            className="min-w-0 flex-1"
             autoFocus
             value={newName}
             onChange={(event) => setNewName(event.target.value)}

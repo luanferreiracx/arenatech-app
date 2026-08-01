@@ -94,26 +94,28 @@ describe("busca de produto", () => {
     });
 
     const semAcento = await call(operatorCtx).sale.searchProducts({ query: `camera traseira ${MARK}` });
-    expect(semAcento.map((p) => p.name)).toContain(`CÂMERA TRASEIRA ${MARK.toUpperCase()}`);
+    expect(semAcento.map((p) => p.name)).toEqual([`CÂMERA TRASEIRA ${MARK.toUpperCase()}`]);
 
     const comAcento = await call(operatorCtx).sale.searchProducts({ query: `câmera traseira ${MARK}` });
-    expect(comAcento.map((p) => p.name)).toContain(`CÂMERA TRASEIRA ${MARK.toUpperCase()}`);
+    expect(comAcento.map((p) => p.name)).toEqual([`CÂMERA TRASEIRA ${MARK.toUpperCase()}`]);
   });
 
   it("vale para a listagem de estoque e para a busca global (⌘K)", async () => {
+    // `toEqual` e não `toContain`: se o filtro deixasse de ser aplicado, a lista
+    // voltaria o catálogo inteiro e um `toContain` passaria feliz.
     const lista = await call(operatorCtx).stock.list({ search: `pelicula 3d ceramica ${MARK}` });
-    expect(lista.data.map((p) => p.name)).toContain(`PELÍCULA 3D CERÂMICA ${MARK.toUpperCase()}`);
+    expect(lista.data.map((p) => p.name)).toEqual([`PELÍCULA 3D CERÂMICA ${MARK.toUpperCase()}`]);
 
     const global = await call(operatorCtx).search.global({
       term: `pelicula 3d ceramica ${MARK}`,
       types: ["products"],
     });
-    expect(global.products.map((p) => p.name)).toContain(`PELÍCULA 3D CERÂMICA ${MARK.toUpperCase()}`);
+    expect(global.products.map((p) => p.name)).toEqual([`PELÍCULA 3D CERÂMICA ${MARK.toUpperCase()}`]);
   });
 
   it("acha pela MARCA sem acento", async () => {
     const lista = await call(operatorCtx).stock.list({ search: `generica ${MARK}` });
-    expect(lista.data.map((p) => p.name)).toContain(`CAPA ANTI-IMPACTO ${MARK.toUpperCase()}`);
+    expect(lista.data.map((p) => p.name)).toEqual([`CAPA ANTI-IMPACTO ${MARK.toUpperCase()}`]);
   });
 });
 
@@ -153,7 +155,7 @@ describe("gestão de marcas", () => {
     await call(adminCtx).stock.updateBrand({ id: brand.id, name: `Pêining ${MARK}` });
 
     const lista = await call(operatorCtx).stock.list({ search: `peining ${MARK}` });
-    expect(lista.data.map((p) => p.name)).toContain(`CABO USB ${MARK.toUpperCase()}`);
+    expect(lista.data.map((p) => p.name)).toEqual([`CABO USB ${MARK.toUpperCase()}`]);
   });
 
   it("não exclui marca com produto vinculado, e operador não gerencia marca", async () => {
