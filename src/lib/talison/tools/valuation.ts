@@ -290,6 +290,13 @@ export const calcularAvaliacao: TalisonTool<typeof calcularAvaliacaoSchema> = {
         `💚 *Valor estimado pelo seu aparelho:* *${formatBRL(valor)}*`,
         "",
         `⚠️ _Estimativa — valor final confirmado presencialmente, validade de ${valuation.validadeDias} dia(s)._`,
+        "",
+        // Instrução pro modelo, no momento exato em que ele fica com um valor na
+        // mão. Sem isso ele subtrai do preço do aparelho novo e anuncia a
+        // diferença (conversa do Caio Marques, 01/08/2026).
+        "[INSTRUÇÃO INTERNA, não repita ao cliente: NÃO subtraia este valor de " +
+          "nenhum preço nem monte equação. Para a diferença da troca, chame " +
+          "simular_parcelamento passando este valor como entrada.]",
       ];
 
       return {

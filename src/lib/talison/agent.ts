@@ -35,6 +35,15 @@ const PRICE_TOOLS = new Set([
   "consultar_status_os",
 ]);
 
+/**
+ * Equação em dinheiro montada na resposta ("R$ 7.799,99 - R$ 3.150,00 ="). O bot
+ * não faz conta: diferença de troca sai de `simular_parcelamento`. A guarda de
+ * preço não pega esse caso, porque as tools de preço de fato rodaram — o que
+ * falta é a tool de CÁLCULO.
+ */
+const MATH_PATTERN = /R\$\s*[\d.,]+\s*[-–−+]\s*R\$\s*[\d.,]+\s*=/;
+const CALC_TOOL = "simular_parcelamento";
+
 /** Detecta valor monetário em texto (R$ 1.234,56 / R$1234 / 4.299,99 reais). */
 const MONEY_PATTERN = /R\$\s*\d|\d[\d.]*,\d{2}\s*(?:reais|no pix|no cart)/i;
 
@@ -49,6 +58,8 @@ export type TalisonRunResult = {
   degraded: boolean;
   /** Resposta cita valor em dinheiro sem nenhuma tool de preço ter rodado (risco de alucinação). */
   suspiciousPrice: boolean;
+  /** Resposta montou equação em dinheiro sem a tool de cálculo ter rodado. */
+  computedMath: boolean;
 };
 
 export type TalisonRunArgs = {
@@ -139,7 +150,7 @@ export async function runTalison(args: TalisonRunArgs): Promise<TalisonRunResult
         if (!reply) {
           // Modelo não pediu tool nem respondeu — fail-safe.
           emitirConsumo(iteration, true);
-          return { reply: FALLBACK_MESSAGE, iterations: iteration, toolsUsed, degraded: true, suspiciousPrice: false };
+          return { reply: FALLBACK_MESSAGE, iterations: iteration, toolsUsed, degraded: true, suspiciousPrice: false, computedMath: false };
         }
         // Guarda anti-alucinação: valor em dinheiro na resposta sem nenhuma tool de
         // preço ter rodado é forte sinal de número inventado. Não bloqueia (o cliente
@@ -153,7 +164,15 @@ export async function runTalison(args: TalisonRunArgs): Promise<TalisonRunResult
           });
         }
         emitirConsumo(iteration, false);
-        return { reply, iterations: iteration, toolsUsed, degraded: false, suspiciousPrice };
+        const computedMath = MATH_PATTERN.test(reply) && !toolsUsed.includes(CALC_TOOL);
+        if (computedMath) {
+          logger.warn("Talison: conta em dinheiro feita sem tool de cálculo", {
+            conversationId: toolContext.conversation.id,
+            toolsUsed,
+            replyPreview: reply.slice(0, 160),
+          });
+        }
+        return { reply, iterations: iteration, toolsUsed, degraded: false, suspiciousPrice, computedMath };
       }
 
       // Registra a mensagem do assistant com as tool calls, depois os resultados.
@@ -176,12 +195,12 @@ export async function runTalison(args: TalisonRunArgs): Promise<TalisonRunResult
       toolsUsed,
     });
     emitirConsumo(MAX_ITERATIONS, true);
-    return { reply: FALLBACK_MESSAGE, iterations: MAX_ITERATIONS, toolsUsed, degraded: true, suspiciousPrice: false };
+    return { reply: FALLBACK_MESSAGE, iterations: MAX_ITERATIONS, toolsUsed, degraded: true, suspiciousPrice: false, computedMath: false };
   } catch (error) {
     logger.error("Talison: loop falhou", {
       conversationId: toolContext.conversation.id,
       error: error instanceof Error ? error.message : String(error),
     });
-    return { reply: FALLBACK_MESSAGE, iterations: 0, toolsUsed, degraded: true, suspiciousPrice: false };
+    return { reply: FALLBACK_MESSAGE, iterations: 0, toolsUsed, degraded: true, suspiciousPrice: false, computedMath: false };
   }
 }

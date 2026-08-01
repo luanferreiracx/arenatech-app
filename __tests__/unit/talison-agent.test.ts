@@ -102,6 +102,34 @@ describe("runTalison", () => {
     expect(result.suspiciousPrice).toBe(true);
   });
 
+  /**
+   * Conversa do Caio Marques (01/08/2026, 18:47): o bot escreveu
+   * "R$ 7.799,99 - R$ 3.150,00 = R$ 4.649,99" sem chamar simular_parcelamento —
+   * conta de cabeça sobre saídas de tool. A guarda de preço não viu, porque
+   * calcular_avaliacao e buscar_aparelho (ambas de preço) tinham rodado.
+   */
+  it("marca conta de cabeça quando a resposta monta a equação sem simular_parcelamento", async () => {
+    const provider = fakeProvider([
+      { text: "", toolCalls: [{ id: "t1", name: "calcular_avaliacao", arguments: {} }] },
+      { text: "A diferença: R$ 7.799,99 - R$ 3.150,00 = R$ 4.649,99", toolCalls: [] },
+    ]);
+
+    const result = await runTalison(baseArgs(provider));
+
+    expect(result.computedMath).toBe(true);
+  });
+
+  it("não marca conta de cabeça quando simular_parcelamento produziu os números", async () => {
+    const provider = fakeProvider([
+      { text: "", toolCalls: [{ id: "t1", name: "simular_parcelamento", arguments: {} }] },
+      { text: "A diferença: R$ 7.799,99 - R$ 3.150,00 = R$ 4.649,99", toolCalls: [] },
+    ]);
+
+    const result = await runTalison(baseArgs(provider));
+
+    expect(result.computedMath).toBe(false);
+  });
+
   it("executa a tool pedida e usa o resultado na resposta final", async () => {
     const provider = fakeProvider([
       {

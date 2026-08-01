@@ -362,6 +362,7 @@ export async function processConversation(
   });
   if (result.degraded) recordTalisonMetric("degraded", { conversationId });
   if (result.suspiciousPrice) recordTalisonMetric("suspicious_price", { conversationId });
+  if (result.computedMath) recordTalisonMetric("computed_math", { conversationId });
 
   logger.info("Talison: conversa respondida", {
     conversationId,

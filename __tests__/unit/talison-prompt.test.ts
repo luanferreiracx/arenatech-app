@@ -181,6 +181,21 @@ describe("Talison prompt", () => {
     expect(prompt.trimEnd().endsWith(STORE_INSTRUCTIONS_GUARD)).toBe(true);
   });
 
+  it("preço do anúncio ancora a resposta — catálogo não vira a oferta", () => {
+    const prompt = buildSystemPrompt({ contactName: null, businessContext: buildTalisonBusinessContext() });
+
+    expect(prompt).toContain("PREÇO DO ANÚNCIO MANDA");
+    expect(prompt).toContain("NUNCA lidere com o preço do catálogo");
+    expect(prompt).toContain("a diferença SEMPRE sai de simular_parcelamento");
+  });
+
+  it("não reconfirma intenção nem quebra a resposta em várias mensagens", () => {
+    const prompt = buildSystemPrompt({ contactName: null, businessContext: buildTalisonBusinessContext() });
+
+    expect(prompt).toContain("UMA RESPOSTA POR VEZ");
+    expect(prompt).toContain("nunca peça pro cliente confirmar uma intenção que ele já deixou clara");
+  });
+
   it("exige coletar dados antes de avaliar troca (não deduzir)", () => {
     const prompt = buildSystemPrompt({ contactName: null, businessContext: buildTalisonBusinessContext() });
 
