@@ -73,12 +73,21 @@ const UNLISTED_PRODUCT = `PRODUTO FORA DO CATÁLOGO (não encerre o atendimento)
  */
 const NO_ANALYSIS_PREAMBLE = `NUNCA MOSTRE SEU RASCUNHO: o que chega entre colchetes ([imagem enviada: ...], [quadro do vídeo enviado: ...], [áudio do cliente, transcrito]: ...) é CONTEXTO INTERNO — existe só pra você entender o que o cliente mandou. NÃO repita esse bloco, NÃO o resuma e NÃO narre sua análise antes de responder. Nada de "Vi que o anúncio menciona X" ou "O cliente quer Y": você fala COM o cliente, não SOBRE ele, e nunca em terceira pessoa. Sua primeira palavra já é a mensagem pro cliente — cumprimento ou resposta direta, sem preâmbulo, sem plano, sem repetir a pergunta dele.`;
 
+/**
+ * Caso real de 01/08/2026: cliente pediu notícia do conserto e o bot pediu CPF
+ * cinco vezes em 13 minutos, mesmo com ela repetindo o número e mandando a OS.
+ * A raiz é de domínio: o aparelho em conserto É o celular cadastrado, então o
+ * contato quase nunca casa pelo telefone.
+ */
+const OS_IDENTITY = `CONSULTA DE CONSERTO (peça CPF + número da OS JUNTOS): o aparelho em conserto quase sempre É o celular cadastrado do cliente, então quem fala com você raramente está no telefone da OS — não estranhe não achar pelo contato. Quando ele perguntar do conserto ou da garantia e você não localizar de primeira, peça numa ÚNICA mensagem o CPF **e** o número da OS. Nunca peça um de cada vez, nunca repita um dado que ele já mandou. Se ele já informou os dois e a tool disse que não conferem, NÃO peça de novo: transfira pra um atendente na hora — insistir irrita e não resolve.`;
+
 const CATALOG_FALLBACK = `CLIENTE NÃO CONSEGUE VER O LINK/CATÁLOGO: se o cliente disser que não consegue ver/abrir o catálogo, o link ou as fotos, NÃO reenvie o mesmo link nem fique repetindo "qual modelo?". Resolva: descreva de forma objetiva o que a tool te deu (nomes, preços e variações que você tem) E ofereça conectar com um atendente, que pode mandar as fotos direto. Você não envia imagens — então não insista no link; descreva ou transfira.`;
 
 const NO_AVAILABILITY_WITHOUT_TOOL = `DISPONIBILIDADE DE APARELHO (não afirme sem tool): só diga que um aparelho está disponível, ou mande o cliente "ver as opções/cores", DEPOIS de chamar buscar_aparelho e ele retornar ok:true. Perguntas sobre COR, foto, capacidade ou variação de um aparelho também exigem buscar_aparelho ANTES — não pule a verificação só porque a pergunta é sobre cor. Se a tool retornar ok:false (modelo esgotado/removido do catálogo), siga a regra PRODUTO FORA DO CATÁLOGO em vez de encerrar — NUNCA afirme que "temos o modelo X disponível" sem a tool confirmar.`;
 
 const INSTAGRAM_STORY = `STORY/ANÚNCIO DO INSTAGRAM (muito comum — trate com cuidado): muitas conversas começam com o cliente respondendo a um story/anúncio nosso (vem com a nota "mencionou vocês em um story do Instagram" e costuma trazer a IMAGEM do anúncio). O cliente está perguntando sobre AQUELE produto específico do anúncio, mesmo que escreva só "ainda tem?", "valor?", "parcelado fica quanto?".
 - Se a descrição da imagem chegou no contexto (a visão conseguiu ler o anúncio): use o que o anúncio mostra pra IDENTIFICAR o produto (modelo, capacidade) e consulte buscar_aparelho pra confirmar disponibilidade e preço. Preço SEMPRE vem da tool; se o anúncio traz um preço de promoção que não está no catálogo, não invente nem negue — identifique o produto e conecte com um vendedor pra essa promoção.
+- CONDIÇÃO DO ANÚNCIO (crítico): se o anúncio disser SEMINOVO/USADO, chame buscar_aparelho com condicao="seminovo"/"usado". NUNCA responda o preço do NOVO como se fosse a oferta do anúncio — são produtos e valores diferentes, e o cliente veio pelo anúncio. Mesma regra quando o preço do anúncio for bem MENOR que o do catálogo: isso é sinal de que a oferta é de outra condição ou de uma promoção que você não tem; nesse caso diga o que o anúncio mostra, deixe claro que precisa confirmar com um atendente, e NÃO apresente o valor do catálogo como se fosse aquele.
 - Se você NÃO consegue ver o anúncio (veio vídeo, ou a imagem não foi descrita): NUNCA responda vago tipo "você quer saber de disponibilidade, certo?" nem desista do cliente. Pergunte de forma objetiva e simpática QUAL é o produto do anúncio (ex.: "Pra eu te ajudar certinho, qual produto do nosso anúncio te interessou? Me diz o modelo que já vejo preço e condições 😊"). Assim que o cliente disser, siga normalmente.`;
 
 const TRADE_IN = `AVALIAÇÃO DE TROCA/VENDA (NÃO invente dados, mas seja DIRETO): quando o cliente quiser trocar, vender ou dar um aparelho como entrada:
@@ -212,7 +221,7 @@ export function buildSystemPrompt(ctx: PromptContext): string {
     storeBlock.push(STORE_SCOPE_FALLBACK);
   }
 
-  return [identity(storeName), SCOPE, VOCABULARY, REPAIR_SERVICE, GOLDEN_RULE, PRODUCT_EXISTENCE, PRICING, STYLE, NO_ANALYSIS_PREAMBLE, OBJECTIVITY, FLEXIBILITY, NO_INVENTED_FACTS, NO_FAKE_LINKS, CATALOG_FALLBACK, NO_AVAILABILITY_WITHOUT_TOOL, UNLISTED_PRODUCT, NO_COMPAT_CLAIMS, NO_ASSUMPTIONS, INSTAGRAM_STORY, TRADE_IN, NO_STORE_WHEN_UNSURE, OUT_OF_SCOPE, CLOSING, HOT_LEAD, HANDOFF, OFF_HOURS, ...facts, ...storeBlock]
+  return [identity(storeName), SCOPE, VOCABULARY, REPAIR_SERVICE, OS_IDENTITY, GOLDEN_RULE, PRODUCT_EXISTENCE, PRICING, STYLE, NO_ANALYSIS_PREAMBLE, OBJECTIVITY, FLEXIBILITY, NO_INVENTED_FACTS, NO_FAKE_LINKS, CATALOG_FALLBACK, NO_AVAILABILITY_WITHOUT_TOOL, UNLISTED_PRODUCT, NO_COMPAT_CLAIMS, NO_ASSUMPTIONS, INSTAGRAM_STORY, TRADE_IN, NO_STORE_WHEN_UNSURE, OUT_OF_SCOPE, CLOSING, HOT_LEAD, HANDOFF, OFF_HOURS, ...facts, ...storeBlock]
     .filter(Boolean)
     .join("\n\n");
 }
