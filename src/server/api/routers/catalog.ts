@@ -3,6 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, tenantProcedure } from "@/server/api/trpc";
 import { isTenantAdmin } from "@/lib/auth/roles";
 import { getAppBaseUrl } from "@/lib/utils/app-url";
+import { normalizeCatalogName } from "@/lib/utils/catalog-name";
 import {
   createServiceSchema,
   updateServiceSchema,
@@ -304,14 +305,18 @@ export const catalogRouter = createTRPCRouter({
         if (!serviceTypeId || !serviceTypeName) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Escolha um tipo de servico ou informe um nome novo" });
         }
-        const name = `${serviceTypeName} - ${input.deviceModel}`;
+        // Caixa alta como o resto do catálogo: o nome do serviço é derivado
+        // (tipo + modelo), então os dois pedaços sobem juntos — senão a lista de
+        // serviços mistura "TROCA DE TELA - iPhone 13".
+        const deviceModel = normalizeCatalogName(input.deviceModel);
+        const name = `${serviceTypeName} - ${deviceModel}`;
         return tx.service.create({
           data: {
             tenantId: ctx.tenantId,
             name,
             serviceTypeId,
             serviceType: serviceTypeName,
-            deviceModel: input.deviceModel,
+            deviceModel,
             description: input.description || null,
             basePrice: new Prisma.Decimal(input.basePrice).div(100),
             estimatedTime: input.estimatedTime || null,
@@ -333,14 +338,18 @@ export const catalogRouter = createTRPCRouter({
         if (!serviceTypeId || !serviceTypeName) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Escolha um tipo de servico ou informe um nome novo" });
         }
-        const name = `${serviceTypeName} - ${input.deviceModel}`;
+        // Caixa alta como o resto do catálogo: o nome do serviço é derivado
+        // (tipo + modelo), então os dois pedaços sobem juntos — senão a lista de
+        // serviços mistura "TROCA DE TELA - iPhone 13".
+        const deviceModel = normalizeCatalogName(input.deviceModel);
+        const name = `${serviceTypeName} - ${deviceModel}`;
         return tx.service.update({
           where: { id: input.id },
           data: {
             name,
             serviceTypeId,
             serviceType: serviceTypeName,
-            deviceModel: input.deviceModel,
+            deviceModel,
             description: input.description || null,
             basePrice: new Prisma.Decimal(input.basePrice).div(100),
             estimatedTime: input.estimatedTime || null,
@@ -395,8 +404,8 @@ export const catalogRouter = createTRPCRouter({
           throw new TRPCError({ code: "NOT_FOUND", message: "Servico nao encontrado" });
         }
 
-        const serviceType = source.serviceType ?? "Serviço";
-        const deviceModel = `${source.deviceModel ?? "Aparelho"} (cópia)`;
+        const serviceType = source.serviceType ?? "SERVIÇO";
+        const deviceModel = normalizeCatalogName(`${source.deviceModel ?? "Aparelho"} (cópia)`);
         const name = `${serviceType} - ${deviceModel}`;
 
         return tx.service.create({

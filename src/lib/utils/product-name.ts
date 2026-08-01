@@ -1,3 +1,5 @@
+import { normalizeCatalogName } from "./catalog-name";
+
 /**
  * Nome canônico do produto: sem a marca repetida no início e em CAIXA ALTA.
  *
@@ -30,10 +32,8 @@
 // prefixo). Comparação case-insensitive contra a 1ª palavra após a marca.
 const BRAND_BOUND_MODELS = new Set(["watch", "pencil"]);
 
-/** Caixa alta com locale pt-BR — mantém "Ç"/"Ã" corretos ao subir a caixa. */
-function upper(value: string): string {
-  return value.toLocaleUpperCase("pt-BR");
-}
+/** Caixa alta padrão do catálogo (fonte única em catalog-name.ts). */
+const upper = normalizeCatalogName;
 
 export function normalizeProductName(name: string, brand?: string | null): string {
   const trimmed = name.trim().replace(/\s+/g, " ");
