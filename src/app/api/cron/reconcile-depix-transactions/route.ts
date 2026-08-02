@@ -10,7 +10,7 @@ import { expireStalePaymentLinks } from "@/server/services/payment-link.service"
 import { getEsploraHealth } from "@/lib/services/lwk-service";
 import { evaluateEsploraHealth } from "@/lib/services/esplora-health-alert";
 import { checkCentralLbtcFloor } from "@/server/services/depix-lbtc-refill.service";
-import { checkCentralCacheIntegrityAndAlert } from "@/server/services/depix-cache-integrity.service";
+import { checkWalletCachesAndAlert } from "@/server/services/depix-cache-integrity.service";
 
 /**
  * Monitora a saúde das Esploras do LWK e alerta (logger.error → Sentry) quando
@@ -76,8 +76,9 @@ export async function POST(request: NextRequest) {
       // ...e pra alertar quando o L-BTC da central seca (gás dos repasses/saques).
       await checkCentralLbtcFloor();
       // ...e pra detectar cache do LWK com UTXOs gastos (saldo inflado — guard de
-      // recorrência do incidente 2026-07). Best-effort: nunca lança.
-      await checkCentralCacheIntegrityAndAlert();
+      // recorrência do incidente 2026-07), em TODAS as carteiras, não só na
+      // central. Best-effort: nunca lança.
+      await checkWalletCachesAndAlert();
       // ...e, POR ÚLTIMO, pra vigiar a saúde das Esploras do LWK.
       // A ordem importa: são as consultas de saldo acima que mandam o LWK
       // sincronizar e carimbar `last_sync_ok_at`. Checar antes delas lia sempre o

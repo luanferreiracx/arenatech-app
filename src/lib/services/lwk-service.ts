@@ -798,10 +798,20 @@ export type LwkUtxosResult =
   | { success: true; utxos: LwkUtxo[] }
   | { success: false; error: string };
 
-/** Lista os UTXOs da carteira (com blinding factors), opcionalmente filtrados por asset. */
+/** Timeout padrão do /utxos: a rota sincroniza (full_scan) e pode demorar. */
+const UTXOS_DEFAULT_TIMEOUT_MS = 60_000;
+
+/**
+ * Lista os UTXOs da carteira (com blinding factors), opcionalmente filtrados por
+ * asset.
+ *
+ * `timeoutMs` existe porque o default serve ao cron, não a um humano esperando:
+ * no guard de saque, 60s pendurado aqui é 60s de saque travado justamente quando
+ * a Esplora está lenta. Quem chama do caminho interativo passa um teto curto.
+ */
 export async function getUtxos(
   tenantId: string,
-  opts: { assetId?: string } = {},
+  opts: { assetId?: string; timeoutMs?: number } = {},
 ): Promise<LwkUtxosResult> {
   const { config, error: cfgErr } = safeGetConfig();
   if (cfgErr) return { success: false, error: cfgErr };
@@ -812,7 +822,7 @@ export async function getUtxos(
   try {
     const query = opts.assetId ? `?asset=${encodeURIComponent(opts.assetId)}` : "";
     const { ok, status, body } = await lwkFetch(config, "GET", `/wallet/${tenantId}/utxos${query}`, {
-      timeoutMs: 60_000,
+      timeoutMs: opts.timeoutMs ?? UTXOS_DEFAULT_TIMEOUT_MS,
     });
     if (!ok) return { success: false, error: String(body.error ?? `HTTP ${status}`) };
     return { success: true, utxos: (body.utxos as LwkUtxo[]) ?? [] };
