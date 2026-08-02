@@ -1,0 +1,25 @@
+-- Índice do teto do PROVEDOR por chave PIX de destino.
+--
+-- A Eulen limita R$ 6.000 por dia POR CHAVE DE DESTINO — regra descoberta lendo
+-- a recusa dela, porque a documentação não publica limite nenhum:
+--
+--   "Daily withdrawal limit exceeded for pix key '592…185'.
+--    Daily volume in cents: 500000. Withdrawal limit in cents: 600000."
+--
+-- Para checar isso antes de chamar a Eulen, o pré-voo soma os saques do dia
+-- daquela chave. A soma é CROSS-TENANT: para a Eulen a chave é a mesma entidade
+-- independente de qual tenant paga, então nenhum dos índices existentes (todos
+-- com tenant_id na frente) serve, e a consulta cairia em varredura sequencial
+-- numa tabela que só cresce.
+--
+-- Igualdade (pix_key) antes do range (created_at), que é a ordem que permite ao
+-- planejador saltar direto para as linhas do dia.
+--
+-- CONCURRENTLY não é usado de propósito: o Prisma roda migrations dentro de uma
+-- transação e CREATE INDEX CONCURRENTLY é proibido em bloco transacional. A
+-- tabela tem menos de mil linhas em produção (474 medidas em 2026-07-31), então
+-- o lock é de milissegundos. Se um dia a tabela crescer a ponto de isso doer, o
+-- índice deve ser criado à mão com CONCURRENTLY e a migration marcada como
+-- aplicada.
+CREATE INDEX "tenant_depix_transactions_pix_key_created_at_idx"
+  ON "tenant_depix_transactions" ("pix_key", "created_at");

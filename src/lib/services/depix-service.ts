@@ -27,6 +27,7 @@
 import { randomUUID } from "node:crypto";
 import { logger } from "@/lib/logger";
 import { classifyDepositStatus } from "@/lib/depix/deposit-status";
+import { translateProviderWithdrawError } from "@/lib/depix/provider-error";
 
 // ────────────────────────────────────────────────────────────────────────────
 // Types
@@ -624,9 +625,19 @@ async function postWithdrawSync(
       } catch {
         msg = `${msg}: ${text.substring(0, 200)}`;
       }
+      // A recusa do provedor chega em inglês e mandando falar com o suporte
+      // DELE, onde o lojista não tem conta. Traduzimos para uma frase acionável
+      // e guardamos a original no log, que é onde ela serve.
+      const traduzido = translateProviderWithdrawError(msg);
+      if (traduzido.scope !== "unknown") {
+        logger.error("Depix saque: recusa do provedor traduzida", {
+          scope: traduzido.scope,
+          original: traduzido.original,
+        });
+      }
       return {
         ok: false,
-        error: `Erro ao solicitar saque: ${msg}`,
+        error: `Erro ao solicitar saque: ${traduzido.message}`,
         failureKind: classificarFalhaHttp(response.status),
       };
     }
