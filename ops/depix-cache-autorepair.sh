@@ -67,12 +67,23 @@ alert() {
 }
 
 # ── Carteiras a tratar nesta rodada ────────────────────────────────────────────
-# Uma carteira é um diretório de tenant com descriptor.txt. Tenants no modo
-# `external` não têm diretório nenhum, então saem da lista sozinhos. Ordem
-# estável (sort) porque o cursor depende de a posição não mudar entre rodadas.
+# Uma carteira é um diretório cujo NOME É UM UUID DE TENANT e que tem
+# descriptor.txt. Tenants no modo `external` não têm diretório nenhum, então saem
+# da lista sozinhos. Ordem estável (sort) porque o cursor depende de a posição não
+# mudar entre rodadas.
+#
+# O filtro de UUID não é decoração. O volume acumula diretórios MORTOS de
+# incidentes antigos — medido em produção em 2026-08-02, na primeira execução
+# supervisionada da versão multi-carteira: `.compromised-<uuid>-*` (duas cópias
+# do incidente de 2026-06-15) e `.deleted-geisonphone-<uuid>-*`. Todos têm
+# descriptor.txt, então entravam na lista: 7 diretórios para 4 carteiras de
+# verdade. O efeito é diluir exatamente a proteção que este script existe para
+# dar — quase metade do orçamento de cada rodada iria para carteira que ninguém
+# usa, e o anel levaria 7 voltas em vez de 4 para cobrir as reais.
 mapfile -t WALLETS < <(
   find "$BASE" -mindepth 2 -maxdepth 2 -name descriptor.txt -printf '%h\n' 2>/dev/null |
-    xargs -r -n1 basename | sort
+    xargs -r -n1 basename |
+    grep -Eix '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | sort
 )
 
 if [ ${#WALLETS[@]} -eq 0 ]; then
