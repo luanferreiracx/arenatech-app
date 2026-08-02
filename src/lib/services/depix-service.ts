@@ -90,6 +90,31 @@ function maskTaxNumber(doc: string): string {
   return `${d.slice(0, 3)}${"*".repeat(d.length - 5)}${d.slice(-2)}`;
 }
 
+/**
+ * Janela (horas) entre o PIX cair e a Eulen mandar o DePix on-chain.
+ *
+ * A Eulen impoe um MINIMO por parceiro (anti-fraude/MED). Desde 2026-08-01 o
+ * nosso exige >= 24h: sem o parametro ela responde 520 com "This partner
+ * requires a minimum QR delay of 24 hour(s)" e NENHUM PIX e gerado. Env-gated
+ * (`DEPIX_DELAY_HOURS`) para acompanhar mudanca de politica sem redeploy.
+ *
+ * Nao afeta a venda: `delayed` classifica como `pix_received`, que confirma o
+ * pagamento na hora. So o credito na carteira espera o `depix_sent` (on-chain) —
+ * ou seja, ledger e saldo on-chain continuam batendo.
+ */
+const DEFAULT_DEPIX_DELAY_HOURS = 24;
+/** Faixa aceita pela Eulen no `delayDepixInHours`. */
+const DEPIX_DELAY_HOURS_RANGE = { min: 1, max: 720 } as const;
+
+function getDepixDelayHours(): number {
+  const configured = Number(process.env.DEPIX_DELAY_HOURS);
+  const isValid =
+    Number.isInteger(configured) &&
+    configured >= DEPIX_DELAY_HOURS_RANGE.min &&
+    configured <= DEPIX_DELAY_HOURS_RANGE.max;
+  return isValid ? configured : DEFAULT_DEPIX_DELAY_HOURS;
+}
+
 /** Headers padrao da Eulen: Bearer + JSON + nonce de idempotencia. */
 function eulenHeaders(apiKey: string, nonce: string): Record<string, string> {
   return {
@@ -223,7 +248,12 @@ export async function createPixPayment(
   }
 
   const amountInCents = Math.round(amountReais * 100);
-  const payload: Record<string, string | number | boolean> = { amountInCents };
+  const delayDepixInHours = getDepixDelayHours();
+  const payload: Record<string, string | number | boolean> = {
+    amountInCents,
+    // Obrigatorio: a Eulen rejeita o deposit sem ele (ver getDepixDelayHours).
+    delayDepixInHours,
+  };
   if (taxDigits) {
     payload.endUserTaxNumber = taxDigits;
   }
@@ -273,6 +303,7 @@ export async function createPixPayment(
     splitFee: payload.splitFee ?? null,
     hasPayerTaxId: !!payload.endUserTaxNumber,
     whitelist: payload.whitelist === true,
+    delayDepixInHours,
     nonce,
   });
 
@@ -876,15 +907,31 @@ export async function listEulenDeposits(
     }
 
     const raw = (await response.json()) as unknown;
-    // O endpoint devolve um array cru. Se vier embrulhado em { response }, a
-    // Eulen sinaliza erro — extrai a mensagem.
-    if (!Array.isArray(raw)) {
+    // A Eulen devolve o extrato ora como array cru, ora embrulhado no envelope
+    // padrao `{ response, async }` — desde 2026-08 ela embrulha SEMPRE. Aceitar
+    // so o array cru matava a reconciliacao em silencio: nenhuma mensagem de erro
+    // existia no corpo, entao o log saia literalmente `{}` e ninguem via que a
+    // rede de seguranca estava desligada.
+    const envelope = (raw ?? {}) as { response?: unknown; async?: boolean };
+    const list = Array.isArray(raw)
+      ? raw
+      : Array.isArray(envelope.response)
+        ? envelope.response
+        : null;
+
+    if (list === null) {
       const apiError = extractEulenError(raw);
-      logger.error("Depix extrato: resposta nao-array", { apiError });
+      logger.error("Depix extrato: resposta inesperada", {
+        apiError: apiError ?? null,
+        // `async: true` = a Eulen enfileirou a leitura; o caller deve retentar.
+        isAsync: envelope.async === true,
+        // Sem a forma do corpo nao da pra diagnosticar mudanca de contrato.
+        bodyPreview: JSON.stringify(raw ?? null).slice(0, 300),
+      });
       return { success: false, rows: [], error: apiError ?? "Resposta invalida do extrato" };
     }
 
-    const rows: EulenDepositRow[] = raw
+    const rows: EulenDepositRow[] = list
       .filter((r): r is Record<string, unknown> => !!r && typeof r === "object")
       .map((r) => ({
         qrId: String(r.qrId ?? ""),

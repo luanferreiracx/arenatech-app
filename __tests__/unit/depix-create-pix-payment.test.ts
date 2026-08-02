@@ -89,3 +89,52 @@ describe("createPixPayment — payload do POST /deposit", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * REGRESSAO (2026-08-01): a Eulen passou a exigir uma janela minima de atraso
+ * PIX->DePix do nosso parceiro. Sem `delayDepixInHours` ela responde 520 e
+ * NENHUM PIX e gerado — o PDV quebrou inteiro (uma venda de R$4.499,99 nao
+ * conseguiu cobrar). Estes testes travam o parametro no corpo.
+ */
+describe("createPixPayment — delayDepixInHours (exigido pela Eulen)", () => {
+  const ORIGINAL_DELAY = process.env.DEPIX_DELAY_HOURS;
+
+  afterEach(() => {
+    if (ORIGINAL_DELAY === undefined) delete process.env.DEPIX_DELAY_HOURS;
+    else process.env.DEPIX_DELAY_HOURS = ORIGINAL_DELAY;
+  });
+
+  async function bodyOf(): Promise<Record<string, unknown>> {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ response: { id: "qr-d", qrCopyPaste: "0002", qrImageUrl: "" } }), {
+        status: 200,
+      }),
+    );
+    const res = await createPixPayment(1000, "deposito", "nonce-delay", "12345678909", {
+      depixAddress: "lq1tenant",
+      requireDepixAddress: true,
+    });
+    expect(res.success).toBe(true);
+    return lastFetchBody(fetchSpy);
+  }
+
+  it("envia sempre, com o minimo de 24h do parceiro por padrao", async () => {
+    delete process.env.DEPIX_DELAY_HOURS;
+    expect((await bodyOf()).delayDepixInHours).toBe(24);
+  });
+
+  it("respeita DEPIX_DELAY_HOURS quando dentro da faixa 1..720 da Eulen", async () => {
+    process.env.DEPIX_DELAY_HOURS = "48";
+    expect((await bodyOf()).delayDepixInHours).toBe(48);
+  });
+
+  // Valor invalido nao pode virar payload invalido: cairia no mesmo 520 que
+  // quebrou a producao. Cai no default.
+  it.each(["0", "721", "abc", "24.5", ""])(
+    "DEPIX_DELAY_HOURS=%s (invalido) volta pro default de 24",
+    async (value) => {
+      process.env.DEPIX_DELAY_HOURS = value;
+      expect((await bodyOf()).delayDepixInHours).toBe(24);
+    },
+  );
+});

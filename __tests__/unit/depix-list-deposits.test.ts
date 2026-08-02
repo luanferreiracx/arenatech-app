@@ -1,6 +1,7 @@
 /**
- * listEulenDeposits (GET /deposits): parseia o array compacto do extrato Eulen
- * e trata erro HTTP / resposta nao-array. `fetch` mockado.
+ * listEulenDeposits (GET /deposits): parseia o extrato Eulen nos DOIS shapes que
+ * a API usa (array cru e envelope `{ response, async }`) e trata erro HTTP /
+ * resposta fora de contrato. `fetch` mockado.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { listEulenDeposits } from "@/lib/services/depix-service";
@@ -54,6 +55,40 @@ describe("listEulenDeposits", () => {
     expect(res.success).toBe(false);
     expect(res.rows).toEqual([]);
     expect(res.error).toContain("500");
+  });
+
+  // REGRESSAO (2026-08-02): a Eulen passou a embrulhar o extrato no envelope
+  // padrao `{ response, async }`. O parser exigia array cru, entao todo extrato
+  // virava "resposta invalida" e a reconciliacao ficou morta em silencio — o log
+  // saia literalmente `{}` porque nao havia errorMessage nenhum pra extrair.
+  it("aceita o extrato embrulhado no envelope { response: [...] }", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          response: [
+            { qrId: "qr-a", status: "DEPIX_SENT", bankTxId: "71" },
+            { qrId: "qr-b", status: "refunded", bankTxId: null },
+          ],
+          async: false,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+
+    const res = await listEulenDeposits("2026-08-01", "2026-08-03", "depix_sent");
+    expect(res.success).toBe(true);
+    expect(res.rows).toHaveLength(2);
+    expect(res.rows[0]).toMatchObject({ qrId: "qr-a", status: "depix_sent", bankTxId: "71" });
+  });
+
+  // Extrato vazio no envelope e o caso mais comum em producao — nao pode virar erro.
+  it("envelope com lista vazia -> success:true e nenhuma linha", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ response: [], async: false }), { status: 200 }),
+    );
+    const res = await listEulenDeposits("2026-08-01", "2026-08-03");
+    expect(res).toMatchObject({ success: true, rows: [] });
+    expect(res.error).toBeUndefined();
   });
 
   it("resposta nao-array (envelope de erro) -> success:false", async () => {

@@ -16,7 +16,28 @@ import type { EsploraHealthResult } from "@/lib/services/lwk-service";
  * Esplora. Também não alerta na primeira falha isolada (oscilação normal).
  */
 export const ESPLORA_ALERT_CONSECUTIVE_FAILURES = 3;
-export const ESPLORA_ALERT_MAX_STALE_MS = 5 * 60 * 1000; // 5 min sem sync-ok
+
+/**
+ * De quanto em quanto tempo `lastSyncOkAt` PODE ser renovado.
+ *
+ * O LWK não faz heartbeat: ele só carimba `last_sync_ok_at` quando alguém manda
+ * sincronizar uma carteira. Na prática quem sincroniza é este mesmo cron, a cada
+ * 10 min. Logo o carimbo mais fresco possível já nasce com ~1 ciclo de idade.
+ */
+const ESPLORA_SYNC_CYCLE_MS = 10 * 60 * 1000;
+
+/**
+ * Só alerta depois de 3 ciclos sem nenhum sync-ok (30 min).
+ *
+ * O limiar TEM que ser múltiplo do ciclo acima. Ele era 5 min — menor que o
+ * próprio intervalo de renovação — então o alerta disparava em 100% das
+ * execuções (32/32 em 6h de produção, sempre com `ageMinutes: 10`, sempre com
+ * `consecutiveFailures: 0` e o tip da Esplora avançando normalmente). Alarme que
+ * nunca cala não é monitor: é ruído que esconde a degradação real e ainda torra
+ * a cota do Sentry. Falha de verdade e rápida já é coberta por
+ * `consecutiveFailures`.
+ */
+export const ESPLORA_ALERT_MAX_STALE_MS = 3 * ESPLORA_SYNC_CYCLE_MS;
 
 export type EsploraHealthAlert = {
   reason: "consecutive_failures" | "stale_sync";

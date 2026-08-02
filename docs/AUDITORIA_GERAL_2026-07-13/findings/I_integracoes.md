@@ -10,11 +10,12 @@
 
 ## Eulen (gateway PIX→DePix)
 
-### I1 — Reconciliação de depósitos por extrato quebrada em produção (contrato do `GET /deposits` mudou) — **ALTA** — FATO
+### I1 — Reconciliação de depósitos por extrato quebrada em produção (contrato do `GET /deposits` mudou) — **ALTA** — FATO — ✅ CORRIGIDO 2026-08-02
 - **Onde:** `src/lib/services/depix-service.ts:820-827` (`listEulenDeposits`) + consumidor `src/server/services/depix-transaction.service.ts:2186-2190` + cron `src/app/api/cron/reconcile-eulen-extract/route.ts`.
 - **Fato (logs de prod, 2026-07-13T04:07):** todo ciclo do cron emite `Depix extrato: resposta nao-array` e `reconcileEulenDepositsByExtract: extrato indisponivel` com `errors:2`. O código espera um **array cru** (`if (!Array.isArray(raw))` → trata como erro), mas a Eulen está devolvendo outro shape (provavelmente `{response: [...]}` ou paginado).
 - **Impacto quando a API "falha":** não é que a API caiu — o **contrato mudou** e a nossa rede de segurança de conciliação por extrato ficou **cega**. Quando o webhook Eulen E o monitor LWK falharem juntos (foi exatamente esse o cenário do incidente do timeout Eulen/LWK), o extrato era o último recurso para creditar/estornar depósitos presos — e ele não funciona mais. Depósitos podem ficar presos em PENDING/PROCESSING sem reconciliação automática.
 - **Fix:** inspecionar a resposta atual da Eulen (`GET /deposits`) e tornar o parsing tolerante: aceitar tanto array cru quanto `{response: [...]}` (reusar `parseEnvelope`), extrair o array de dentro do envelope antes do `.map`. Adicionar teste de contrato com ambos os shapes. Confiança: **alta** (evidência direta em log de prod, todo ciclo).
+- **Resolução (2026-08-02):** a hipótese estava certa. Chamada real ao `GET /deposits` de dentro do container de produção devolveu `{"response":[],"async":false}`. O parser passou a aceitar os dois shapes e o log de falha agora inclui `bodyPreview` — antes ele saía literalmente `{}`, porque não havia `errorMessage` nenhum pra extrair, e por isso ninguém percebeu que a rede de segurança estava desligada por 3 semanas. Testes de contrato para envelope-com-array e envelope-vazio em `__tests__/unit/depix-list-deposits.test.ts`.
 
 ### I2 — `createPixPayment` async retorna erro em vez de retentar com o mesmo nonce — **BAIXA** — FATO
 - **Onde:** `depix-service.ts:308-314`.
