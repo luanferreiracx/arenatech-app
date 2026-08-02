@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import * as Sentry from "@sentry/nextjs";
 
 import { type AppRouter } from "@/server/api/root";
+import { readableFetch } from "@/trpc/readable-fetch";
 
 export const { TRPCProvider, useTRPC } = createTRPCContext<AppRouter>();
 
@@ -99,6 +100,10 @@ export function TRPCReactProvider({ children }: { children: React.ReactNode }) {
         httpBatchLink({
           url: `${getBaseUrl()}/api/trpc`,
           transformer: superjson,
+          // Sem isto, uma página de erro em HTML (502 da borda, 413 do proxy)
+          // estoura no parser do navegador e chega ao Sentry como um erro de
+          // sintaxe anônimo. Ver readable-fetch.ts.
+          fetch: readableFetch,
         }),
       ],
     }),
