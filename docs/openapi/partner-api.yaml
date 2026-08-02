@@ -28,8 +28,11 @@ components:
         id:
           type: string
         number:
+          nullable: true
+          description: >-
+            Número único da transação no tenant (ex.: TXD20260630-00001). `null` quando o registro
+            ainda é um PEDIDO de saque aguardando autorização do titular.
           type: string
-          description: 'Número único da transação no tenant (ex.: TXD20260630-00001).'
         kind:
           type: string
           enum:
@@ -38,10 +41,12 @@ components:
         status:
           type: string
           description: >-
-            PENDING | PROCESSING | COMPLETED | FAILED | CANCELLED | EXPIRED | MED_REFUNDED.
-            IMPORTANTE (depósito): PROCESSING = PIX RECEBIDO (pagamento confirmado); use isto para
-            confirmar o pagamento. COMPLETED = DePix liquidado on-chain, que pode levar até ~24h por
-            retenção do provedor (Eulen). Não espere COMPLETED para confirmar o pagamento.
+            PENDING | PROCESSING | COMPLETED | FAILED | CANCELLED | EXPIRED | MED_REFUNDED |
+            AWAITING_AUTHORIZATION (saque pedido pela API numa carteira non-custodial, aguardando o
+            titular concluir no painel). IMPORTANTE (depósito): PROCESSING = PIX RECEBIDO (pagamento
+            confirmado); use isto para confirmar o pagamento. COMPLETED = DePix liquidado on-chain,
+            que pode levar até ~24h por retenção do provedor (Eulen). Não espere COMPLETED para
+            confirmar o pagamento.
         sourceType:
           type: string
         grossAmountCents:

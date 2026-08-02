@@ -12,12 +12,20 @@ import { z } from "zod";
 export const partnerTransactionResponseSchema = z
   .object({
     id: z.string(),
-    number: z.string().describe("Número único da transação no tenant (ex.: TXD20260630-00001)."),
+    number: z
+      .string()
+      .nullable()
+      .describe(
+        "Número único da transação no tenant (ex.: TXD20260630-00001). `null` quando o " +
+          "registro ainda é um PEDIDO de saque aguardando autorização do titular.",
+      ),
     kind: z.enum(["DEPOSIT", "WITHDRAW"]),
     status: z
       .string()
       .describe(
-        "PENDING | PROCESSING | COMPLETED | FAILED | CANCELLED | EXPIRED | MED_REFUNDED. " +
+        "PENDING | PROCESSING | COMPLETED | FAILED | CANCELLED | EXPIRED | MED_REFUNDED | " +
+          "AWAITING_AUTHORIZATION (saque pedido pela API numa carteira non-custodial, " +
+          "aguardando o titular concluir no painel). " +
           "IMPORTANTE (depósito): PROCESSING = PIX RECEBIDO (pagamento confirmado); use isto " +
           "para confirmar o pagamento. COMPLETED = DePix liquidado on-chain, que pode levar até " +
           "~24h por retenção do provedor (Eulen). Não espere COMPLETED para confirmar o pagamento.",

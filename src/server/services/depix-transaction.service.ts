@@ -1472,12 +1472,15 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
   );
   // Carteira EXTERNAL: a Arena nao custodia o saldo, entao nao ha o que debitar
   // via LWK. O saque no modo externo e uma INTENCAO Eulen (o tenant envia o DePix
-  // da propria carteira) — implementado na Fase B. Bloqueia o caminho gerenciado.
+  // da propria carteira), que JA EXISTE — `createExternalWithdraw`, com tela em
+  // /depix-wallet/withdraw-external. Aqui so bloqueamos o caminho gerenciado e
+  // apontamos o certo; a mensagem antiga dizia "em breve" muito depois de a Fase B
+  // ter sido entregue.
   if (wallet?.custodyModel === "external") {
     throw new TRPCError({
       code: "PRECONDITION_FAILED",
       message:
-        "Sua carteira e externa (voce administra a propria carteira). O saque para carteira externa estara disponivel em breve.",
+        "Sua carteira e externa: use o saque de carteira externa, em que voce envia o DePix da sua propria carteira.",
     });
   }
 
@@ -2639,12 +2642,15 @@ export async function createOnchainWithdraw(args: CreateOnchainWithdrawArgs) {
   );
   // Carteira EXTERNAL: a Arena nao custodia o saldo, entao nao ha o que debitar
   // via LWK. O saque no modo externo e uma INTENCAO Eulen (o tenant envia o DePix
-  // da propria carteira) — implementado na Fase B. Bloqueia o caminho gerenciado.
+  // da propria carteira), que JA EXISTE — `createExternalWithdraw`, com tela em
+  // /depix-wallet/withdraw-external. Aqui so bloqueamos o caminho gerenciado e
+  // apontamos o certo; a mensagem antiga dizia "em breve" muito depois de a Fase B
+  // ter sido entregue.
   if (wallet?.custodyModel === "external") {
     throw new TRPCError({
       code: "PRECONDITION_FAILED",
       message:
-        "Sua carteira e externa (voce administra a propria carteira). O saque para carteira externa estara disponivel em breve.",
+        "Sua carteira e externa: use o saque de carteira externa, em que voce envia o DePix da sua propria carteira.",
     });
   }
 
