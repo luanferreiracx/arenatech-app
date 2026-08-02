@@ -88,6 +88,15 @@ describe("auto-reparo do cache LWK", () => {
     expect(script).toMatch(/for C in TARGETS:/);
   });
 
+  it("ignora diretórios mortos de incidentes antigos", () => {
+    // O volume acumula `.compromised-<uuid>-*` e `.deleted-<nome>-<uuid>-*`, que
+    // têm descriptor.txt e entravam na lista. Medido em produção em 2026-08-02:
+    // 7 diretórios para 4 carteiras reais. Sem o filtro, quase metade do
+    // orçamento de cada rodada iria para carteira que ninguém usa — diluindo
+    // exatamente a proteção que o script existe para dar.
+    expect(script).toMatch(/grep -Eix '\[0-9a-f\]\{8\}-/);
+  });
+
   it("rotaciona com cursor em vez de cortar sempre nas mesmas carteiras", () => {
     // Teto por rodada sem cursor deixaria as últimas carteiras eternamente sem
     // reparo — o mesmo bug de antes, só que em escala maior.
