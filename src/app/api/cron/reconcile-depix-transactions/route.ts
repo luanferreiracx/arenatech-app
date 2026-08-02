@@ -11,6 +11,7 @@ import { getEsploraHealth } from "@/lib/services/lwk-service";
 import { evaluateEsploraHealth } from "@/lib/services/esplora-health-alert";
 import { checkCentralLbtcRunway } from "@/server/services/depix-lbtc-refill.service";
 import { checkWalletCachesAndAlert } from "@/server/services/depix-cache-integrity.service";
+import { expireStaleWithdrawAuthorizations } from "@/server/services/depix-withdraw-authorization.service";
 
 /**
  * Monitora a saúde das Esploras do LWK e alerta (logger.error → Sentry) quando
@@ -64,6 +65,7 @@ export async function POST(request: NextRequest) {
   try {
     const results: Awaited<ReturnType<typeof reconcileStaleDepixTransactions>>[] = [];
     let expiredLinks = 0;
+    let expiredAuthorizations = 0;
     let indeterminate: Awaited<ReturnType<typeof resolveIndeterminateWithdrawals>> = {
       checked: 0,
       resolved: 0,
@@ -89,11 +91,26 @@ export async function POST(request: NextRequest) {
       // idempotência. Sem isto o operador fica sem saber se o dinheiro saiu, que
       // foi o que gerou o pagamento em dobro no TXW20260727-00002.
       indeterminate = await resolveIndeterminateWithdrawals();
+      // ...e pra caducar pedido de saque da API que ninguém decidiu. Pedido
+      // velho numa fila de dinheiro é ruído perigoso: quem autoriza dois dias
+      // depois já não lembra do contexto que o gerou.
+      expiredAuthorizations = (await expireStaleWithdrawAuthorizations()).expired;
     });
     const result = results[0];
     if (!ran || !result) return NextResponse.json({ skipped: "locked" });
-    logger.info("[cron-reconcile-depix] processed", { ...result, expiredLinks, indeterminate });
-    return NextResponse.json({ success: true, ...result, expiredLinks, indeterminate });
+    logger.info("[cron-reconcile-depix] processed", {
+      ...result,
+      expiredLinks,
+      expiredAuthorizations,
+      indeterminate,
+    });
+    return NextResponse.json({
+      success: true,
+      ...result,
+      expiredLinks,
+      expiredAuthorizations,
+      indeterminate,
+    });
   } catch (err) {
     logger.error("[cron-reconcile-depix] failed", {
       err: err instanceof Error ? err.message : String(err),

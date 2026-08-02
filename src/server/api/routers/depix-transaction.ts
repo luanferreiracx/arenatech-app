@@ -33,6 +33,10 @@ import * as lwk from "@/lib/services/lwk-service";
 import { resolveBalanceStaleness } from "@/lib/depix/balance-staleness";
 import { logger } from "@/lib/logger";
 import { verifyUserTwoFactor } from "@/lib/auth/two-factor-verify";
+import {
+  authorizeWithdrawRequest,
+  rejectWithdrawRequest,
+} from "@/server/services/depix-withdraw-authorization.service";
 
 function serialize(t: Prisma.JsonObject | Record<string, unknown> | null) {
   // Helper de tipagem: aqui apenas garante shape. Serializacao real do Prisma
@@ -482,6 +486,90 @@ export const depixTransactionRouter = createTRPCRouter({
       },
     };
   }),
+
+  /** Pedidos de saque feitos pela API de parceiros que aguardam um humano.
+   *
+   *  Só existem em carteira non-custodial: a Arena não tem a chave, então a
+   *  máquina pede e o titular conclui. Ver
+   *  `depix-withdraw-authorization.service.ts`. */
+  listWithdrawAuthorizations: tenantAdminProcedure
+    .input(z.object({ status: z.enum(["PENDING", "AUTHORIZED", "REJECTED", "EXPIRED"]).optional() }))
+    .query(async ({ ctx, input }) => {
+      const rows = await ctx.withTenant(async (db) =>
+        db.depixWithdrawAuthorization.findMany({
+          where: { tenantId: ctx.tenantId, ...(input.status ? { status: input.status } : {}) },
+          orderBy: { createdAt: "desc" },
+          take: 50,
+        }),
+      );
+      return rows.map((row) => ({
+        id: row.id,
+        status: row.status,
+        pixKeyType: row.pixKeyType,
+        pixKey: row.pixKey,
+        recipientName: row.recipientName,
+        recipientTaxId: row.recipientTaxId,
+        netAmountCents: row.netAmountCents,
+        description: row.description,
+        keyPrefix: row.keyPrefix,
+        transactionId: row.transactionId,
+        expiresAt: row.expiresAt.toISOString(),
+        createdAt: row.createdAt.toISOString(),
+      }));
+    }),
+
+  /** Autoriza um pedido da API: cria o saque de verdade com a senha da carteira.
+   *
+   *  Mesma postura de segurança do saque manual — admin do tenant + step-up 2FA
+   *  + rate-limit. Autorizar um pedido MOVE DINHEIRO; não pode ser mais barato
+   *  que sacar pela tela. */
+  authorizeWithdrawRequest: tenantAdminProcedure
+    .input(
+      z.object({
+        authorizationId: z.string().uuid(),
+        twoFactorCode: z.string().min(6).max(10),
+        walletPassphrase: z.string().max(256).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const rl = await rlCreateWithdraw(ctx, "depixTransaction.authorizeWithdrawRequest");
+      const stepUp = await verifyUserTwoFactor(ctx.session.user.id, input.twoFactorCode);
+      if (!stepUp.ok) {
+        if (stepUp.reason === "not_enrolled") {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              "Autorizar um saque exige autenticacao de dois fatores (2FA). Habilite o 2FA em Configuracoes > Seguranca.",
+          });
+        }
+        throw new TRPCError({ code: "UNAUTHORIZED", message: "Codigo 2FA invalido." });
+      }
+      try {
+        return await authorizeWithdrawRequest({
+          tenantId: ctx.tenantId,
+          authorizationId: input.authorizationId,
+          userId: ctx.session.user.id,
+          userName: ctx.session.user.name ?? null,
+          passphrase: input.walletPassphrase,
+        });
+      } catch (err) {
+        await rl.refund();
+        throw err;
+      }
+    }),
+
+  /** Recusa um pedido da API. Decisão de quem opera o tenant. */
+  rejectWithdrawRequest: tenantAdminProcedure
+    .input(z.object({ authorizationId: z.string().uuid(), reason: z.string().max(300).optional() }))
+    .mutation(async ({ ctx, input }) => {
+      await rejectWithdrawRequest({
+        tenantId: ctx.tenantId,
+        authorizationId: input.authorizationId,
+        userId: ctx.session.user.id,
+        reason: input.reason ?? null,
+      });
+      return { success: true };
+    }),
 
   /** Calcula breakdown de taxa (preview pra UI antes de confirmar).
    *  - DEPOSIT: usuario informa o BRUTO (cliente paga X via PIX); calcula

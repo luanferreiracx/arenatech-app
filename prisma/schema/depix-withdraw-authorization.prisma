@@ -1,0 +1,71 @@
+/// Pedido de saque feito pela API de PARCEIROS que ainda depende de um humano.
+///
+/// Existe por causa de uma contradição real: o saque da API exigia carteira
+/// CUSTODIAL, e desde o ADR 0051 nenhum cliente é custodial — todo tenant novo
+/// nasce `non_custodial` ou `external`. Medido em produção: das 5 carteiras, as 2
+/// custodiais são da própria Arena (central e taxas) e as 3 de cliente são 2
+/// non-custodial e 1 external. Ou seja, o endpoint de saque da ADR 0057 estava
+/// inalcançável por 100% dos clientes.
+///
+/// A saída não é dar a chave para a máquina. Em carteira non-custodial o
+/// servidor NÃO consegue assinar sem a passphrase do titular, e é exatamente
+/// isso que torna o modelo non-custodial — aceitar a passphrase num header de
+/// API desmontaria a garantia inteira. Então o parceiro PEDE e o humano
+/// AUTORIZA: a API cria este registro, ninguém move dinheiro, e o admin do
+/// tenant conclui no painel digitando a senha da carteira.
+///
+/// Nada aqui reserva saldo nem chama a Eulen. O saque de verdade nasce só na
+/// autorização, pelo mesmo `createWithdraw` de sempre — que este fluxo não
+/// altera em uma linha.
+enum DepixWithdrawAuthorizationStatus {
+  /// Aguardando o humano do tenant decidir.
+  PENDING
+  /// Autorizado: `transactionId` aponta o saque criado.
+  AUTHORIZED
+  /// Recusado por quem opera o tenant.
+  REJECTED
+  /// Ninguém decidiu a tempo. Pedido velho vira ruído perigoso numa fila de
+  /// dinheiro: quem autoriza dias depois não lembra do contexto que o gerou.
+  EXPIRED
+}
+
+model DepixWithdrawAuthorization {
+  id                String                           @id @default(uuid()) @db.Uuid
+  tenantId          String                           @map("tenant_id") @db.Uuid
+  status            DepixWithdrawAuthorizationStatus @default(PENDING)
+
+  /// Destino e valor pedidos pelo parceiro. Congelados: o humano autoriza o que
+  /// foi pedido, não uma versão editada depois.
+  pixKeyType        PixKeyType                       @map("pix_key_type")
+  pixKey            String                           @map("pix_key")
+  recipientName     String?                          @map("recipient_name")
+  recipientTaxId    String                           @map("recipient_tax_id")
+  /// Quanto o DESTINATÁRIO recebe (centavos) — mesma unidade do createWithdraw.
+  netAmountCents    Int                              @map("net_amount_cents")
+  description       String?
+
+  /// Idempotency-Key do parceiro. Obrigatória no saque e única por tenant: sem
+  /// ela um cliente HTTP com retry automático viraria dois pedidos na fila do
+  /// humano, e dois pedidos idênticos são exatamente o que produz pagamento em
+  /// dobro quando alguém autoriza os dois sem perceber.
+  idempotencyKey    String                           @map("idempotency_key")
+  /// Prefixo da API-key que pediu (auditoria: qual integração originou).
+  keyPrefix         String                           @map("key_prefix")
+
+  /// Saque criado na autorização. Único: uma autorização nunca vira dois saques.
+  transactionId     String?                          @unique @map("transaction_id") @db.Uuid
+  resolvedByUserId  String?                          @map("resolved_by_user_id") @db.Uuid
+  resolvedAt        DateTime?                        @map("resolved_at")
+  rejectionReason   String?                          @map("rejection_reason")
+
+  /// Depois disto o pedido caduca sozinho (cron de reconcile).
+  expiresAt         DateTime                         @map("expires_at")
+  createdAt         DateTime                         @default(now()) @map("created_at")
+  updatedAt         DateTime                         @updatedAt @map("updated_at")
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId, status, createdAt])
+  /// Varredura do cron (cross-tenant) pelos pedidos vencidos.
+  @@index([status, expiresAt])
+  @@map("depix_withdraw_authorizations")
+}

@@ -48,9 +48,26 @@ export const partnerDepositResultSchema = z
 
 export const partnerWithdrawResultSchema = z
   .object({
-    id: z.string(),
-    number: z.string(),
-    status: z.string(),
+    id: z
+      .string()
+      .describe(
+        "Id do saque. Em AWAITING_AUTHORIZATION é o id do PEDIDO, não de um saque — " +
+          "consulte por ele até virar um saque de verdade.",
+      ),
+    number: z
+      .string()
+      .nullable()
+      .describe(
+        "Número humano do saque (TXW…). `null` enquanto o pedido aguarda autorização: " +
+          "ainda não existe saque, logo não existe número.",
+      ),
+    status: z
+      .string()
+      .describe(
+        "Situação. `AWAITING_AUTHORIZATION` significa que a carteira é non-custodial e " +
+          "o saque depende do titular concluir no painel com a senha da carteira — a Arena " +
+          "não tem essa chave e não pode assinar sozinha.",
+      ),
     // Só PIX na API de parceiros; on-chain não é exposto (ver write-schemas).
     method: z.literal("pix"),
     amountCents: z.number().int(),
