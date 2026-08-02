@@ -16,7 +16,9 @@ COPY package.json pnpm-lock.yaml .npmrc* ./
 RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
     pnpm install --frozen-lockfile --ignore-scripts
 
-RUN pnpm approve-builds prisma @prisma/engines esbuild sharp unrs-resolver 2>/dev/null || true
+# @sentry/cli entra na lista porque o upload de source map roda pelo binario
+# dele, baixado no postinstall. Verificado que roda em Alpine/musl.
+RUN pnpm approve-builds prisma @prisma/engines esbuild sharp unrs-resolver @sentry/cli 2>/dev/null || true
 RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
     pnpm rebuild
 
@@ -41,7 +43,13 @@ ENV DOCKER_BUILD_SKIP_CHECKS=1
 RUN pnpm prisma generate
 
 # Cache mount no .next/cache: webpack/turbopack reaproveita modulos compilados.
+#
+# SENTRY_AUTH_TOKEN entra como SECRET do BuildKit, nao como ARG/ENV: assim ele
+# nao fica gravado na camada nem no historico da imagem. Ausente (build local,
+# fork), a variavel fica vazia e o withSentryConfig simplesmente pula o upload.
 RUN --mount=type=cache,id=next-cache,target=/app/.next/cache \
+    --mount=type=secret,id=sentry_auth_token \
+    SENTRY_AUTH_TOKEN="$(cat /run/secrets/sentry_auth_token 2>/dev/null || true)" \
     pnpm build
 
 # ============================================================

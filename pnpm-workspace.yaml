@@ -4,10 +4,10 @@ allowBuilds:
   # Não precisa rodar postinstall; declarado aqui pra o pnpm não tratar o "ignored
   # build script" como erro no CI (--frozen-lockfile sai 1).
   '@scarf/scarf': false
-  # false: nao baixamos o binario do sentry-cli — upload de source map esta
-  # desabilitado no withSentryConfig (sourcemaps.disable). Liga quando for
-  # configurar o upload (SENTRY_AUTH_TOKEN).
-  '@sentry/cli': false
+  # true: o upload de source map (withSentryConfig) roda pelo binario do
+  # sentry-cli, que so existe se o postinstall dele puder baixar. Sem isto o
+  # build nao des-minifica stack trace nenhum.
+  '@sentry/cli': true
   esbuild: true
   prisma: true
   sharp: true
