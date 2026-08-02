@@ -1,17 +1,22 @@
 import { z } from "zod";
 import { isValidCpf, isValidCnpj } from "@/lib/utils/tax-id";
 import { MAX_DATA, MAX_LINHA } from "./limits";
+import { SUBSCRIPTION_STATUSES, type SubscriptionStatus } from "@/lib/billing/subscription-status";
 
 // ── Subscription (billing manual — Fase 2) ──
 
 // Espelha o enum SubscriptionStatus do schema Prisma (subscription.prisma).
-export const subscriptionStatusEnum = z.enum(["ACTIVE", "PAST_DUE", "SUSPENDED", "CANCELLED"]);
-export type SubscriptionStatus = z.infer<typeof subscriptionStatusEnum>;
+// A lista vem de `lib/billing/subscription-status`, que é quem também responde
+// "dá acesso?" e "é receita?" — sem isso, um status novo entra no banco e some
+// da UI, ou vice-versa.
+export const subscriptionStatusEnum = z.enum(SUBSCRIPTION_STATUSES);
+export type { SubscriptionStatus };
 
 export const billingCycleEnum = z.enum(["MONTHLY", "YEARLY"]);
 export type BillingCycle = z.infer<typeof billingCycleEnum>;
 
 export const SUBSCRIPTION_STATUS_LABELS: Record<SubscriptionStatus, string> = {
+  TRIALING: "Em teste",
   ACTIVE: "Ativa",
   PAST_DUE: "Vencida",
   SUSPENDED: "Suspensa",
@@ -19,6 +24,7 @@ export const SUBSCRIPTION_STATUS_LABELS: Record<SubscriptionStatus, string> = {
 };
 
 export const SUBSCRIPTION_STATUS_VARIANT: Record<SubscriptionStatus, "default" | "success" | "warning" | "destructive" | "info"> = {
+  TRIALING: "info",
   ACTIVE: "success",
   PAST_DUE: "warning",
   SUSPENDED: "warning",
@@ -37,8 +43,26 @@ export const activateSubscriptionSchema = z.object({
   planId: z.string().uuid(),
   billingCycle: billingCycleEnum.default("MONTHLY"),
   amountCents: z.number().int().min(0).optional(),
+  // Começa em teste grátis em vez de já cobrada (ADR 0061). `trialDays` ausente
+  // usa o padrão global da plataforma; presente sobrescreve só para este tenant.
+  asTrial: z.boolean().optional(),
+  trialDays: z.number().int().min(1).max(365).optional(),
 });
 export type ActivateSubscriptionInput = z.infer<typeof activateSubscriptionSchema>;
+
+// Estende (ou encurta) o teste de UM tenant: empurra o fim do teste para
+// `daysFromNow` dias a partir de agora.
+export const extendTrialSchema = z.object({
+  tenantId: z.string().uuid(),
+  daysFromNow: z.number().int().min(1).max(365),
+});
+export type ExtendTrialInput = z.infer<typeof extendTrialSchema>;
+
+// Configuração global da plataforma (superadmin).
+export const updatePlatformSettingsSchema = z.object({
+  trialDays: z.number().int().min(0).max(365),
+});
+export type UpdatePlatformSettingsInput = z.infer<typeof updatePlatformSettingsSchema>;
 
 // Marca a assinatura como paga: empurra o vencimento em 1 ciclo (a partir do
 // vencimento atual, ou de hoje se já vencida/sem vencimento) e reativa o acesso.

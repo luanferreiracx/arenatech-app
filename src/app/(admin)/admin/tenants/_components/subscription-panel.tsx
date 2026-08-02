@@ -7,6 +7,7 @@ import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatusBadge } from "@/components/domain/status-badge";
@@ -56,6 +57,14 @@ export function SubscriptionPanel({ tenantId }: { tenantId: string }) {
   const [cycle, setCycle] = useState<BillingCycle>("MONTHLY");
   const [amountReais, setAmountReais] = useState<string>("");
   const [confirm, setConfirm] = useState<null | "suspend" | "cancel">(null);
+  const [asTrial, setAsTrial] = useState(false);
+  // Vazio = usa o padrão global da plataforma. Preenchido = só este tenant.
+  const [trialDaysInput, setTrialDaysInput] = useState<string>("");
+  const [extendDaysInput, setExtendDaysInput] = useState<string>("7");
+
+  const platformQuery = useQuery(trpc.admin.platformSettings.queryOptions());
+  const extendTrialMutation = useMutation(trpc.admin.extendTrial.mutationOptions());
+  const isTrialing = subscription?.status === "TRIALING";
 
   // Valor sugerido do plano no ciclo (preenche o placeholder do input).
   const selectedPlan = plans.find((plan) => plan.id === planId);
@@ -80,12 +89,41 @@ export function SubscriptionPanel({ tenantId }: { tenantId: string }) {
       toast.error("Valor invalido");
       return;
     }
+    const trialDays = trialDaysInput.trim() === "" ? undefined : Number(trialDaysInput);
+    if (asTrial && trialDays !== undefined && (!Number.isInteger(trialDays) || trialDays < 1)) {
+      toast.error("Dias de teste inválidos");
+      return;
+    }
     activateMutation.mutate(
-      { tenantId, planId, billingCycle: cycle, amountCents: parsed },
+      { tenantId, planId, billingCycle: cycle, amountCents: parsed, asTrial, trialDays },
       {
-        onSuccess: () => {
-          toast.success(subscription ? "Assinatura atualizada" : "Tenant ativado");
+        onSuccess: (result) => {
+          toast.success(
+            result.status === "TRIALING"
+              ? `Teste iniciado — termina em ${formatDate(result.currentPeriodEnd)}`
+              : subscription
+                ? "Assinatura atualizada"
+                : "Tenant ativado",
+          );
           setAmountReais("");
+          invalidate();
+        },
+        onError: (err) => toast.error(err.message),
+      },
+    );
+  };
+
+  const onExtendTrial = () => {
+    const days = Number(extendDaysInput);
+    if (!Number.isInteger(days) || days < 1) {
+      toast.error("Informe quantos dias de teste a contar de hoje");
+      return;
+    }
+    extendTrialMutation.mutate(
+      { tenantId, daysFromNow: days },
+      {
+        onSuccess: (result) => {
+          toast.success(`Teste vai até ${formatDate(result.trialEndsAt)}`);
           invalidate();
         },
         onError: (err) => toast.error(err.message),
@@ -152,12 +190,15 @@ export function SubscriptionPanel({ tenantId }: { tenantId: string }) {
               <dd className="mt-1 font-medium">{formatCents(subscription.amountCents)}</dd>
             </div>
             <div>
-              <dt className="text-muted-foreground">Vencimento</dt>
+              <dt className="text-muted-foreground">
+                {subscription.status === "TRIALING" ? "Teste termina em" : "Vencimento"}
+              </dt>
               <dd className="mt-1 font-medium">
                 {formatDate(subscription.currentPeriodEnd)}
                 {(() => {
                   const overdue = daysOverdue(subscription.currentPeriodEnd);
                   if (overdue === null || subscription.status === "CANCELLED") return null;
+                  if (subscription.status === "TRIALING") return null;
                   return (
                     <span className="ml-1.5 text-xs font-normal text-warning">
                       (vencida há {overdue} {overdue === 1 ? "dia" : "dias"})
@@ -210,15 +251,71 @@ export function SubscriptionPanel({ tenantId }: { tenantId: string }) {
               />
             </div>
           </div>
+          <div className="space-y-3 rounded-md border border-dashed p-3">
+            <label className="flex items-start gap-2 text-sm">
+              <Checkbox
+                checked={asTrial}
+                onCheckedChange={(checked) => setAsTrial(checked === true)}
+                className="mt-0.5"
+                aria-label="Começar como teste grátis"
+              />
+              <span className="min-w-0">
+                <span className="font-medium">Começar como teste grátis</span>
+                <span className="block break-words text-xs text-muted-foreground">
+                  Libera os módulos do plano sem cobrar. Não entra no MRR. Quando o teste acaba,
+                  segue o caminho normal de vencimento.
+                </span>
+              </span>
+            </label>
+            {asTrial && (
+              <div className="space-y-1.5 sm:max-w-56">
+                <Label htmlFor="trial-days">Dias de teste</Label>
+                <Input
+                  id="trial-days"
+                  inputMode="numeric"
+                  placeholder={`padrão: ${platformQuery.data?.trialDays ?? 7}`}
+                  value={trialDaysInput}
+                  onChange={(e) => setTrialDaysInput(e.target.value)}
+                />
+                <p className="break-words text-xs text-muted-foreground">
+                  Em branco usa o padrão global. Preenchido vale só para este tenant.
+                </p>
+              </div>
+            )}
+          </div>
+
           <p className="text-xs text-muted-foreground">
             Valor em branco usa o preço do plano no ciclo. Ativar aponta o tenant para o plano e libera
             os módulos correspondentes.
           </p>
           <Button type="button" onClick={onActivate} disabled={activateMutation.isPending}>
             {activateMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            {subscription ? "Salvar plano" : "Ativar tenant"}
+            {asTrial ? "Iniciar teste" : subscription ? "Salvar plano" : "Ativar tenant"}
           </Button>
         </div>
+
+        {/* Estender o teste deste tenant — o controle "por tenant" do ADR 0061. */}
+        {isTrialing && (
+          <div className="flex flex-wrap items-end gap-3 rounded-md border border-info/40 bg-info/5 p-4">
+            <div className="min-w-0 space-y-1.5">
+              <Label htmlFor="extend-days">Estender teste (dias a partir de hoje)</Label>
+              <Input
+                id="extend-days"
+                inputMode="numeric"
+                className="sm:w-40"
+                value={extendDaysInput}
+                onChange={(e) => setExtendDaysInput(e.target.value)}
+              />
+            </div>
+            <Button type="button" variant="outline" onClick={onExtendTrial} disabled={extendTrialMutation.isPending}>
+              {extendTrialMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Estender
+            </Button>
+            <p className="min-w-0 flex-1 break-words text-xs text-muted-foreground">
+              Redefine o fim do teste para hoje + N dias. Não acumula com o prazo restante.
+            </p>
+          </div>
+        )}
 
         {/* Ações de cobrança */}
         {subscription && subscription.status !== "CANCELLED" && (
@@ -252,9 +349,12 @@ export function SubscriptionPanel({ tenantId }: { tenantId: string }) {
         onOpenChange={(open) => { if (!open && !suspendMutation.isPending) setConfirm(null); }}
         title={confirm === "cancel" ? "Cancelar assinatura" : "Suspender assinatura"}
         description={
+          // Texto corrigido no ADR 0061: suspender deixou de derrubar o login.
+          // O anterior ("login bloqueado") descrevia o comportamento antigo e
+          // faria o superadmin evitar uma ação menos drástica do que ele pensa.
           confirm === "cancel"
-            ? "O tenant perde acesso (login bloqueado) e a assinatura é cancelada. Para religar, ative um plano de novo."
-            : "O tenant perde acesso (login bloqueado) até você marcar como pago ou reativar. Use para inadimplência."
+            ? "O tenant sai: perde o login e a assinatura é cancelada. As API-keys de parceiro são revogadas. Para religar, ative um plano de novo."
+            : "O tenant continua entrando, mas perde os módulos do plano e cai na tela de pagamento. Carteira DePix e API de parceiros seguem liberadas. Use para inadimplência."
         }
         confirmLabel={confirm === "cancel" ? "Cancelar assinatura" : "Suspender"}
         variant="destructive"

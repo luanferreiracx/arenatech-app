@@ -38,9 +38,30 @@ describe("aggregateSubscriptionMetrics", () => {
     expect(m).toEqual({
       mrrCents: 0,
       activeSubscriptions: 0,
+      trialingSubscriptions: 0,
       pastDueSubscriptions: 0,
       suspendedSubscriptions: 0,
     });
+  });
+
+  // ADR 0061: contar trial no MRR encheria a métrica de saúde do negócio com
+  // contas que nunca pagaram. Ele é contado à parte, como funil.
+  it("trial NÃO entra no MRR, e aparece em contador próprio", () => {
+    const m = aggregateSubscriptionMetrics([
+      { status: "TRIALING", billingCycle: "MONTHLY", _count: { _all: 4 }, _sum: { amountCents: 99_600 } },
+      { status: "ACTIVE", billingCycle: "MONTHLY", _count: { _all: 2 }, _sum: { amountCents: 49_800 } },
+    ]);
+    expect(m.mrrCents).toBe(49_800);
+    expect(m.trialingSubscriptions).toBe(4);
+    expect(m.activeSubscriptions).toBe(2);
+  });
+
+  it("vencida (PAST_DUE) também fica fora do MRR — é receita que não entrou", () => {
+    const m = aggregateSubscriptionMetrics([
+      { status: "PAST_DUE", billingCycle: "MONTHLY", _count: { _all: 3 }, _sum: { amountCents: 74_700 } },
+    ]);
+    expect(m.mrrCents).toBe(0);
+    expect(m.pastDueSubscriptions).toBe(3);
   });
 
   it("_sum nulo (grupo sem valores) não quebra", () => {

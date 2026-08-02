@@ -18,6 +18,7 @@ import { withAdmin } from "@/server/db";
 import { recordFailedAttempt, clearRateLimit } from "@/lib/utils/rate-limit";
 import { logger } from "@/lib/logger";
 import { allowedModulesForTenant, type ModuleKey } from "@/lib/modules";
+import { PLAN_ACCESS_STATUSES } from "@/lib/billing/subscription-status";
 import {
   SESSION_TENANT_STATUSES,
   keepsSession,
@@ -169,7 +170,7 @@ async function resolveModulesByTenant(
         ? await tx.subscription.findMany({
             where: {
               tenantId: { in: sessionTenants.map((t) => t.id) },
-              status: { in: ["ACTIVE", "PAST_DUE"] },
+              status: { in: [...PLAN_ACCESS_STATUSES] },
             },
             select: { tenantId: true, plan: { select: { features: true } } },
           })

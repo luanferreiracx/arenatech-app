@@ -51,8 +51,15 @@ import {
   activateSubscriptionSchema,
   markSubscriptionPaidSchema,
   suspendSubscriptionSchema,
+  extendTrialSchema,
+  updatePlatformSettingsSchema,
 } from "@/lib/validators/subscription";
 import { nextPeriodEnd, snapshotAmountCents } from "@/lib/billing/subscription";
+import {
+  getPlatformSettings,
+  updatePlatformSettings,
+  trialEndsAt,
+} from "@/server/services/platform-settings.service";
 import {
   createAddonSchema,
   updateAddonSchema,
@@ -588,28 +595,37 @@ export const adminRouter = createTRPCRouter({
             monthlyCents: decimalToCents(plan.monthlyPrice),
             yearlyCents: plan.yearlyPrice == null ? null : decimalToCents(plan.yearlyPrice),
           });
-        const periodEnd = nextPeriodEnd({
-          cycle: input.billingCycle,
-          currentPeriodEnd: null,
-          now: new Date(),
-        });
+
+        // Teste grátis (ADR 0061): concede os módulos do plano sem cobrar. O fim
+        // do teste ocupa o mesmo `currentPeriodEnd` do vencimento, então acabar o
+        // teste percorre o caminho já existente (PAST_DUE → carência → bloqueio).
+        const now = new Date();
+        const status = input.asTrial ? "TRIALING" : "ACTIVE";
+        const trialDays =
+          input.trialDays ?? (await getPlatformSettings(tx)).trialDays;
+        const periodEnd = input.asTrial
+          ? trialEndsAt(now, trialDays)
+          : nextPeriodEnd({ cycle: input.billingCycle, currentPeriodEnd: null, now });
 
         const subscription = await tx.subscription.upsert({
           where: { tenantId: input.tenantId },
           create: {
             tenantId: input.tenantId,
             planId: input.planId,
-            status: "ACTIVE",
+            status,
             billingCycle: input.billingCycle,
             amountCents,
             currentPeriodEnd: periodEnd,
           },
           update: {
             planId: input.planId,
-            status: "ACTIVE",
+            status,
             billingCycle: input.billingCycle,
             amountCents,
             cancelReason: null,
+            // Trocar de plano NÃO mexe no vencimento de quem já paga — o período
+            // comprado é dele. Só o início de um teste redefine a data.
+            ...(input.asTrial ? { currentPeriodEnd: periodEnd } : {}),
           },
         });
 
@@ -624,13 +640,87 @@ export const adminRouter = createTRPCRouter({
         await logAudit(tx as never, {
           tenantId: input.tenantId,
           userId: ctx.session.user.id,
-          action: "subscription.activate",
+          action: input.asTrial ? "subscription.trial.start" : "subscription.activate",
           entity: "subscription",
           entityId: subscription.id,
-          payload: { planId: input.planId, billingCycle: input.billingCycle, amountCents },
+          payload: {
+            planId: input.planId,
+            billingCycle: input.billingCycle,
+            amountCents,
+            ...(input.asTrial ? { trialDays, trialEndsAt: periodEnd.toISOString() } : {}),
+          },
         });
 
-        return { success: true };
+        return { success: true, status, currentPeriodEnd: periodEnd };
+      });
+    }),
+
+  /**
+   * Estende (ou encurta) o teste grátis de UM tenant — o "controle por tenant"
+   * pedido pelo dono, ao lado do padrão global em `updatePlatformSettings`.
+   *
+   * Mexe só em quem está TESTANDO. Empurrar a data de um tenant que já paga seria
+   * dar mês de graça sem registro de desconto, e o audit log diria "trial" para
+   * uma conta paga.
+   */
+  extendTrial: adminProcedure
+    .input(extendTrialSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withAdmin(async (tx) => {
+        const subscription = await tx.subscription.findUnique({
+          where: { tenantId: input.tenantId },
+          select: { id: true, status: true },
+        });
+        if (!subscription) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Tenant sem assinatura" });
+        }
+        if (subscription.status !== "TRIALING") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Só é possível estender o teste de uma assinatura em teste.",
+          });
+        }
+
+        const endsAt = trialEndsAt(new Date(), input.daysFromNow);
+        await tx.subscription.update({
+          where: { tenantId: input.tenantId },
+          data: { currentPeriodEnd: endsAt },
+        });
+
+        await logAudit(tx as never, {
+          tenantId: input.tenantId,
+          userId: ctx.session.user.id,
+          action: "subscription.trial.extend",
+          entity: "subscription",
+          entityId: subscription.id,
+          payload: { daysFromNow: input.daysFromNow, trialEndsAt: endsAt.toISOString() },
+        });
+
+        return { success: true, trialEndsAt: endsAt };
+      });
+    }),
+
+  // ═══════════════════════════════════════
+  // CONFIGURAÇÃO GLOBAL DA PLATAFORMA
+  // ═══════════════════════════════════════
+
+  platformSettings: adminProcedure.query(async ({ ctx }) => {
+    return ctx.withAdmin((tx) => getPlatformSettings(tx));
+  }),
+
+  updatePlatformSettings: adminProcedure
+    .input(updatePlatformSettingsSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withAdmin(async (tx) => {
+        const settings = await updatePlatformSettings(tx, {
+          trialDays: input.trialDays,
+          updatedById: ctx.session.user.id,
+        });
+        logger.info("Configuração da plataforma alterada", {
+          trialDays: settings.trialDays,
+          byAdmin: ctx.session.user.id,
+        });
+        return settings;
       });
     }),
 

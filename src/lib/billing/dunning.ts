@@ -12,6 +12,7 @@
  */
 
 export const SUBSCRIPTION_NOTICE_KINDS = [
+  "TRIAL_ENDING",
   "DUE_SOON",
   "PAST_DUE",
   "GRACE_ENDING",
@@ -57,14 +58,17 @@ export function dueNotices(args: {
     return notices;
   }
 
-  if (status === "ACTIVE") {
-    const remaining = daysUntil(currentPeriodEnd, now);
-    // `> 0` exclui a já vencida: essa é caso do cron de vencimento, que a leva a
-    // PAST_DUE no mesmo passo. Avisar "vence em breve" para quem já venceu seria
-    // a mensagem errada.
-    if (remaining > 0 && remaining <= DUE_SOON_WINDOW_DAYS) return ["DUE_SOON"];
-    return [];
-  }
+  // `> 0` exclui a já vencida: essa é caso do cron de vencimento, que a leva a
+  // PAST_DUE no mesmo passo. Avisar "vence em breve" para quem já venceu seria a
+  // mensagem errada.
+  const remaining = daysUntil(currentPeriodEnd, now);
+  const withinWindow = remaining > 0 && remaining <= DUE_SOON_WINDOW_DAYS;
+
+  // Aviso separado do de vencimento por causa da MENSAGEM, não do mecanismo:
+  // quem está testando ainda não escolheu plano nem tem o que pagar. "Sua
+  // assinatura vence" seria a frase errada no momento mais decisivo do funil.
+  if (status === "TRIALING") return withinWindow ? ["TRIAL_ENDING"] : [];
+  if (status === "ACTIVE") return withinWindow ? ["DUE_SOON"] : [];
 
   return [];
 }

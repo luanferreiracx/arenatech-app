@@ -76,6 +76,33 @@ describe("dueNotices", () => {
     expect(notices).toContain("GRACE_ENDING");
   });
 
+  // O teste grátis tem aviso PRÓPRIO. Quem está testando ainda não escolheu
+  // plano nem tem o que pagar: "sua assinatura vence" seria a frase errada no
+  // momento mais decisivo do funil.
+  it("teste grátis acabando: avisa o fim do TESTE, não um vencimento", () => {
+    const notices = dueNotices({
+      status: "TRIALING",
+      currentPeriodEnd: daysFromNow(2),
+      now,
+      graceDays: GRACE,
+    });
+    expect(notices).toEqual(["TRIAL_ENDING"]);
+    expect(notices).not.toContain("DUE_SOON");
+  });
+
+  it("teste longe do fim: não avisa nada", () => {
+    expect(
+      dueNotices({ status: "TRIALING", currentPeriodEnd: daysFromNow(6), now, graceDays: GRACE }),
+    ).toEqual([]);
+  });
+
+  it("teste que já acabou não recebe 'está acabando'", () => {
+    // Esse caso é do cron de vencimento, que leva o trial a PAST_DUE no mesmo passo.
+    expect(
+      dueNotices({ status: "TRIALING", currentPeriodEnd: daysFromNow(-1), now, graceDays: GRACE }),
+    ).toEqual([]);
+  });
+
   it("SUSPENDED: avisa que suspendemos", () => {
     expect(
       dueNotices({ status: "SUSPENDED", currentPeriodEnd: daysFromNow(-30), now, graceDays: GRACE }),

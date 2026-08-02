@@ -5,6 +5,7 @@ import {
   Users,
   Clock,
   CreditCard,
+  FlaskConical,
   TrendingUp,
   AlertTriangle,
   CalendarClock,
@@ -12,6 +13,7 @@ import {
 import { useTRPC } from "@/trpc/react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
+import { PlatformSettingsCard } from "./platform-settings-card";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export function AdminDashboard() {
@@ -74,7 +76,20 @@ export function AdminDashboard() {
           </div>
         </CardContent>
       </Card>
+      {/* Trial fica FORA do MRR de propósito (ADR 0061): contá-lo como receita
+          encheria a métrica com contas que nunca pagaram. Aqui ele é funil. */}
+      <Card>
+        <CardContent className="p-4 flex items-center gap-3">
+          <FlaskConical className="h-8 w-8 text-info" />
+          <div>
+            <p className="text-2xl font-bold tabular-nums">{stats.trialingSubscriptions}</p>
+            <p className="text-xs text-muted-foreground">Em teste grátis</p>
+          </div>
+        </CardContent>
+      </Card>
     </div>
+
+    <PlatformSettingsCard />
 
     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
       <Card>
