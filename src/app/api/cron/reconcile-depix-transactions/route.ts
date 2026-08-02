@@ -73,13 +73,16 @@ export async function POST(request: NextRequest) {
       results.push(await reconcileStaleDepixTransactions());
       // Aproveita o mesmo job pra expirar links de pagamento vencidos (12h).
       expiredLinks = (await expireStalePaymentLinks()).expired;
-      // ...e pra vigiar a saúde das Esploras do LWK (alerta antecipado).
-      await checkEsploraHealth();
       // ...e pra alertar quando o L-BTC da central seca (gás dos repasses/saques).
       await checkCentralLbtcFloor();
       // ...e pra detectar cache do LWK com UTXOs gastos (saldo inflado — guard de
       // recorrência do incidente 2026-07). Best-effort: nunca lança.
       await checkCentralCacheIntegrityAndAlert();
+      // ...e, POR ÚLTIMO, pra vigiar a saúde das Esploras do LWK.
+      // A ordem importa: são as consultas de saldo acima que mandam o LWK
+      // sincronizar e carimbar `last_sync_ok_at`. Checar antes delas lia sempre o
+      // carimbo do ciclo anterior — 10 min de idade em 100% das execuções.
+      await checkEsploraHealth();
       // ...e pra descobrir se saques INDETERMINADOS (resposta do LWK perdida no
       // timeout) chegaram a ser transmitidos — consulta read-only da chave de
       // idempotência. Sem isto o operador fica sem saber se o dinheiro saiu, que

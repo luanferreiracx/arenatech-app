@@ -66,6 +66,32 @@ describe("evaluateEsploraHealth", () => {
     ).toBeNull();
   });
 
+  /**
+   * REGRESSÃO (2026-08-02): o limiar era 5 min, MENOR que os 10 min do ciclo em
+   * que `lastSyncOkAt` pode ser renovado (o LWK só carimba quando alguém manda
+   * sincronizar, e quem sincroniza é o cron de 10 min). Resultado: alerta em
+   * 32/32 execuções em 6h de produção, sempre `ageMinutes: 10`, sempre com
+   * `consecutiveFailures: 0` e o tip da Esplora avançando normal.
+   *
+   * Os outros testes de stale usam o limiar de forma relativa, então passavam
+   * com qualquer valor — inclusive um quebrado. Este fixa o caso concreto.
+   */
+  it("carimbo com 1 ciclo de idade (10 min) e 0 falhas -> NÃO alerta", () => {
+    const oneCycleAgo = new Date(NOW - 10 * 60_000).toISOString();
+    expect(evaluateEsploraHealth(health({ lastSyncOkAt: oneCycleAgo }), NOW)).toBeNull();
+  });
+
+  it("o limiar de stale tem que ser maior que um ciclo de sync (10 min)", () => {
+    expect(ESPLORA_ALERT_MAX_STALE_MS).toBeGreaterThan(10 * 60_000);
+  });
+
+  it("3 ciclos sem sync-ok (31 min) -> ALERTA de verdade", () => {
+    const threeCyclesAgo = new Date(NOW - 31 * 60_000).toISOString();
+    expect(evaluateEsploraHealth(health({ lastSyncOkAt: threeCyclesAgo }), NOW)?.reason).toBe(
+      "stale_sync",
+    );
+  });
+
   it("degradado agora (503) mas ainda sem N falhas nem stale -> não alerta ainda", () => {
     // Uma leitura 503 pontual não basta; o alerta espera o padrão se firmar.
     const degradedOnce: EsploraHealthResult = {
