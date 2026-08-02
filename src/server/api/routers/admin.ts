@@ -705,14 +705,23 @@ export const adminRouter = createTRPCRouter({
           data: { status: "SUSPENDED" },
         });
 
-        // Defesa em profundidade (auditoria 2026-07-25): `validatePartnerApiKey`
-        // já recusa tenant não-ACTIVE, mas revogar aqui garante que reativar o
-        // tenant depois NÃO ressuscite silenciosamente uma key antiga — e deixa
-        // a revogação explícita na trilha de auditoria.
-        await tx.partnerApiKey.updateMany({
-          where: { tenantId: input.tenantId, revokedAt: null },
-          data: { revokedAt: new Date() },
-        });
+        // Revogar as keys só no CANCELAMENTO (saída), não na suspensão (atraso).
+        //
+        // A revogação nasceu na auditoria de 2026-07-25, quando suspender era
+        // sinônimo de cortar tudo. Com o ADR 0061 quem libera a API é o toggle
+        // `apiAccessEnabled` do superadmin, e só ele: atrasar a mensalidade não
+        // desliga a integração do parceiro pelas costas de quem a ligou. Para
+        // cortar a API de um inadimplente, desligue o toggle — é uma ação, não
+        // um efeito colateral.
+        //
+        // No cancelamento a revogação continua: tenant cancelado não volta, e
+        // uma key viva sacaria DePix on-chain, que é irreversível.
+        if (input.cancel) {
+          await tx.partnerApiKey.updateMany({
+            where: { tenantId: input.tenantId, revokedAt: null },
+            data: { revokedAt: new Date() },
+          });
+        }
 
         await logAudit(tx as never, {
           tenantId: input.tenantId,

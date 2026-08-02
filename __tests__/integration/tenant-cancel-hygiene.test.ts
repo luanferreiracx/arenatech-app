@@ -57,8 +57,58 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
+/** Cria uma API-key viva para o tenant e devolve o id. */
+async function makeLiveKey(): Promise<string> {
+  const key = await prisma.partnerApiKey.create({
+    data: {
+      tenantId,
+      name: `key-${suffix}-${Math.floor(process.hrtime()[1] % 100000)}`,
+      keyPrefix: `pk_${suffix}${process.hrtime()[1] % 100000}`,
+      keyHash: "$2a$10$abcdefghijklmnopqrstuv",
+      scopes: ["depix:read"],
+      createdById: superAdminId,
+    },
+  });
+  return key.id;
+}
+
+// ADR 0061 — suspender (atraso) e cancelar (saída) deixaram de ser a mesma coisa
+// para a API de parceiros. Quem libera a API é o toggle `apiAccessEnabled` do
+// superadmin: atrasar a mensalidade não pode desligar a integração pelas costas
+// de quem a ligou. Cancelar, sim — tenant cancelado não volta, e uma key viva
+// sacaria DePix on-chain, que é irreversível.
+describe("suspendSubscription — atraso não revoga API-key", () => {
+  it("suspender preserva as keys vivas", async () => {
+    const keyId = await makeLiveKey();
+    await adminCall().admin.suspendSubscription({ tenantId, cancel: false, reason: "teste" });
+
+    const key = await prisma.partnerApiKey.findUnique({ where: { id: keyId } });
+    const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
+    expect(key?.revokedAt).toBeNull();
+    expect(tenant?.status).toBe("SUSPENDED");
+  });
+
+  it("cancelar revoga as keys vivas", async () => {
+    await prisma.tenant.update({ where: { id: tenantId }, data: { status: "ACTIVE" } });
+    await prisma.subscription.update({ where: { tenantId }, data: { status: "ACTIVE" } });
+    const keyId = await makeLiveKey();
+
+    await adminCall().admin.suspendSubscription({ tenantId, cancel: true, reason: "saiu" });
+
+    const key = await prisma.partnerApiKey.findUnique({ where: { id: keyId } });
+    expect(key?.revokedAt).toBeInstanceOf(Date);
+  });
+});
+
 describe("deleteTenant", () => {
   it("cancela o tenant E a assinatura juntos", async () => {
+    // Os testes acima deixaram a assinatura CANCELLED; volta ao estado inicial.
+    await prisma.tenant.update({ where: { id: tenantId }, data: { status: "ACTIVE" } });
+    await prisma.subscription.update({
+      where: { tenantId },
+      data: { status: "ACTIVE", cancelReason: null },
+    });
+
     await adminCall().admin.deleteTenant({ id: tenantId });
 
     const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
