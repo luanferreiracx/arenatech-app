@@ -161,14 +161,29 @@ const nextConfig: NextConfig = {
 };
 
 /**
- * withSentryConfig: habilita instrumentacao do Sentry no build. Upload de
- * source maps DESABILITADO por ora (exige SENTRY_AUTH_TOKEN/org/project) — o
- * build segue self-contained sem secrets; stack traces vao minificados ate o
- * dono configurar o upload. `enabled:false` no init (sem DSN) ja deixa tudo
- * no-op em runtime.
+ * withSentryConfig: habilita instrumentacao do Sentry no build.
+ *
+ * Upload de source maps ligado quando `SENTRY_AUTH_TOKEN` existe no BUILD (vem
+ * do secret do GitHub via build-arg). Sem o token — build local, fork, clone sem
+ * acesso ao secret — o upload some e o build segue self-contained, sem falhar.
+ *
+ * Por que ligamos: os erros de browser chegavam com o stack 100% minificado, sem
+ * arquivo, sem linha e sem component stack do React. Uma issue de 186 eventos em
+ * duas semanas nao dizia mais do que "quebrou em algum lugar".
+ *
+ * `deleteSourcemapsAfterUpload` evita publicar o mapa junto do bundle: o Sentry
+ * des-minifica do lado dele, o navegador nao ganha o codigo-fonte.
  */
+const sentryAuthToken = process.env.SENTRY_AUTH_TOKEN;
+
 export default withSentryConfig(nextConfig, {
   silent: !process.env.CI,
   disableLogger: true,
-  sourcemaps: { disable: true },
+  org: "pdv-depix",
+  project: "javascript-nextjs",
+  authToken: sentryAuthToken,
+  sourcemaps: {
+    disable: !sentryAuthToken,
+    deleteSourcemapsAfterUpload: true,
+  },
 });

@@ -75,3 +75,43 @@ describe("config do build da imagem — não regredir o builder", () => {
     expect(ci).toMatch(/cancel-in-progress:\s*\$\{\{\s*github\.ref\s*!=\s*'refs\/heads\/main'\s*\}\}/);
   });
 });
+
+/**
+ * Guardião do upload de source map.
+ *
+ * Enquanto ele esteve desligado, todo erro de browser chegava ao Sentry com o
+ * stack 100% minificado — sem arquivo, sem linha, sem component stack do React.
+ * A maior issue tinha 186 eventos em duas semanas e não dizia onde quebrou.
+ *
+ * São quatro peças e a corrente arrebenta em qualquer elo: o binário do
+ * sentry-cli precisa poder ser baixado, o token precisa chegar ao build, o
+ * build precisa recebê-lo como secret (não como camada) e o withSentryConfig
+ * precisa estar com o upload ligado. Cada teste abaixo trava um elo.
+ */
+describe("upload de source map do Sentry", () => {
+  const dockerfile = readFileSync(join(process.cwd(), "Dockerfile"), "utf8");
+
+  it("o postinstall do @sentry/cli é permitido (senão não há binário pra subir mapa)", () => {
+    const workspace = readFileSync(join(process.cwd(), "pnpm-workspace.yaml"), "utf8");
+    expect(workspace).toMatch(/'@sentry\/cli':\s*true/);
+    expect(dockerfile).toMatch(/approve-builds[^\n]*@sentry\/cli/);
+  });
+
+  it("o token vai como secret do BuildKit, nunca como ARG/ENV", () => {
+    // ARG/ENV ficariam gravados no histórico da imagem — qualquer um com acesso
+    // ao registry leria o token com `docker history`.
+    expect(dockerfile).toMatch(/--mount=type=secret,id=sentry_auth_token/);
+    expect(dockerfile).not.toMatch(/^\s*(ARG|ENV)\s+SENTRY_AUTH_TOKEN/m);
+    expect(buildImageJob()).toMatch(/secrets:[\s\S]*sentry_auth_token=\$\{\{\s*secrets\.SENTRY_AUTH_TOKEN\s*\}\}/);
+  });
+
+  it("o withSentryConfig sobe o mapa quando há token, e não publica o mapa junto", () => {
+    const nextConfig = readFileSync(join(process.cwd(), "next.config.ts"), "utf8");
+    // `disable` amarrado à ausência do token: com token sobe, sem token o build
+    // local segue funcionando.
+    expect(nextConfig).toMatch(/disable:\s*!sentryAuthToken/);
+    expect(nextConfig).toMatch(/deleteSourcemapsAfterUpload:\s*true/);
+    expect(nextConfig).toMatch(/org:\s*"pdv-depix"/);
+    expect(nextConfig).toMatch(/project:\s*"javascript-nextjs"/);
+  });
+});

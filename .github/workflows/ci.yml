@@ -338,6 +338,11 @@ jobs:
           # self-hosted cada camada sobe/desce pela rede, e o driver
           # `docker-container` ainda por cima nascia vazio a cada deploy.
           provenance: false
+          # Token do Sentry para o upload de source map, como SECRET do BuildKit
+          # (não vira camada nem entra no histórico da imagem). Sem ele o build
+          # segue normal, só sem des-minificar stack trace.
+          secrets: |
+            sentry_auth_token=${{ secrets.SENTRY_AUTH_TOKEN }}
 
   # ============================================================
   # E2E — escopo adaptativo. OBJETIVO: ninguem espera o full.
