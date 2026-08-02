@@ -81,7 +81,9 @@ export const appNavGroups: NavGroup[] = [
   {
     title: "Vendas",
     items: [
-      { label: "PDV / Nova Venda", href: "/pdv", icon: ShoppingCart, module: "pdv" },
+      // Venda livre é `pdv-retail`: o plano de assistência tem PDV só para
+      // RECEBER OS, e oferecer "Nova Venda" ali levaria a um FORBIDDEN.
+      { label: "PDV / Nova Venda", href: "/pdv", icon: ShoppingCart, module: "pdv-retail" },
       { label: "Histórico de Vendas", href: "/pdv/history", icon: History, module: "pdv" },
     ],
   },
@@ -90,7 +92,7 @@ export const appNavGroups: NavGroup[] = [
     items: [
       { label: "Simulador", href: "/simulator", icon: Calculator, module: "tools" },
       { label: "Avaliar Aparelho", href: "/valuations", icon: Star, module: "tools" },
-      { label: "Consultas", href: "/imei", icon: Shield, module: "tools" },
+      { label: "Consultas", href: "/imei", icon: Shield, module: "imei-lookup" }, // aposentado
       {
         label: "Buscar iPhones",
         href: "/iphone-hunter",
