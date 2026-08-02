@@ -48,10 +48,37 @@ model Subscription {
 }
 
 enum SubscriptionStatus {
+  /// Teste grátis em andamento (ADR 0061). CONCEDE os módulos do plano e NÃO
+  /// conta como receita. `currentPeriodEnd` é o fim do teste: quando passa, cai
+  /// no mesmo caminho de vencimento (PAST_DUE → carência → bloqueio), sem
+  /// máquina paralela. Estender o teste de um tenant é empurrar essa data.
+  ///
+  /// Quem responde "dá acesso?" e "é receita?" é `lib/billing/subscription-status`,
+  /// não um literal espalhado pelo código.
+  TRIALING
   ACTIVE
   PAST_DUE
   SUSPENDED
   CANCELLED
+}
+
+/// Configuração global da plataforma (linha única). Só o superadmin edita.
+///
+/// Existe porque o dono pediu controle do prazo de teste "geral e de cada tenant".
+/// O geral é este `trialDays`; o de cada tenant é empurrar o `currentPeriodEnd`
+/// da assinatura em TRIALING, que não precisa de campo novo.
+///
+/// Linha única garantida por CHECK no banco (`id = 'singleton'`) — não por
+/// convenção. Tabela global, sem `tenant_id`: fora do escopo de RLS por tenant.
+model PlatformSettings {
+  id        String   @id @default("singleton")
+  /// Dias de teste grátis de um tenant novo. 0 desliga o teste.
+  trialDays Int      @default(7) @map("trial_days")
+
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  updatedById String?  @map("updated_by_id") @db.Uuid
+
+  @@map("platform_settings")
 }
 
 /// Aviso de cobrança já disparado (ADR 0061). É a trava de idempotência do
@@ -86,6 +113,9 @@ model SubscriptionNotification {
 }
 
 enum SubscriptionNoticeKind {
+  /// O teste grátis acaba em poucos dias. Separado de `DUE_SOON` pela MENSAGEM,
+  /// não pelo mecanismo: quem testa ainda não escolheu plano nem tem o que pagar.
+  TRIAL_ENDING
   /// Vence em poucos dias (aviso preventivo).
   DUE_SOON
   /// Venceu; começou a carência.

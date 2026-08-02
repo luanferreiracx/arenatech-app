@@ -50,6 +50,7 @@ export default function SubscriptionPage() {
   const subscription = data.subscription;
   const overdue = daysOverdue(subscription?.currentPeriodEnd);
   const canPay = Boolean(subscription) && subscription!.status !== "CANCELLED" && subscription!.amountCents > 0;
+  const isTrialing = subscription?.status === "TRIALING";
 
   const onPaid = () => {
     void queryClient.invalidateQueries({ queryKey: trpc.settings.getSubscription.queryKey() });
@@ -107,10 +108,15 @@ export default function SubscriptionPage() {
                     <strong className="tabular-nums">{formatCents(subscription.amountCents)}</strong>
                   </div>
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-muted-foreground">Vencimento:</span>
+                    <span className="text-muted-foreground">
+                      {isTrialing ? "Teste termina em:" : "Vencimento:"}
+                    </span>
                     <span className="text-right">
                       <strong>{formatDate(subscription.currentPeriodEnd)}</strong>
-                      {overdue !== null && subscription.status !== "CANCELLED" && (
+                      {/* Trial atrasado não existe: quando o teste acaba, o cron
+                          já moveu a assinatura para PAST_DUE. Dizer "vencida há
+                          N dias" a quem ainda testa seria cobrança inventada. */}
+                      {overdue !== null && !isTrialing && subscription.status !== "CANCELLED" && (
                         <span className="ml-1.5 text-xs font-normal text-warning">
                           (vencida há {overdue} {overdue === 1 ? "dia" : "dias"})
                         </span>
@@ -118,6 +124,13 @@ export default function SubscriptionPage() {
                     </span>
                   </div>
                 </div>
+
+                {isTrialing && (
+                  <p className="break-words rounded-md border border-info/40 bg-info/5 p-3 text-sm">
+                    Você está no período de teste: tudo do plano liberado, sem cobrança. Para
+                    continuar depois dessa data, pague a primeira mensalidade quando quiser.
+                  </p>
+                )}
 
                 {canPay && (
                   <Button
@@ -127,12 +140,12 @@ export default function SubscriptionPage() {
                       setPayOpen(true);
                     }}
                   >
-                    Pagar assinatura
+                    {isTrialing ? "Ativar plano agora" : "Pagar assinatura"}
                   </Button>
                 )}
                 <p className="break-words text-xs text-muted-foreground">
                   O pagamento é via DePix (PIX). O QR é válido por 30 minutos; ao confirmar, sua
-                  assinatura é renovada automaticamente.
+                  assinatura {isTrialing ? "é ativada" : "é renovada"} automaticamente.
                 </p>
               </>
             ) : (

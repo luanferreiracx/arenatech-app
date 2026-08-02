@@ -1,4 +1,5 @@
 import type { Prisma } from "@prisma/client";
+import { PLAN_ACCESS_STATUSES } from "@/lib/billing/subscription-status";
 
 /**
  * Resolve o PLANO EFETIVO de um tenant (fonte única de verdade).
@@ -16,7 +17,7 @@ export async function resolveTenantPlan(
   tenantId: string,
 ): Promise<{ id: string; maxUsers: number; maxImeiQueries: number; features: Prisma.JsonValue } | null> {
   const subscription = await tx.subscription.findFirst({
-    where: { tenantId, status: { in: ["ACTIVE", "PAST_DUE"] } },
+    where: { tenantId, status: { in: [...PLAN_ACCESS_STATUSES] } },
     select: {
       plan: {
         select: { id: true, maxUsers: true, maxImeiQueries: true, features: true },

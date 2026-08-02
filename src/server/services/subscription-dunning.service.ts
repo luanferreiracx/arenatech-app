@@ -58,7 +58,9 @@ export async function claimDunningNotices(
   args: { now: Date; graceDays: number },
 ): Promise<DunningTarget[]> {
   const subscriptions = await tx.subscription.findMany({
-    where: { status: { in: ["ACTIVE", "PAST_DUE", "SUSPENDED"] } },
+    // `CANCELLED` fica de fora: não se persegue quem já saiu. `TRIALING` entra —
+    // avisar que o teste acaba é o momento de conversão do funil.
+    where: { status: { in: ["TRIALING", "ACTIVE", "PAST_DUE", "SUSPENDED"] } },
     select: {
       id: true,
       tenantId: true,
@@ -170,6 +172,15 @@ export function noticeCopy(target: {
   const vencimento = formatDate(target.currentPeriodEnd);
 
   const copies: Record<SubscriptionNoticeKind, NoticeCopy> = {
+    TRIAL_ENDING: {
+      subject: `Seu teste grátis termina em ${vencimento}`,
+      headline: "Seu teste grátis está acabando",
+      body:
+        `O período de teste de ${target.tenantName} termina em ${vencimento}. ` +
+        `Para continuar com tudo funcionando, ative o plano por ${valor} em ` +
+        "Configurações › Assinatura. Seus dados ficam como estão de qualquer forma.",
+      whatsappSubject: `o fim do seu teste grátis em ${vencimento}`,
+    },
     DUE_SOON: {
       subject: `Sua assinatura Arena Tech vence em ${vencimento}`,
       headline: "Sua assinatura vence em breve",
