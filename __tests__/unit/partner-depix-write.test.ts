@@ -1,13 +1,22 @@
 /**
  * partner-depix-write.service (ADR 0057, Fase 3): criar depósito + sacar via API.
- * Garante: saque só em carteira CUSTODIAL, cap diário PRÓPRIO da API, atribuição a
- * um membro do tenant, e que o saque é SÓ PIX (on-chain não é exposto na API).
- * Services internos mockados.
+ *
+ * O saque ROTEIA pelo modelo de custódia. Antes exigia carteira CUSTODIAL — e
+ * como desde o ADR 0051 nenhum cliente é custodial (`setupWallet` só cria
+ * `non_custodial` ou `external`), o endpoint estava inalcançável por 100% dos
+ * tenants reais. Medido em produção: das 5 carteiras, as 2 custodiais são da
+ * própria Arena.
+ *
+ * Garante também: cap diário PRÓPRIO da API, atribuição a um membro do tenant, e
+ * que o saque é SÓ PIX (on-chain não é exposto na API). Services internos
+ * mockados.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const createDeposit = vi.fn();
 const createWithdraw = vi.fn();
+const createExternalWithdraw = vi.fn();
+const requestWithdrawAuthorization = vi.fn();
 const userTenantFindFirst = vi.fn();
 const walletFindUnique = vi.fn();
 const txAggregate = vi.fn();
@@ -27,6 +36,10 @@ vi.mock("@/server/db", () => ({
 vi.mock("@/server/services/depix-transaction.service", () => ({
   createDeposit: (...a: unknown[]) => createDeposit(...a),
   createWithdraw: (...a: unknown[]) => createWithdraw(...a),
+  createExternalWithdraw: (...a: unknown[]) => createExternalWithdraw(...a),
+}));
+vi.mock("@/server/services/depix-withdraw-authorization.service", () => ({
+  requestWithdrawAuthorization: (...a: unknown[]) => requestWithdrawAuthorization(...a),
 }));
 
 import {
@@ -47,10 +60,19 @@ const pixInput = {
 };
 
 beforeEach(() => {
-  for (const m of [createDeposit, createWithdraw, userTenantFindFirst, walletFindUnique, txAggregate, tenantFindUnique]) m.mockReset();
+  for (const m of [
+    createDeposit,
+    createWithdraw,
+    createExternalWithdraw,
+    requestWithdrawAuthorization,
+    userTenantFindFirst,
+    walletFindUnique,
+    txAggregate,
+    tenantFindUnique,
+  ]) m.mockReset();
   tenantFindUnique.mockResolvedValue({ partnerApiWithdrawDailyCapCents: null });
   userTenantFindFirst.mockResolvedValue({ userId: "member-1" });
-  walletFindUnique.mockResolvedValue({ custodyModel: "custodial" });
+  walletFindUnique.mockResolvedValue({ custodyModel: "custodial", provisionedAt: new Date() });
   txAggregate.mockResolvedValue({ _sum: { grossAmountCents: 0 } });
 });
 
@@ -131,12 +153,50 @@ describe("partnerCreateWithdraw", () => {
     expect(createWithdraw).not.toHaveBeenCalled();
   });
 
-  it("BLOQUEIA saque em carteira non-custodial (exige passphrase humana)", async () => {
-    walletFindUnique.mockResolvedValue({ custodyModel: "non_custodial" });
+  it("non-custodial: vira pedido para o humano, sem mover dinheiro", async () => {
+    // O servidor não tem a chave (ADR 0051). Aceitar a passphrase num header de
+    // API desmontaria a garantia: a Arena passaria a poder gastar sozinha o
+    // dinheiro do cliente. Então a máquina pede e a pessoa conclui no painel.
+    walletFindUnique.mockResolvedValue({
+      custodyModel: "non_custodial",
+      provisionedAt: new Date(),
+    });
+    requestWithdrawAuthorization.mockResolvedValue({ id: "auth-1", netAmountCents: 5000 });
+
+    const res = await partnerCreateWithdraw({
+      tenantId: TENANT, keyPrefix: "k", input: pixInput, idempotencyKey: "idem-1",
+    });
+
+    expect(res.status).toBe("AWAITING_AUTHORIZATION");
+    expect(res.id).toBe("auth-1");
+    // Ainda não existe saque, logo não existe número.
+    expect(res.number).toBeNull();
+    expect(createWithdraw).not.toHaveBeenCalled();
+    expect(createExternalWithdraw).not.toHaveBeenCalled();
+  });
+
+  it("external: encaminha para o fluxo de intenção, que não precisa de chave nossa", async () => {
+    walletFindUnique.mockResolvedValue({ custodyModel: "external", provisionedAt: new Date() });
+    createExternalWithdraw.mockResolvedValue({
+      id: "tx-ext", number: "TXW-9", status: "PENDING", netAmountCents: 5000, withdrawTxId: null,
+    });
+
+    const res = await partnerCreateWithdraw({
+      tenantId: TENANT, keyPrefix: "k", input: pixInput, idempotencyKey: "idem-1",
+    });
+
+    expect(res.number).toBe("TXW-9");
+    expect(createExternalWithdraw).toHaveBeenCalledOnce();
+    expect(createWithdraw).not.toHaveBeenCalled();
+  });
+
+  it("carteira não provisionada: recusa antes de qualquer conta", async () => {
+    walletFindUnique.mockResolvedValue(null);
     await expect(
       partnerCreateWithdraw({ tenantId: TENANT, keyPrefix: "k", input: pixInput, idempotencyKey: "idem-1" }),
-    ).rejects.toThrow(/non-custodial/i);
+    ).rejects.toThrow(/não configurada/i);
     expect(createWithdraw).not.toHaveBeenCalled();
+    expect(requestWithdrawAuthorization).not.toHaveBeenCalled();
   });
 
   it("aplica o cap diário PRÓPRIO da API (barra acima do limite)", async () => {

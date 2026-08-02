@@ -8,8 +8,8 @@
  * - Gating POR PLANO: a lista de módulos liberados vem de `Plan.features.modules`.
  * - O tenant `arena-tech` tem acesso TOTAL (bypass — não é afetado pela matriz).
  * - Módulo não liberado: some do menu E a rota é bloqueada (redirect /painel).
- * - Tenant sem plano (NO-KYC = estado inicial): piso `wallet` + `depix-ops`.
- *   A ativação atribui um plano ativo, que define os módulos (mesmo sem CNPJ).
+ * - Tenant sem plano (NO-KYC = estado inicial): só o piso. A ativação atribui um
+ *   plano ativo, que define os módulos (mesmo sem CNPJ).
  *
  * Duas dimensões de gating de ROTA (ver `isRouteAllowedForTenant`, usada no proxy):
  * 1. Módulo/plano — a maioria das rotas casa um prefixo em ROUTE_MODULE_PREFIXES.
@@ -18,7 +18,9 @@
  * Rotas sem módulo nem restrição de slug passam livres (painel, troca de tenant).
  * `settings` é SEMPRE-ON (ALWAYS_ON_MODULES): todo tenant configura a própria
  * loja, independente do plano. `/settings/security` também (2FA é pré-requisito
- * de saque DePix). Ambos ficam fora da matriz de plano.
+ * de saque DePix). Ambos ficam fora da matriz de plano. `wallet`/`depix-ops`
+ * (WALLET_FLOOR_MODULES) também ficam fora da matriz, mas condicionados ao gate
+ * `Tenant.depixEnabled`.
  */
 
 export const MODULE_KEYS = [
@@ -125,29 +127,49 @@ export function modulesRequiredBySelection(selection: readonly ModuleKey[]): Set
 export const PER_TENANT_OVERRIDE_MODULES: ModuleKey[] = ["partner-api"];
 
 /**
- * Módulos SEMPRE ligados, independente do plano (decisão do dono). Ficam fora do
- * editor de plano e são concedidos a qualquer tenant, inclusive o suspenso por
+ * Módulos SEMPRE ligados para TODO tenant, independente do plano e do gate de
+ * DePix. Ficam fora do editor de plano e sobrevivem à suspensão por
  * inadimplência (ADR 0061 — o bloqueio suave preserva exatamente este piso).
  *
  * - `settings`: todo tenant configura a própria loja (formas de pagamento,
  *   equipe, integrações). Como `/settings/security` já era.
- * - `wallet` + `depix-ops`: a carteira guarda o DINHEIRO do cliente. Nenhuma
- *   decisão comercial nossa pode separá-lo dele, nem quando ele deve. Reter
- *   saldo alheio como alavanca de cobrança seria abuso, além de risco
- *   regulatório (ADR 0061).
  *
  * `partner-api` também não depende de plano, mas NÃO entra aqui: continua sob o
  * override por tenant `apiAccessEnabled` (ADR 0057), que é controle de segurança
  * e não de pacote.
  */
-export const ALWAYS_ON_MODULES: ModuleKey[] = ["settings", "wallet", "depix-ops"];
+export const ALWAYS_ON_MODULES: ModuleKey[] = ["settings"];
+
+/**
+ * Piso da CARTEIRA: sempre-ligado para quem tem DePix habilitado.
+ *
+ * O ADR 0061 pôs `wallet` e `depix-ops` no piso incondicional com um argumento
+ * que continua inteiro: a carteira guarda o DINHEIRO do cliente, e nenhuma
+ * decisão comercial nossa pode separá-lo dele, nem quando ele deve — reter saldo
+ * alheio como alavanca de cobrança seria abuso, além de risco regulatório.
+ *
+ * O que mudou não é esse princípio, é o alcance. Piso INCONDICIONAL significa
+ * que abrir cadastro joga 100% dos clientes novos na superfície mais frágil do
+ * sistema (Esplora pública, cache do LWK, off-ramp de terceiro), inclusive quem
+ * contratou para vender celular e nunca vai tocar em DePix. O princípio protege
+ * quem TEM dinheiro na carteira; não obriga a dar carteira a quem não pediu.
+ *
+ * Então o piso virou condicional a `Tenant.depixEnabled`, e a proteção do ADR
+ * 0061 é preservada por duas travas: a suspensão por inadimplência NÃO derruba
+ * este piso (mesmo caminho de antes), e o gate não pode ser desligado com
+ * carteira provisionada (`admin.setDepixEnabled`).
+ */
+export const WALLET_FLOOR_MODULES: ModuleKey[] = ["wallet", "depix-ops"];
 
 /**
  * Módulos selecionáveis no editor de PLANO: exclui os de override por-tenant e os
  * sempre-ligados (esses não são escolha de plano).
  */
 export const PLAN_SELECTABLE_MODULES: ModuleKey[] = MODULE_KEYS.filter(
-  (m) => !PER_TENANT_OVERRIDE_MODULES.includes(m) && !ALWAYS_ON_MODULES.includes(m),
+  (m) =>
+    !PER_TENANT_OVERRIDE_MODULES.includes(m) &&
+    !ALWAYS_ON_MODULES.includes(m) &&
+    !WALLET_FLOOR_MODULES.includes(m),
 );
 
 /** Slug do tenant com acesso total (bypass do gating). */
@@ -178,10 +200,13 @@ function slugAllowlistForPath(pathname: string): readonly string[] | null {
  *
  * Antes existiam duas constantes aqui (`DEFAULT_RELEASED_MODULES` para tenant
  * novo, `NO_KYC_MODULES` para tenant sem documento), ambas valendo
- * `["wallet", "depix-ops"]`. O ADR 0061 moveu esses dois para
- * `ALWAYS_ON_MODULES`, o que zerou as duas listas e apagou a distinção entre
- * elas: sem plano, o tenant tem o piso sempre-ligado e mais nada. Uma constante
- * vazia é mais honesta que duas listas iguais e um `if` que finge escolher.
+ * `["wallet", "depix-ops"]`. O ADR 0061 moveu esses dois para o piso, o que
+ * zerou as duas listas e apagou a distinção entre elas: sem plano, o tenant tem
+ * o piso e mais nada. Uma constante vazia é mais honesta que duas listas iguais
+ * e um `if` que finge escolher.
+ *
+ * Desde o gate `depixEnabled`, o piso da carteira é condicional — mas continua
+ * sendo piso, somado depois desta lista, e não módulo de plano.
  */
 export const NO_PLAN_MODULES: ModuleKey[] = [];
 
@@ -380,13 +405,25 @@ export function allowedModulesForTenant(args: {
   blocked?: boolean;
   /** Override por-tenant da API externa (ADR 0057), ligado pelo superadmin. */
   apiAccessEnabled?: boolean;
+  /**
+   * Gate da carteira DePix. Quando ligado, `wallet`/`depix-ops` entram no piso e
+   * sobrevivem até à suspensão por inadimplência (ADR 0061). Quando desligado, o
+   * tenant nunca é exposto à carteira.
+   */
+  depixEnabled?: boolean;
 }): ModuleKey[] {
   const base = resolveBaseModules(args);
   const withOverrides = applyPerTenantOverrides(base, args);
   // Auto-inclui pré-requisitos (plano quebrado não vira acesso quebrado) e soma
-  // o piso sempre-ligado. arena-tech já tem tudo — o Set dedup.
+  // o piso. arena-tech já tem tudo — o Set dedup.
   const complete = withModuleDependencies(withOverrides);
-  return [...new Set<ModuleKey>([...complete, ...ALWAYS_ON_MODULES])];
+  const floor = args.depixEnabled
+    ? [...ALWAYS_ON_MODULES, ...WALLET_FLOOR_MODULES]
+    : ALWAYS_ON_MODULES;
+  // O piso é somado DEPOIS de `resolveBaseModules`, que zera tudo quando
+  // `blocked`. É essa ordem que faz o bloqueio suave do ADR 0061 funcionar: o
+  // inadimplente perde os módulos pagos e mantém carteira e configurações.
+  return [...new Set<ModuleKey>([...complete, ...floor])];
 }
 
 function resolveBaseModules(args: {
@@ -400,8 +437,8 @@ function resolveBaseModules(args: {
   if (args.blocked) return [...NO_PLAN_MODULES];
   if (args.tenantSlug === TOTAL_ACCESS_TENANT_SLUG) return [...MODULE_KEYS];
   // Com plano, o plano manda. Sem plano, nada além do piso: desde o ADR 0061 a
-  // carteira é sempre-ligada, então "tenant sem plano" e "tenant NO-KYC" viraram
-  // o mesmo caso e a distinção entre eles saiu daqui.
+  // carteira entra por fora da matriz de plano, então "tenant sem plano" e
+  // "tenant NO-KYC" viraram o mesmo caso e a distinção entre eles saiu daqui.
   if (args.hasPlan) return modulesFromPlanFeatures(args.planFeatures);
   return [...NO_PLAN_MODULES];
 }

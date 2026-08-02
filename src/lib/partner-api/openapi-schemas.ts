@@ -12,12 +12,20 @@ import { z } from "zod";
 export const partnerTransactionResponseSchema = z
   .object({
     id: z.string(),
-    number: z.string().describe("Número único da transação no tenant (ex.: TXD20260630-00001)."),
+    number: z
+      .string()
+      .nullable()
+      .describe(
+        "Número único da transação no tenant (ex.: TXD20260630-00001). `null` quando o " +
+          "registro ainda é um PEDIDO de saque aguardando autorização do titular.",
+      ),
     kind: z.enum(["DEPOSIT", "WITHDRAW"]),
     status: z
       .string()
       .describe(
-        "PENDING | PROCESSING | COMPLETED | FAILED | CANCELLED | EXPIRED | MED_REFUNDED. " +
+        "PENDING | PROCESSING | COMPLETED | FAILED | CANCELLED | EXPIRED | MED_REFUNDED | " +
+          "AWAITING_AUTHORIZATION (saque pedido pela API numa carteira non-custodial, " +
+          "aguardando o titular concluir no painel). " +
           "IMPORTANTE (depósito): PROCESSING = PIX RECEBIDO (pagamento confirmado); use isto " +
           "para confirmar o pagamento. COMPLETED = DePix liquidado on-chain, que pode levar até " +
           "~24h por retenção do provedor (Eulen). Não espere COMPLETED para confirmar o pagamento.",
@@ -48,9 +56,26 @@ export const partnerDepositResultSchema = z
 
 export const partnerWithdrawResultSchema = z
   .object({
-    id: z.string(),
-    number: z.string(),
-    status: z.string(),
+    id: z
+      .string()
+      .describe(
+        "Id do saque. Em AWAITING_AUTHORIZATION é o id do PEDIDO, não de um saque — " +
+          "consulte por ele até virar um saque de verdade.",
+      ),
+    number: z
+      .string()
+      .nullable()
+      .describe(
+        "Número humano do saque (TXW…). `null` enquanto o pedido aguarda autorização: " +
+          "ainda não existe saque, logo não existe número.",
+      ),
+    status: z
+      .string()
+      .describe(
+        "Situação. `AWAITING_AUTHORIZATION` significa que a carteira é non-custodial e " +
+          "o saque depende do titular concluir no painel com a senha da carteira — a Arena " +
+          "não tem essa chave e não pode assinar sozinha.",
+      ),
     // Só PIX na API de parceiros; on-chain não é exposto (ver write-schemas).
     method: z.literal("pix"),
     amountCents: z.number().int(),

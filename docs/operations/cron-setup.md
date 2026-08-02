@@ -25,6 +25,34 @@ Todos como **systemd timer** (`/etc/systemd/system/arenatech-<job>.{service,time
 `generate-recurring-expenses` (a conta nova nasce PENDING, não é marcada vencida no
 mesmo dia).
 
+### Timer que não é `arenatech-*`: `depix-cache-autorepair`
+
+Roda a cada 20min e **não** chama endpoint HTTP — executa
+`/opt/depix-cache-autorepair.sh` direto na VPS. Fonte de verdade versionada:
+[`ops/depix-cache-autorepair.sh`](../../ops/depix-cache-autorepair.sh); a cópia
+na VPS precisa ser atualizada à mão (o LWK não está no pipeline de deploy — ver a
+memória `lwk-prod-rebuild`).
+
+| Item | Valor |
+|---|---|
+| Log | `/var/log/depix-cache-autorepair.log` |
+| Alertas | `logger -t depix-cache-autorepair -p daemon.err` (journal/syslog) |
+| Cursor de rotação | `/var/lib/depix-cache-autorepair/cursor` |
+| Carteiras por rodada | `MAX_WALLETS_PER_RUN` (default 3) |
+
+**Ao atualizar a cópia da VPS (2026-08-02):** o script deixou de tratar só a
+carteira central e passou a varrer todas as carteiras do volume do LWK, em anel.
+Crie o diretório do cursor antes de rodar — sem ele a rotação começa do zero toda
+vez e as últimas carteiras nunca são reparadas:
+
+```bash
+mkdir -p /var/lib/depix-cache-autorepair
+```
+
+O teto por rodada existe porque cada carteira custa **duas** passadas de
+`full_scan` contra Esplora pública, e Esplora sobrecarregada é justamente o que
+corrompe o cache que o script conserta.
+
 > **Esta tabela não se verifica sozinha.** Em 2026-07-28 o
 > `purge-webhook-events` estava listado aqui como instalado e **não existia na
 > VPS** — a rota foi criada no #721, o unit nunca. Foram 3 dias com a retenção

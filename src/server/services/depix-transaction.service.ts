@@ -19,6 +19,8 @@ import { withTenant, withAdmin } from "@/server/db";
 import { CENTRAL_TENANT_SLUG } from "@/server/api/trpc";
 import { logger } from "@/lib/logger";
 import { resolveDailyCapCents } from "@/lib/depix/daily-cap";
+import { MAX_USER_FACING_ERROR_LENGTH } from "@/lib/depix/provider-error";
+import { startOfTodayBrt } from "@/lib/utils/date-range";
 import {
   calcDepositSettlement,
   calcDepositSplitFeePercent,
@@ -43,7 +45,7 @@ import {
 } from "@/lib/services/depix-service";
 import { extractDepixWithdrawReceiptUrl } from "@/lib/depix/receipt-url";
 import { maySettleSaleEffect } from "@/lib/depix/tx-status";
-import { assertCentralCacheHealthyForWithdraw } from "@/server/services/depix-cache-integrity.service";
+import { assertWalletCacheHealthyForWithdraw } from "@/server/services/depix-cache-integrity.service";
 
 const ZERO_FEE: DepixFeeConfig = {
   entryFeeFixed: 0,
@@ -134,8 +136,71 @@ function sanitizeUserError(rawError: string | null | undefined, fallback: string
     ) ||
     /\b[a-z0-9.-]+:\d{2,5}\b/i.test(trimmed) || // host:port
     /\b(?:\d{1,3}\.){3}\d{1,3}\b/.test(trimmed) || // IPv4
-    trimmed.length > 200;
+    trimmed.length > MAX_USER_FACING_ERROR_LENGTH;
   return suspect ? fallback : trimmed;
+}
+
+/**
+ * Limite do PROVEDOR por chave PIX de destino, em centavos.
+ *
+ * Descoberto lendo a recusa da própria Eulen — a documentação dela não publica
+ * limite nenhum:
+ *
+ *   "Daily withdrawal limit exceeded for pix key '592…185'.
+ *    Daily volume in cents: 500000. Withdrawal limit in cents: 600000."
+ *
+ * Ou seja: R$ 6.000 por DIA por CHAVE DE DESTINO, não por conta e não por
+ * tenant. Dois tenants só disputam este limite se pagarem a mesma chave.
+ */
+const PROVIDER_PIX_KEY_DAILY_CAP_CENTS = Number(
+  process.env.DEPIX_PROVIDER_PIX_KEY_DAILY_CAP_CENTS ?? "600000",
+);
+
+/**
+ * Recusa ANTES de chamar a Eulen quando os NOSSOS registros já mostram a chave
+ * estourando o limite do provedor no dia.
+ *
+ * Só bloqueia quando há certeza, e a certeza vem da direção do erro: o que
+ * enxergamos é um SUBCONJUNTO do que a Eulen conta (ela vê a chave inteira, nós
+ * vemos só o que passou por aqui). Se a nossa soma já passou do teto, a dela
+ * também passou. O contrário não vale — por isso não relaxamos nada quando a
+ * nossa soma está baixa: aí deixamos a Eulen decidir e traduzimos a recusa.
+ *
+ * Dia-calendário BRT, não janela móvel de 24h, justamente para que a nossa
+ * contagem não some volume que a Eulen já zerou na virada — bloquear saque
+ * legítimo do cliente por causa de janela desalinhada seria pior que a recusa
+ * tardia que isto evita.
+ */
+async function assertProviderPixKeyDailyCap(
+  pixKey: string,
+  nextNetCents: number,
+): Promise<void> {
+  const since = startOfTodayBrt();
+  const agg = await withAdmin(async (tx) =>
+    tx.tenantDepixTransaction.aggregate({
+      where: {
+        kind: "WITHDRAW",
+        pixKey,
+        createdAt: { gte: since },
+        status: { notIn: ["FAILED", "CANCELLED", "EXPIRED"] },
+      },
+      _sum: { netAmountCents: true },
+    }),
+  );
+  const usedCents = agg._sum.netAmountCents ?? 0;
+  if (usedCents + nextNetCents <= PROVIDER_PIX_KEY_DAILY_CAP_CENTS) return;
+
+  const remaining = Math.max(0, PROVIDER_PIX_KEY_DAILY_CAP_CENTS - usedCents);
+  const brl = (cents: number) =>
+    (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  throw new TRPCError({
+    code: "BAD_REQUEST",
+    message:
+      `Esta chave PIX já recebeu ${brl(usedCents)} hoje e o provedor limita ${brl(PROVIDER_PIX_KEY_DAILY_CAP_CENTS)} por dia por chave. ` +
+      (remaining > 0
+        ? `Ainda cabem ${brl(remaining)}: reduza o valor, use outra chave ou tente amanhã.`
+        : `O limite dela acabou: use outra chave ou tente amanhã.`),
+  });
 }
 
 /** Soma o gross dos saques do tenant nas ultimas 24h (status nao-FAILED). */
@@ -1407,12 +1472,15 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
   );
   // Carteira EXTERNAL: a Arena nao custodia o saldo, entao nao ha o que debitar
   // via LWK. O saque no modo externo e uma INTENCAO Eulen (o tenant envia o DePix
-  // da propria carteira) — implementado na Fase B. Bloqueia o caminho gerenciado.
+  // da propria carteira), que JA EXISTE — `createExternalWithdraw`, com tela em
+  // /depix-wallet/withdraw-external. Aqui so bloqueamos o caminho gerenciado e
+  // apontamos o certo; a mensagem antiga dizia "em breve" muito depois de a Fase B
+  // ter sido entregue.
   if (wallet?.custodyModel === "external") {
     throw new TRPCError({
       code: "PRECONDITION_FAILED",
       message:
-        "Sua carteira e externa (voce administra a propria carteira). O saque para carteira externa estara disponivel em breve.",
+        "Sua carteira e externa: use o saque de carteira externa, em que voce envia o DePix da sua propria carteira.",
     });
   }
 
@@ -1449,6 +1517,11 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
     }
   }
 
+  // Teto do PROVEDOR por chave de destino. Recusa aqui, em português e com o
+  // saldo do dia, em vez de deixar a Eulen recusar depois em inglês — e depois
+  // de já ter alocado o off-ramp.
+  await assertProviderPixKeyDailyCap(pixKey, args.netAmountCents);
+
   // Calcula o BRUTO a partir do liquido (inverso): destinatario recebe
   // netAmountCents, sistema debita gross do saldo (cobrindo taxa Arena
   // Tech + taxa do provedor estimada).
@@ -1472,12 +1545,12 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
   const onchainCents = Math.floor((balance.depixBalance ?? 0) * 100);
   const centralId = await getCentralTenantId();
 
-  // CONTENÇÃO (incidente TXW20260719-00001): se o cache do LWK da carteira central
+  // CONTENÇÃO (incidente TXW20260719-00001): se o cache do LWK desta carteira
   // estiver com UTXOs gastos, o saldo lido acima está inflado. Bloqueamos ANTES de
   // chamar a Eulen — sem isto, o off-ramp é alocado e a tx só quebra no broadcast
   // (`bad-txns-inputs-missingorspent`), gastando tempo e deixando um payout órfão
   // no provedor. Fail-open: só bloqueia com corrupção CONFIRMADA (ver o guard).
-  await assertCentralCacheHealthyForWithdraw(args.tenantId, centralId);
+  await assertWalletCacheHealthyForWithdraw(args.tenantId);
 
   // Garante L-BTC pra fee de rede ANTES do transfer (resolve o ovo-e-galinha do
   // 1o saque de um tenant com 0 L-BTC). Best-effort; central é a fonte (skip).
@@ -1873,6 +1946,9 @@ export async function createExternalWithdraw(args: CreateExternalWithdrawArgs) {
       throw new TRPCError({ code: "BAD_REQUEST", message: limit.reason ?? "Limite DePix excedido." });
     }
   }
+
+  // Mesmo teto do provedor: o saque externo também sai pelo off-ramp da Eulen.
+  await assertProviderPixKeyDailyCap(pixKey, args.netAmountCents);
 
   const cfg = await withTenant(args.tenantId, async (tx) => loadFeeConfig(tx, args.tenantId));
   const breakdown = calcWithdrawFromNet(args.netAmountCents, cfg);
@@ -2566,12 +2642,15 @@ export async function createOnchainWithdraw(args: CreateOnchainWithdrawArgs) {
   );
   // Carteira EXTERNAL: a Arena nao custodia o saldo, entao nao ha o que debitar
   // via LWK. O saque no modo externo e uma INTENCAO Eulen (o tenant envia o DePix
-  // da propria carteira) — implementado na Fase B. Bloqueia o caminho gerenciado.
+  // da propria carteira), que JA EXISTE — `createExternalWithdraw`, com tela em
+  // /depix-wallet/withdraw-external. Aqui so bloqueamos o caminho gerenciado e
+  // apontamos o certo; a mensagem antiga dizia "em breve" muito depois de a Fase B
+  // ter sido entregue.
   if (wallet?.custodyModel === "external") {
     throw new TRPCError({
       code: "PRECONDITION_FAILED",
       message:
-        "Sua carteira e externa (voce administra a propria carteira). O saque para carteira externa estara disponivel em breve.",
+        "Sua carteira e externa: use o saque de carteira externa, em que voce envia o DePix da sua propria carteira.",
     });
   }
 
@@ -2610,7 +2689,7 @@ export async function createOnchainWithdraw(args: CreateOnchainWithdrawArgs) {
 
   // CONTENÇÃO (mesmo motivo do createWithdraw): não envia on-chain contra saldo
   // inflado por cache com UTXOs gastos. Fail-open — só bloqueia corrupção confirmada.
-  await assertCentralCacheHealthyForWithdraw(args.tenantId, centralId);
+  await assertWalletCacheHealthyForWithdraw(args.tenantId);
 
   // Garante L-BTC pra fee de rede ANTES do envio on-chain (ovo-e-galinha do 1o
   // saque). Best-effort; central é a fonte (skip).

@@ -167,6 +167,14 @@ export const updateTenantSchema = z.object({
   /** Gate da API externa (ADR 0057): libera o tenant a emitir/usar API-keys. */
   apiAccessEnabled: z.boolean().optional(),
   /**
+   * Gate da carteira DePix: libera `wallet`/`depix-ops` como piso do tenant.
+   *
+   * DESLIGAR é recusado quando a carteira já está provisionada — tirar o módulo
+   * de quem tem saldo é trancar o cliente do lado de fora do próprio dinheiro,
+   * que é exatamente o que o ADR 0061 proíbe.
+   */
+  depixEnabled: z.boolean().optional(),
+  /**
    * Tetos de saque por 24h, em CENTAVOS. `null` = usa o default do ambiente
    * (painel R$ 25.000; API R$ 10.000). Só o superadmin altera.
    *

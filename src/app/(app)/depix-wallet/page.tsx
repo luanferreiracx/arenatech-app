@@ -14,6 +14,7 @@ import { RecentTransactions } from "./_components/recent-transactions";
 import { RecoveryPhraseCard } from "./_components/recovery-phrase-card";
 import { WalletManagementCard } from "./_components/wallet-management-card";
 import { ByowWalletsCard } from "./_components/byow-wallets-card";
+import { WithdrawAuthorizationsCard } from "./_components/withdraw-authorizations-card";
 import { WalletSetupGate } from "./_components/wallet-setup-gate";
 
 /**
@@ -122,6 +123,11 @@ export default function DepixWalletPage() {
         lastSyncOkAt={o?.balance.lastSyncOkAt ?? null}
         canWithdraw={walletInfo?.canWithdraw === true}
       />
+
+      {/* Saques que a API de parceiros deixou na fila do humano. Em carteira
+          non-custodial o servidor nao assina sozinho (ADR 0051): a maquina pede,
+          a pessoa conclui. Fica no topo porque e acao pendente com dinheiro. */}
+      <WithdrawAuthorizationsCard canManage={walletInfo?.canWithdraw === true} />
 
       {/* QR PIX estatico — exclusivo da Arena Tech (master). Vendas rapidas no
           balcao; recebimento conferido manualmente. */}

@@ -9,8 +9,9 @@ import {
 import { expireStalePaymentLinks } from "@/server/services/payment-link.service";
 import { getEsploraHealth } from "@/lib/services/lwk-service";
 import { evaluateEsploraHealth } from "@/lib/services/esplora-health-alert";
-import { checkCentralLbtcFloor } from "@/server/services/depix-lbtc-refill.service";
-import { checkCentralCacheIntegrityAndAlert } from "@/server/services/depix-cache-integrity.service";
+import { checkCentralLbtcRunway } from "@/server/services/depix-lbtc-refill.service";
+import { checkWalletCachesAndAlert } from "@/server/services/depix-cache-integrity.service";
+import { expireStaleWithdrawAuthorizations } from "@/server/services/depix-withdraw-authorization.service";
 
 /**
  * Monitora a saúde das Esploras do LWK e alerta (logger.error → Sentry) quando
@@ -64,6 +65,7 @@ export async function POST(request: NextRequest) {
   try {
     const results: Awaited<ReturnType<typeof reconcileStaleDepixTransactions>>[] = [];
     let expiredLinks = 0;
+    let expiredAuthorizations = 0;
     let indeterminate: Awaited<ReturnType<typeof resolveIndeterminateWithdrawals>> = {
       checked: 0,
       resolved: 0,
@@ -73,11 +75,12 @@ export async function POST(request: NextRequest) {
       results.push(await reconcileStaleDepixTransactions());
       // Aproveita o mesmo job pra expirar links de pagamento vencidos (12h).
       expiredLinks = (await expireStalePaymentLinks()).expired;
-      // ...e pra alertar quando o L-BTC da central seca (gás dos repasses/saques).
-      await checkCentralLbtcFloor();
+      // ...e pra alertar ANTES de o L-BTC da central secar (gás dos repasses/saques).
+      await checkCentralLbtcRunway();
       // ...e pra detectar cache do LWK com UTXOs gastos (saldo inflado — guard de
-      // recorrência do incidente 2026-07). Best-effort: nunca lança.
-      await checkCentralCacheIntegrityAndAlert();
+      // recorrência do incidente 2026-07), em TODAS as carteiras, não só na
+      // central. Best-effort: nunca lança.
+      await checkWalletCachesAndAlert();
       // ...e, POR ÚLTIMO, pra vigiar a saúde das Esploras do LWK.
       // A ordem importa: são as consultas de saldo acima que mandam o LWK
       // sincronizar e carimbar `last_sync_ok_at`. Checar antes delas lia sempre o
@@ -88,11 +91,26 @@ export async function POST(request: NextRequest) {
       // idempotência. Sem isto o operador fica sem saber se o dinheiro saiu, que
       // foi o que gerou o pagamento em dobro no TXW20260727-00002.
       indeterminate = await resolveIndeterminateWithdrawals();
+      // ...e pra caducar pedido de saque da API que ninguém decidiu. Pedido
+      // velho numa fila de dinheiro é ruído perigoso: quem autoriza dois dias
+      // depois já não lembra do contexto que o gerou.
+      expiredAuthorizations = (await expireStaleWithdrawAuthorizations()).expired;
     });
     const result = results[0];
     if (!ran || !result) return NextResponse.json({ skipped: "locked" });
-    logger.info("[cron-reconcile-depix] processed", { ...result, expiredLinks, indeterminate });
-    return NextResponse.json({ success: true, ...result, expiredLinks, indeterminate });
+    logger.info("[cron-reconcile-depix] processed", {
+      ...result,
+      expiredLinks,
+      expiredAuthorizations,
+      indeterminate,
+    });
+    return NextResponse.json({
+      success: true,
+      ...result,
+      expiredLinks,
+      expiredAuthorizations,
+      indeterminate,
+    });
   } catch (err) {
     logger.error("[cron-reconcile-depix] failed", {
       err: err instanceof Error ? err.message : String(err),

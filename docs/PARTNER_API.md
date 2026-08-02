@@ -131,7 +131,7 @@ Erros usam o status HTTP adequado e um corpo JSON uniforme:
 | `401` | Não autenticado | Header ausente, key inválida ou revogada |
 | `403` | Sem permissão | A key não tem o escopo exigido pelo endpoint |
 | `404` | Não encontrado | Transação inexistente **ou de outro tenant** (ver [isolamento](#segurança-e-isolamento)) |
-| `412` | Pré-condição falhou | Saque via API numa carteira non-custodial (use o painel) |
+| `412` | Pré-condição falhou | Carteira DePix ainda não configurada para o tenant |
 | `422` | Não processável | Validação do corpo (ex.: CPF obrigatório acima de R$ 500) |
 | `429` | Rate limit | Acima da quota da key |
 | `503` | Indisponível | Dependência temporariamente fora (tente de novo com backoff) |
@@ -212,9 +212,25 @@ Saque via **PIX** (off-ramp Eulen). **Escopo:** `depix:withdraw`.
 
 > [!WARNING]
 > **Saque move dinheiro.** A chamada não pede 2FA (é máquina), mas é cercada por
-> guardas: só funciona em carteira **custodial** (a non-custodial exige a senha do
-> titular — use o painel) e respeita um **cap diário próprio da API** somado ao cap
-> do painel. Use `Idempotency-Key` em todo saque.
+> guardas: respeita um **cap diário próprio da API** somado ao cap do painel, e um
+> teto do provedor por chave PIX de destino. Use `Idempotency-Key` em todo saque.
+
+> [!IMPORTANT]
+> **Carteira non-custodial: o saque depende de uma autorização humana.**
+>
+> Se a carteira do tenant é non-custodial (o padrão desde o ADR 0051), a Arena
+> **não tem a chave** para assiná-lo — é isso que torna a carteira non-custodial.
+> Nesse caso a chamada não cria um saque: cria um **pedido**, devolve
+> `status: "AWAITING_AUTHORIZATION"` com `number: null`, e o titular conclui no
+> painel com a senha da carteira.
+>
+> A integração precisa ser escrita para isso:
+> 1. `POST /depix/withdrawals` → guarde o `id` devolvido;
+> 2. consulte `GET /depix/transactions/:id` até sair de `AWAITING_AUTHORIZATION`;
+> 3. o pedido **caduca em 24h** se ninguém decidir — nesse caso, envie de novo.
+>
+> Repetir a chamada com a **mesma** `Idempotency-Key` devolve o mesmo pedido, não
+> enfileira um segundo.
 
 **Body** (`method: "pix"`)
 
@@ -232,13 +248,22 @@ Saque via **PIX** (off-ramp Eulen). **Escopo:** `depix:withdraw`.
   "pixKey": "12345678909", "recipientTaxId": "12345678909", "recipientName": "Fulano" }
 ```
 
-**`201 Created`**
+**`201 Created`** — carteira custodial ou externa
 ```json
 { "id": "uuid", "number": "TXW20260630-00003", "status": "PROCESSING",
   "method": "pix", "amountCents": 5000, "onchainTxId": null }
 ```
 
-Erros específicos: **`412`** carteira non-custodial · **`400`** cap diário estourado.
+**`201 Created`** — carteira non-custodial (aguardando o titular)
+```json
+{ "id": "uuid-do-pedido", "number": null, "status": "AWAITING_AUTHORIZATION",
+  "method": "pix", "amountCents": 5000, "onchainTxId": null }
+```
+
+`number` é `null` porque ainda não existe saque — logo, não existe número.
+
+Erros específicos: **`412`** carteira não configurada · **`400`** cap diário
+estourado, ou teto do provedor por chave PIX atingido.
 
 ---
 

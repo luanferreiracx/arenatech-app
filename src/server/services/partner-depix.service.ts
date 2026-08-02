@@ -72,5 +72,68 @@ export async function getPartnerTransaction(
   const row = await withTenant(tenantId, async (db) =>
     db.tenantDepixTransaction.findUnique({ where: { id }, select: TX_SELECT }),
   );
-  return row ? toDTO(row as TxRow) : null;
+  if (row) return toDTO(row as TxRow);
+
+  // O `id` pode ser um PEDIDO de saque aguardando autorização do titular
+  // (carteira non-custodial — a Arena não tem a chave para assinar sozinha).
+  // O parceiro recebeu esse id no POST e precisa de UM lugar para consultar o
+  // desfecho; mandá-lo adivinhar qual endpoint usar seria transferir para ele
+  // uma complexidade que é nossa.
+  return getAuthorizationAsTransaction(tenantId, id);
+}
+
+/**
+ * Projeta um pedido de autorização no mesmo formato de transação.
+ *
+ * Depois de autorizado, o pedido aponta o saque de verdade e passamos a
+ * responder AQUELE — assim o parceiro que consulta pelo id do pedido acompanha
+ * o saque até o fim sem precisar trocar de identificador no meio do caminho.
+ */
+async function getAuthorizationAsTransaction(
+  tenantId: string,
+  id: string,
+): Promise<PartnerTransactionDTO | null> {
+  const authorization = await withTenant(tenantId, async (db) =>
+    db.depixWithdrawAuthorization.findFirst({
+      where: { id, tenantId },
+      select: {
+        id: true,
+        status: true,
+        netAmountCents: true,
+        recipientName: true,
+        transactionId: true,
+        createdAt: true,
+        resolvedAt: true,
+      },
+    }),
+  );
+  if (!authorization) return null;
+
+  if (authorization.transactionId) {
+    const row = await withTenant(tenantId, async (db) =>
+      db.tenantDepixTransaction.findUnique({
+        where: { id: authorization.transactionId! },
+        select: TX_SELECT,
+      }),
+    );
+    if (row) return toDTO(row as TxRow);
+  }
+
+  return {
+    id: authorization.id,
+    number: null,
+    kind: "WITHDRAW",
+    status:
+      authorization.status === "PENDING" ? "AWAITING_AUTHORIZATION" : authorization.status,
+    sourceType: "WALLET",
+    grossAmountCents: authorization.netAmountCents,
+    netAmountCents: authorization.netAmountCents,
+    feeArenaTechCents: 0,
+    payerName: null,
+    recipientName: authorization.recipientName,
+    onchainTxId: null,
+    onchainAddress: null,
+    createdAt: authorization.createdAt.toISOString(),
+    completedAt: authorization.resolvedAt ? authorization.resolvedAt.toISOString() : null,
+  };
 }

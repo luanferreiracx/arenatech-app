@@ -8,6 +8,19 @@ model Tenant {
   /// Gate da API externa (ADR 0057): só com isto ligado o admin do tenant pode
   /// emitir/usar API-keys de parceiro. Controlado pelo superadmin.
   apiAccessEnabled Boolean @default(false) @map("api_access_enabled")
+  /// Gate da CARTEIRA DePix. Com isto ligado, `wallet` e `depix-ops` viram piso
+  /// sempre-ligado do tenant — inclusive quando ele está suspenso por
+  /// inadimplência (ADR 0061: o dinheiro é dele). Com isto desligado, o tenant
+  /// simplesmente não opera DePix e nunca é exposto à carteira.
+  ///
+  /// Nasce `false` porque a carteira é a superfície mais frágil do sistema
+  /// (Esplora pública, cache do LWK, off-ramp de terceiro) e não faz sentido
+  /// impor esse risco a quem contratou o sistema para vender celular. Os tenants
+  /// que já existiam foram preenchidos com `true` na migração — retirar acesso
+  /// de quem já opera seria a regressão que o ADR 0061 proíbe.
+  ///
+  /// NÃO pode ser desligado com carteira provisionada: ver `admin.setDepixEnabled`.
+  depixEnabled Boolean @default(false) @map("depix_enabled")
   /// Teto de saque por 24h no PAINEL (centavos). `null` = usa o default do
   /// ambiente (R$ 25.000). Só o superadmin altera.
   depixWithdrawDailyCapCents Int? @map("depix_withdraw_daily_cap_cents")

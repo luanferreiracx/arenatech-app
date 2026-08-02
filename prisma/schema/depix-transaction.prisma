@@ -199,6 +199,11 @@ model TenantDepixTransaction {
   @@index([pixpayDepixId])
   /// Alocacao do indice de intermediacao (query cross-tenant do menor livre).
   @@index([intermediationIndex])
+  /// Teto do PROVEDOR por chave PIX de destino (R$ 6.000/dia por chave, regra da
+  /// Eulen). A consulta e CROSS-TENANT — a chave e a mesma entidade para a Eulen
+  /// independente de qual tenant paga — entao nenhum indice com tenantId na
+  /// frente serve. Equalidade (pixKey) antes do range (createdAt).
+  @@index([pixKey, createdAt])
   @@map("tenant_depix_transactions")
 }
 

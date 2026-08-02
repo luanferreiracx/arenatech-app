@@ -14,7 +14,9 @@ import { logger } from "@/lib/logger";
 import {
   createDeposit,
   createWithdraw,
+  createExternalWithdraw,
 } from "@/server/services/depix-transaction.service";
+import { requestWithdrawAuthorization } from "@/server/services/depix-withdraw-authorization.service";
 import { resolveDailyCapCents } from "@/lib/depix/daily-cap";
 import type { PartnerDepositInput, PartnerWithdrawInput } from "@/lib/partner-api/write-schemas";
 import type { PartnerDepositResult, PartnerWithdrawResult } from "@/lib/partner-api/openapi-schemas";
@@ -88,18 +90,28 @@ export async function partnerCreateDeposit(args: {
 
 // ── Saque ────────────────────────────────────────────────────────────────────
 
-/** Bloqueia saque via API em carteira non-custodial (exige passphrase do humano). */
-async function assertCustodialForApiWithdraw(tenantId: string): Promise<void> {
+/**
+ * Modelo de custódia da carteira — decide POR ONDE o saque da API sai.
+ *
+ * Antes daqui saía um bloqueio: saque via API exigia carteira custodial. Só que
+ * desde o ADR 0051 nenhum cliente é custodial (`setupWallet` só cria
+ * `non_custodial` ou `external`), então o endpoint estava inalcançável por 100%
+ * dos tenants reais — superfície morta, não lacuna.
+ */
+async function resolveCustodyModel(tenantId: string): Promise<string> {
   const wallet = await withAdmin((tx) =>
-    tx.tenantDepixWallet.findUnique({ where: { tenantId }, select: { custodyModel: true } }),
+    tx.tenantDepixWallet.findUnique({
+      where: { tenantId },
+      select: { custodyModel: true, provisionedAt: true },
+    }),
   );
-  if (wallet?.custodyModel === "non_custodial") {
+  if (!wallet?.provisionedAt) {
     throw new TRPCError({
       code: "PRECONDITION_FAILED",
-      message:
-        "Saque via API indisponível para carteira non-custodial (exige a senha do titular). Use o painel.",
+      message: "Carteira DePix ainda não configurada para este tenant.",
     });
   }
+  return wallet.custodyModel;
 }
 
 /** Cap diário próprio da API: soma os saques do tenant nas últimas 24h. */
@@ -159,7 +171,7 @@ export async function partnerCreateWithdraw(args: {
     });
   }
 
-  await assertCustodialForApiWithdraw(args.tenantId);
+  const custodyModel = await resolveCustodyModel(args.tenantId);
   // Cap próprio da API (defesa extra; o cap do painel continua valendo no service).
   await assertApiDailyCap(args.tenantId, args.input.amountCents);
   const userId = await resolveTenantUserId(args.tenantId);
@@ -168,9 +180,60 @@ export async function partnerCreateWithdraw(args: {
     tenantId: args.tenantId,
     keyPrefix: args.keyPrefix,
     method: "pix",
+    custodyModel,
     amountCents: args.input.amountCents,
   });
 
+  // NON-CUSTODIAL: o servidor não tem a chave. Vira um pedido na fila do humano,
+  // que conclui no painel com a senha da carteira. Aceitar a passphrase aqui,
+  // num header de API, desmontaria a garantia inteira do ADR 0051 — a Arena
+  // passaria a poder gastar sozinha o dinheiro do cliente.
+  if (custodyModel === "non_custodial") {
+    const authorization = await requestWithdrawAuthorization({
+      tenantId: args.tenantId,
+      keyPrefix: args.keyPrefix,
+      idempotencyKey: args.idempotencyKey,
+      pixKeyType: args.input.pixKeyType,
+      pixKey: args.input.pixKey,
+      recipientName: args.input.recipientName ?? null,
+      recipientTaxId: args.input.recipientTaxId,
+      netAmountCents: args.input.amountCents,
+    });
+    return {
+      id: authorization.id,
+      number: null,
+      status: "AWAITING_AUTHORIZATION",
+      method: "pix",
+      amountCents: authorization.netAmountCents,
+      onchainTxId: null,
+    };
+  }
+
+  // EXTERNAL: o tenant administra a própria carteira e envia o DePix da mão
+  // dele. Não há chave nossa envolvida, então o caminho é o mesmo do painel.
+  if (custodyModel === "external") {
+    const tx = await createExternalWithdraw({
+      tenantId: args.tenantId,
+      userId,
+      userName: `API:${args.keyPrefix}`,
+      pixKeyType: args.input.pixKeyType,
+      pixKey: args.input.pixKey,
+      recipientName: args.input.recipientName ?? null,
+      recipientTaxId: args.input.recipientTaxId,
+      netAmountCents: args.input.amountCents,
+      idempotencyKey: args.idempotencyKey ?? undefined,
+    });
+    return {
+      id: tx.id,
+      number: tx.number,
+      status: tx.status,
+      method: "pix",
+      amountCents: tx.netAmountCents ?? args.input.amountCents,
+      onchainTxId: tx.withdrawTxId ?? null,
+    };
+  }
+
+  // CUSTODIAL: caminho direto (hoje, só as carteiras de infraestrutura da Arena).
   // Só PIX (off-ramp Eulen). On-chain não é exposto na API — ver partnerWithdrawSchema.
   const tx = await createWithdraw({
     tenantId: args.tenantId,
