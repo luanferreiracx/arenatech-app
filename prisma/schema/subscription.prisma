@@ -54,6 +54,48 @@ enum SubscriptionStatus {
   CANCELLED
 }
 
+/// Aviso de cobrança já disparado (ADR 0061). É a trava de idempotência do
+/// dunning: sem ela, o cron diário reenviaria "sua assinatura venceu" todo dia
+/// durante a carência inteira.
+///
+/// A chave única inclui `periodEnd` de propósito. Quando o tenant paga, o
+/// vencimento avança e o mesmo tipo de aviso volta a ser possível no ciclo
+/// seguinte — a trava é por CICLO, não para sempre.
+///
+/// Tabela global de billing (sem RLS de tenant, como `plans` e `subscriptions`):
+/// só o cron e o superadmin escrevem, via `withAdmin`.
+model SubscriptionNotification {
+  id             String                 @id @default(uuid()) @db.Uuid
+  subscriptionId String                 @map("subscription_id") @db.Uuid
+  tenantId       String                 @map("tenant_id") @db.Uuid
+  kind           SubscriptionNoticeKind
+  /// Vencimento do ciclo a que este aviso se refere.
+  periodEnd      DateTime               @map("period_end")
+
+  /// Quando cada canal confirmou o envio. `null` = ainda não saiu (a linha foi
+  /// criada como reserva). O cron do dia seguinte tenta de novo o que ficou
+  /// nulo, sem reenviar o que já saiu.
+  emailSentAt    DateTime? @map("email_sent_at")
+  whatsappSentAt DateTime? @map("whatsapp_sent_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([subscriptionId, kind, periodEnd])
+  @@index([tenantId])
+  @@map("subscription_notifications")
+}
+
+enum SubscriptionNoticeKind {
+  /// Vence em poucos dias (aviso preventivo).
+  DUE_SOON
+  /// Venceu; começou a carência.
+  PAST_DUE
+  /// A carência acaba amanhã.
+  GRACE_ENDING
+  /// Suspendemos o acesso aos módulos do plano.
+  SUSPENDED
+}
+
 enum BillingCycle {
   MONTHLY
   YEARLY
