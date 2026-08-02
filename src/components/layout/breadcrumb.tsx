@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 const segmentLabels: Record<string, string> = {
   // Top-level modules (English route slugs)
   painel: "Painel",
+  "assinatura-bloqueada": "Assinatura suspensa",
   customers: "Clientes",
   "service-orders": "Ordens de Serviço",
   pdv: "PDV",

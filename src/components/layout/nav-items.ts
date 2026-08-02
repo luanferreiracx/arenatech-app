@@ -38,6 +38,7 @@ import {
   Smartphone,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { isRouteAllowedWhileBlocked } from "@/lib/modules";
 import type { ModuleKey } from "@/lib/modules";
 
 export interface NavItem {
@@ -207,6 +208,8 @@ export const appNavItems: NavItem[] = appNavGroups.flatMap((g) => g.items);
 /**
  * True se o item de menu deve ser exibido para o tenant ativo.
  * Regra única compartilhada por sidebar, mobile-sidebar e command-palette:
+ * - respeita `blocked` (ADR 0061): assinatura suspensa esconde tudo que o proxy
+ *   vai recusar — inclusive itens sem `module`, como o Painel;
  * - respeita `requiresTenantSlug` (gating por slug, ex.: iphone-hunter);
  * - respeita `module` (gating por plano): item sem `module` é sempre exibido;
  *   item com `module` só aparece se o módulo está liberado para o tenant;
@@ -218,8 +221,18 @@ export function isNavItemVisible(
     tenantSlug?: string | null;
     allowedModules?: readonly string[];
     isTenantAdmin?: boolean;
+    /** Assinatura suspensa por inadimplência (ADR 0061). */
+    blocked?: boolean;
   },
 ): boolean {
+  // Vem primeiro e olha o HREF, não o módulo: com a assinatura suspensa o
+  // Painel continuava no menu (item sem `module`, sempre visível) e clicar nele
+  // devolvia o usuário para a tela de bloqueio. Menu que oferece caminho fechado
+  // é o mesmo defeito que o gating por papel já corrigiu — quem autoriza é o
+  // proxy; isto é não oferecer o que vai dar em negativa.
+  if (ctx.blocked && !isRouteAllowedWhileBlocked(item.href)) {
+    return false;
+  }
   if (item.requiresTenantSlug && item.requiresTenantSlug !== ctx.tenantSlug) {
     return false;
   }

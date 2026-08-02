@@ -42,11 +42,14 @@ export function CommandPaletteProvider({
   tenantSlug,
   allowedModules,
   isTenantAdmin,
+  blocked,
 }: {
   children: React.ReactNode;
   tenantSlug?: string;
   allowedModules?: string[];
   isTenantAdmin?: boolean;
+  /** Assinatura suspensa por inadimplência (ADR 0061). */
+  blocked?: boolean;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -70,6 +73,7 @@ export function CommandPaletteProvider({
         tenantSlug={tenantSlug}
         allowedModules={allowedModules}
         isTenantAdmin={isTenantAdmin}
+        blocked={blocked}
       />
     </CommandPaletteContext.Provider>
   );
@@ -81,12 +85,15 @@ function CommandPaletteDialog({
   tenantSlug,
   allowedModules,
   isTenantAdmin,
+  blocked,
 }: {
   open: boolean;
   setOpen: (open: boolean) => void;
   tenantSlug?: string;
   allowedModules?: string[];
   isTenantAdmin?: boolean;
+  /** Assinatura suspensa por inadimplência (ADR 0061). */
+  blocked?: boolean;
 }) {
   const router = useRouter();
   const trpc = useTRPC();
@@ -230,7 +237,7 @@ function CommandPaletteDialog({
 
         {appNavGroups.map((group, gi) => {
           const visibleItems = group.items.filter((it) =>
-            isNavItemVisible(it, { tenantSlug, allowedModules, isTenantAdmin }),
+            isNavItemVisible(it, { tenantSlug, allowedModules, isTenantAdmin, blocked }),
           );
           if (visibleItems.length === 0) return null;
           return (

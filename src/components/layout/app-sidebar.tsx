@@ -30,11 +30,13 @@ interface AppSidebarProps {
   tenantSlug?: string;
   tenantLogoUrl?: string | null;
   allowedModules?: string[];
+  /** Assinatura suspensa por inadimplência (ADR 0061). */
+  blocked?: boolean;
   isTenantAdmin?: boolean;
   isSuperAdmin?: boolean;
 }
 
-export function AppSidebar({ userName, multiTenant, tenantName, tenantSlug, tenantLogoUrl, allowedModules, isTenantAdmin, isSuperAdmin }: AppSidebarProps) {
+export function AppSidebar({ userName, multiTenant, tenantName, tenantSlug, tenantLogoUrl, allowedModules, blocked, isTenantAdmin, isSuperAdmin }: AppSidebarProps) {
   const { isCollapsed, toggle } = useSidebar();
   const pathname = usePathname();
 
@@ -79,7 +81,7 @@ export function AppSidebar({ userName, multiTenant, tenantName, tenantSlug, tena
           {appNavGroups.map((group, gi) => {
             const isFirst = gi === 0;
             const visibleItems = group.items.filter((item) =>
-              isNavItemVisible(item, { tenantSlug, allowedModules, isTenantAdmin }),
+              isNavItemVisible(item, { tenantSlug, allowedModules, isTenantAdmin, blocked }),
             );
             if (visibleItems.length === 0) return null;
             return (
@@ -205,7 +207,7 @@ export function AppSidebar({ userName, multiTenant, tenantName, tenantSlug, tena
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent side="top" align="start" className="w-48">
-              {(allowedModules ?? []).includes("settings") && (
+              {!blocked && (allowedModules ?? []).includes("settings") && (
                 <DropdownMenuItem asChild>
                   <Link href="/settings" className="flex items-center gap-2">
                     <User className="w-4 h-4" />
@@ -216,7 +218,7 @@ export function AppSidebar({ userName, multiTenant, tenantName, tenantSlug, tena
               {/* API de Parceiros: módulo próprio (override por-tenant). Link direto
                   — não depende do módulo `settings` (tenant wallet-only/NO-KYC
                   liberado pra API ainda chega aqui). */}
-              {(allowedModules ?? []).includes("partner-api") && (
+              {!blocked && (allowedModules ?? []).includes("partner-api") && (
                 <DropdownMenuItem asChild>
                   <Link href="/settings/partner-api" className="flex items-center gap-2">
                     <KeyRound className="w-4 h-4" />
@@ -224,7 +226,7 @@ export function AppSidebar({ userName, multiTenant, tenantName, tenantSlug, tena
                   </Link>
                 </DropdownMenuItem>
               )}
-              {((allowedModules ?? []).includes("settings") ||
+              {!blocked && ((allowedModules ?? []).includes("settings") ||
                 (allowedModules ?? []).includes("partner-api")) && <DropdownMenuSeparator />}
               <DropdownMenuItem
                 className="text-destructive focus:text-destructive"

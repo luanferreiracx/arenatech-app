@@ -47,6 +47,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // operador, que clicava e tomava 403 com meia tela. Quem autoriza segue sendo
   // a procedure; isto é só não oferecer o caminho que vai dar em negativa.
   const isTenantAdminUser = isTenantAdmin(session, activeTenant?.id ?? "");
+  // Assinatura suspensa (ADR 0061): o menu esconde o que o proxy vai recusar.
+  const blocked = activeTenant?.blocked === true;
   const tenantLogoUrl = await getTenantLogoUrl(activeTenant?.id);
 
   return (
@@ -66,6 +68,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         tenantSlug={activeTenant?.slug}
         allowedModules={allowedModules}
         isTenantAdmin={isTenantAdminUser}
+        blocked={blocked}
       >
         {/* Logout por inatividade (opt-in pelo tenant via Config -> Seguranca). */}
         <IdleTimeout />
@@ -79,6 +82,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             tenantLogoUrl={tenantLogoUrl}
             allowedModules={allowedModules}
             isTenantAdmin={isTenantAdminUser}
+            blocked={blocked}
             isSuperAdmin={session.user.isSuperAdmin}
           />
 
@@ -91,6 +95,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             tenantLogoUrl={tenantLogoUrl}
             allowedModules={allowedModules}
             isTenantAdmin={isTenantAdminUser}
+            blocked={blocked}
             isSuperAdmin={session.user.isSuperAdmin}
           />
 
