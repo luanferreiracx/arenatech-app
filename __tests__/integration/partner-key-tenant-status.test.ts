@@ -13,6 +13,12 @@
  *    painel não cortava o tráfego existente.
  *
  * Nenhum caminho de suspensão/cancelamento revogava as keys.
+ *
+ * ADR 0061 revisou UM ponto disto: `SUSPENDED` voltou a valer. Quem libera a API
+ * é o toggle `apiAccessEnabled` do superadmin, e só ele — atrasar a mensalidade
+ * não desliga a integração do parceiro pelas costas de quem a ligou, do mesmo
+ * jeito que o bloqueio suave não tira a carteira do cliente. `PENDING` e
+ * `CANCELLED` seguem recusados, e o toggle segue cortando o tráfego na hora.
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 vi.mock("@/server/auth", () => ({ auth: async () => null }));
@@ -55,7 +61,7 @@ async function setTenant(data: { status?: string; apiAccessEnabled?: boolean }) 
   await prisma.tenant.update({ where: { id: tenantId }, data: data as never });
 }
 
-describe("API-key de parceiro — só vale com tenant ACTIVE e API ligada", () => {
+describe("API-key de parceiro — quem libera é o toggle do superadmin", () => {
   it("tenant ACTIVE com API ligada: a key funciona", async () => {
     await setTenant({ status: "ACTIVE", apiAccessEnabled: true });
     const r = await validatePartnerApiKey(plaintextKey);
@@ -63,13 +69,28 @@ describe("API-key de parceiro — só vale com tenant ACTIVE e API ligada", () =
     expect(r!.tenantId).toBe(tenantId);
   });
 
-  it("tenant SUSPENDED (inadimplente): a key PARA de valer", async () => {
-    await setTenant({ status: "SUSPENDED" });
+  // ADR 0061: atraso de mensalidade não desliga a integração do parceiro. O
+  // bloqueio suave tira os módulos PAGOS; a API, como a carteira, move dinheiro
+  // do próprio cliente e segue de pé até o superadmin desligar o toggle.
+  it("tenant SUSPENDED (inadimplente): a key CONTINUA valendo", async () => {
+    await setTenant({ status: "SUSPENDED", apiAccessEnabled: true });
+    const r = await validatePartnerApiKey(plaintextKey);
+    expect(r).not.toBeNull();
+    expect(r!.tenantId).toBe(tenantId);
+  });
+
+  it("tenant SUSPENDED com o toggle desligado: recusa (o toggle é quem manda)", async () => {
+    await setTenant({ status: "SUSPENDED", apiAccessEnabled: false });
     expect(await validatePartnerApiKey(plaintextKey)).toBeNull();
   });
 
-  it("tenant CANCELLED: a key PARA de valer", async () => {
-    await setTenant({ status: "CANCELLED" });
+  it("tenant CANCELLED: a key PARA de valer (saída, não atraso)", async () => {
+    await setTenant({ status: "CANCELLED", apiAccessEnabled: true });
+    expect(await validatePartnerApiKey(plaintextKey)).toBeNull();
+  });
+
+  it("tenant PENDING: a key não vale (ainda não entrou)", async () => {
+    await setTenant({ status: "PENDING", apiAccessEnabled: true });
     expect(await validatePartnerApiKey(plaintextKey)).toBeNull();
   });
 

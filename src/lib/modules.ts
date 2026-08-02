@@ -125,12 +125,22 @@ export function modulesRequiredBySelection(selection: readonly ModuleKey[]): Set
 export const PER_TENANT_OVERRIDE_MODULES: ModuleKey[] = ["partner-api"];
 
 /**
- * Módulos SEMPRE ligados, independente do plano (decisão do dono): todo tenant
- * configura a própria loja. `settings` (formas de pagamento, equipe, integrações,
- * fiscal-config, etc.) sai da matriz de plano — como `/settings/security` já era.
- * Ficam fora do editor de plano e são concedidos a qualquer tenant.
+ * Módulos SEMPRE ligados, independente do plano (decisão do dono). Ficam fora do
+ * editor de plano e são concedidos a qualquer tenant, inclusive o suspenso por
+ * inadimplência (ADR 0061 — o bloqueio suave preserva exatamente este piso).
+ *
+ * - `settings`: todo tenant configura a própria loja (formas de pagamento,
+ *   equipe, integrações). Como `/settings/security` já era.
+ * - `wallet` + `depix-ops`: a carteira guarda o DINHEIRO do cliente. Nenhuma
+ *   decisão comercial nossa pode separá-lo dele, nem quando ele deve. Reter
+ *   saldo alheio como alavanca de cobrança seria abuso, além de risco
+ *   regulatório (ADR 0061).
+ *
+ * `partner-api` também não depende de plano, mas NÃO entra aqui: continua sob o
+ * override por tenant `apiAccessEnabled` (ADR 0057), que é controle de segurança
+ * e não de pacote.
  */
-export const ALWAYS_ON_MODULES: ModuleKey[] = ["settings"];
+export const ALWAYS_ON_MODULES: ModuleKey[] = ["settings", "wallet", "depix-ops"];
 
 /**
  * Módulos selecionáveis no editor de PLANO: exclui os de override por-tenant e os
@@ -164,23 +174,16 @@ function slugAllowlistForPath(pathname: string): readonly string[] | null {
 }
 
 /**
- * Módulos liberados por padrão para tenants novos enquanto validamos os demais.
- * - `wallet`: carteira DePix (saldo, depósito, saque).
- * - `depix-ops`: link público de pagamento (/quick-sales -> /pay). Liberado a
- *   todos pois é só a ponte para a cobrança pública — as operações de carteira
- *   já vivem em `wallet`.
+ * Módulos PAGOS de um tenant sem plano: nenhum.
+ *
+ * Antes existiam duas constantes aqui (`DEFAULT_RELEASED_MODULES` para tenant
+ * novo, `NO_KYC_MODULES` para tenant sem documento), ambas valendo
+ * `["wallet", "depix-ops"]`. O ADR 0061 moveu esses dois para
+ * `ALWAYS_ON_MODULES`, o que zerou as duas listas e apagou a distinção entre
+ * elas: sem plano, o tenant tem o piso sempre-ligado e mais nada. Uma constante
+ * vazia é mais honesta que duas listas iguais e um `if` que finge escolher.
  */
-export const DEFAULT_RELEASED_MODULES: ModuleKey[] = ["wallet", "depix-ops"];
-
-/**
- * Módulos de um tenant NO-KYC (sem documento) ENQUANTO ele não tem plano ativo:
- * carteira DePix + link público de pagamento. NO-KYC é o ESTADO INICIAL de todo
- * tenant (cadastro por email/WhatsApp), não um teto permanente — ao ativar o
- * plano, o superadmin libera os módulos do plano mesmo sem CNPJ (revisão da
- * política do ADR 0050). Constante própria (não reaproveita DEFAULT_RELEASED_MODULES)
- * para que mudar o default de tenants novos no futuro não altere o piso NO-KYC.
- */
-export const NO_KYC_MODULES: ModuleKey[] = ["wallet", "depix-ops"];
+export const NO_PLAN_MODULES: ModuleKey[] = [];
 
 /**
  * Gating por ABA de Configurações. `settings` é sempre-ligado (todo tenant
@@ -343,42 +346,45 @@ export function resolveModuleForPath(pathname: string): ModuleKey | null {
 }
 
 /**
- * Extrai a lista de módulos liberados a partir do `features` do plano.
- * Aceita `features.modules: string[]`. Valores desconhecidos são ignorados.
- * Plano sem `modules` definido → cai no padrão (apenas wallet).
+ * Extrai os módulos PAGOS que o plano libera, a partir de `features.modules`.
+ * Valores desconhecidos são ignorados. Plano sem `modules` (ou com lista vazia)
+ * não libera nada além do piso sempre-ligado, que `allowedModulesForTenant`
+ * soma depois.
  */
 export function modulesFromPlanFeatures(features: unknown): ModuleKey[] {
-  if (features && typeof features === "object" && "modules" in features) {
-    const raw = (features as { modules: unknown }).modules;
-    if (Array.isArray(raw)) {
-      const parsed = raw.filter(
-        (m): m is ModuleKey => typeof m === "string" && isModuleKey(m),
-      );
-      const modules = Array.from(new Set(parsed));
-      return modules.length > 0 ? modules : [...DEFAULT_RELEASED_MODULES];
-    }
+  if (!features || typeof features !== "object" || !("modules" in features)) {
+    return [...NO_PLAN_MODULES];
   }
-  return [...DEFAULT_RELEASED_MODULES];
+  const raw = (features as { modules: unknown }).modules;
+  if (!Array.isArray(raw)) return [...NO_PLAN_MODULES];
+
+  const parsed = raw.filter((m): m is ModuleKey => typeof m === "string" && isModuleKey(m));
+  return Array.from(new Set(parsed));
 }
 
 /**
  * Módulos efetivamente liberados para um tenant.
  * - `arena-tech` → TODOS (acesso total).
- * - demais → o que o plano libera (ou o padrão, se sem plano/sem modules).
+ * - `blocked` (inadimplente suspenso, ADR 0061) → só o piso sempre-ligado.
+ * - demais → o piso mais o que o plano libera.
  */
 export function allowedModulesForTenant(args: {
   tenantSlug: string | null | undefined;
   planFeatures: unknown;
   hasPlan: boolean;
-  /** Tenant NO-KYC (sem documento — ADR 0050): teto rígido em `wallet`. */
-  isNoKyc?: boolean;
+  /**
+   * Assinatura suspensa por falta de pagamento. Derruba os módulos pagos e
+   * mantém o piso — carteira, link de cobrança e configurações seguem de pé
+   * para o cliente conseguir pagar e mexer no próprio dinheiro (ADR 0061).
+   */
+  blocked?: boolean;
   /** Override por-tenant da API externa (ADR 0057), ligado pelo superadmin. */
   apiAccessEnabled?: boolean;
 }): ModuleKey[] {
   const base = resolveBaseModules(args);
   const withOverrides = applyPerTenantOverrides(base, args);
   // Auto-inclui pré-requisitos (plano quebrado não vira acesso quebrado) e soma
-  // os módulos sempre-ligados (settings). arena-tech já tem tudo — o Set dedup.
+  // o piso sempre-ligado. arena-tech já tem tudo — o Set dedup.
   const complete = withModuleDependencies(withOverrides);
   return [...new Set<ModuleKey>([...complete, ...ALWAYS_ON_MODULES])];
 }
@@ -387,24 +393,17 @@ function resolveBaseModules(args: {
   tenantSlug: string | null | undefined;
   planFeatures: unknown;
   hasPlan: boolean;
-  isNoKyc?: boolean;
+  blocked?: boolean;
 }): ModuleKey[] {
-  if (args.tenantSlug === TOTAL_ACCESS_TENANT_SLUG) {
-    return [...MODULE_KEYS];
-  }
-  // Com plano ATIVO, o plano manda — inclusive para NO-KYC. Ativar = liberar os
-  // módulos do plano; NO-KYC deixa de ser teto e vira apenas o estado inicial
-  // "sem plano" (revisão da política do ADR 0050). O superadmin só atribui plano
-  // a tenant NO-KYC de forma explícita.
-  if (args.hasPlan) {
-    return modulesFromPlanFeatures(args.planFeatures);
-  }
-  // Sem plano: NO-KYC fica no piso (wallet + link de cobrança); demais tenants
-  // caem no default liberado.
-  if (args.isNoKyc) {
-    return [...NO_KYC_MODULES];
-  }
-  return [...DEFAULT_RELEASED_MODULES];
+  // Inadimplente vem ANTES do acesso total: o bloqueio vale até para arena-tech,
+  // senão o teste do bloqueio nunca reproduz o que o cliente vive.
+  if (args.blocked) return [...NO_PLAN_MODULES];
+  if (args.tenantSlug === TOTAL_ACCESS_TENANT_SLUG) return [...MODULE_KEYS];
+  // Com plano, o plano manda. Sem plano, nada além do piso: desde o ADR 0061 a
+  // carteira é sempre-ligada, então "tenant sem plano" e "tenant NO-KYC" viraram
+  // o mesmo caso e a distinção entre eles saiu daqui.
+  if (args.hasPlan) return modulesFromPlanFeatures(args.planFeatures);
+  return [...NO_PLAN_MODULES];
 }
 
 /**
@@ -434,11 +433,18 @@ function applyPerTenantOverrides(
  * `/settings` (índice) e abas não-listadas caem no fallback "settings" (always-on)
  * em ROUTE_MODULE_PREFIXES, então não são `null` e não passam por aqui.
  */
+/** Tela de bloqueio por inadimplência (ADR 0061): explica o motivo e cobra. */
+export const BLOCKED_SUBSCRIPTION_ROUTE = "/assinatura-bloqueada";
+
 export const UNGATED_ROUTE_PREFIXES: readonly string[] = [
   "/painel",
   "/dev",
   "/change-password",
   "/no-access",
+  // A tela de bloqueio é sem-módulo por design. Precisa passar também para quem
+  // NÃO está bloqueado: quando o pagamento renova a assinatura, o usuário ainda
+  // está parado nela, e a própria página é quem o manda de volta ao painel.
+  BLOCKED_SUBSCRIPTION_ROUTE,
   ...SETTINGS_TAB_MODULE.filter(([, mod]) => mod === null).map(([prefix]) => prefix),
 ];
 
@@ -459,6 +465,43 @@ export function isPathAllowed(
   // FAIL-CLOSED: sem módulo → libera SÓ se for sem-gating por design; caso
   // contrário nega (rota desconhecida/não-registrada não vaza pra o tenant).
   return isUngatedByDesign(pathname);
+}
+
+/**
+ * Rotas que um tenant com assinatura suspensa ainda abre (ADR 0061).
+ *
+ * Lista explícita, por exclusão: rota nova nasce bloqueada até alguém declarar
+ * o contrário aqui. É o mesmo fail-closed de `isPathAllowed`. Só entram as que
+ * o cliente precisa para sair do bloqueio ou para mexer no que é dele:
+ *
+ * - a própria tela de bloqueio e a de pagar a assinatura;
+ * - `/settings/security`, porque 2FA é pré-requisito de saque DePix e a conta é
+ *   do próprio usuário;
+ * - carteira e link de cobrança, porque o saldo é do cliente e reter dinheiro
+ *   alheio como alavanca de cobrança seria abuso;
+ * - trocar de tenant, trocar senha e sair, que são rotas de sessão.
+ *
+ * Reconfigurar a loja (`/settings/general`, equipe, formas de pagamento) fica
+ * de fora de propósito: conta suspensa não é conta em operação.
+ */
+const ROUTES_ALLOWED_WHILE_BLOCKED: readonly string[] = [
+  BLOCKED_SUBSCRIPTION_ROUTE,
+  "/settings/subscription",
+  "/settings/security",
+  "/settings/depix",
+  "/depix-wallet",
+  "/depix",
+  "/quick-sales",
+  "/select-tenant",
+  "/change-password",
+  "/logout",
+];
+
+/** True se a rota segue aberta para um tenant suspenso por inadimplência. */
+export function isRouteAllowedWhileBlocked(pathname: string): boolean {
+  return ROUTES_ALLOWED_WHILE_BLOCKED.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+  );
 }
 
 /**

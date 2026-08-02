@@ -12,6 +12,7 @@ import { compareSync, hashSync } from "bcryptjs";
 import { withAdmin, withTenant } from "@/server/db";
 import { logger } from "@/lib/logger";
 import { isValidScope, type PartnerScope } from "@/lib/partner-api/scopes";
+import { keepsSession } from "@/lib/auth/tenant-status";
 
 const KEY_BCRYPT_COST = 12;
 const PREFIX_LEN = 8;
@@ -110,8 +111,18 @@ export async function validatePartnerApiKey(
   });
   if (!found?.key || found.key.revokedAt) return null;
   const row = found.key;
-  // Fail-closed: só tenant ATIVO e com acesso à API explicitamente ligado.
-  if (found.tenant?.status !== "ACTIVE" || found.tenant.apiAccessEnabled !== true) {
+  // Fail-closed: tenant que ainda rende sessão E com acesso à API explicitamente
+  // ligado pelo superadmin.
+  //
+  // `SUSPENDED` passou a valer aqui com o ADR 0061 (era só `ACTIVE`). Quem libera
+  // a API é o toggle `apiAccessEnabled`, e só ele — atrasar a mensalidade não
+  // desliga a integração do parceiro pelas costas do superadmin. O bloqueio por
+  // inadimplência tira os módulos PAGOS; a carteira e a API, que movem dinheiro
+  // do próprio cliente, seguem de pé (mesma regra da tela de bloqueio).
+  //
+  // `PENDING` e `CANCELLED` continuam recusados por `keepsSession`: o primeiro
+  // ainda não entrou, o segundo saiu.
+  if (!keepsSession(found.tenant?.status ?? "") || found.tenant?.apiAccessEnabled !== true) {
     logger.warn("Partner API: key valida recusada (tenant inelegivel)", {
       tenantId: row.tenantId,
       keyPrefix: prefix,

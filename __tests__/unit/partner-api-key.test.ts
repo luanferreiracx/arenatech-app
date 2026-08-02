@@ -132,10 +132,25 @@ describe("partner-api-key service", () => {
     expect(v!.scopes).toEqual(["depix:deposit"]);
   });
 
-  it("tenant SUSPENDED invalida a key (auditoria 2026-07-25)", async () => {
+  // ADR 0061 revisou a auditoria de 2026-07-25 neste ponto: atraso de mensalidade
+  // não desliga a integração do parceiro. Quem libera é o toggle do superadmin
+  // (`apiAccessEnabled`), testado logo abaixo. `CANCELLED` segue recusado.
+  it("tenant SUSPENDED (inadimplente) MANTÉM a key — quem corta é o toggle", async () => {
     const issued = await issuePartnerApiKey({ tenantId: TENANT, name: "x", scopes: ["depix:withdraw"], createdById: "u1" });
     expect(await validatePartnerApiKey(issued.plaintextKey)).not.toBeNull();
     tenantState.set(TENANT, { status: "SUSPENDED", apiAccessEnabled: true });
+    expect(await validatePartnerApiKey(issued.plaintextKey)).not.toBeNull();
+  });
+
+  it("tenant CANCELLED invalida a key (saída, não atraso)", async () => {
+    const issued = await issuePartnerApiKey({ tenantId: TENANT, name: "x", scopes: ["depix:withdraw"], createdById: "u1" });
+    tenantState.set(TENANT, { status: "CANCELLED", apiAccessEnabled: true });
+    expect(await validatePartnerApiKey(issued.plaintextKey)).toBeNull();
+  });
+
+  it("tenant SUSPENDED com o toggle desligado invalida a key", async () => {
+    const issued = await issuePartnerApiKey({ tenantId: TENANT, name: "x", scopes: ["depix:withdraw"], createdById: "u1" });
+    tenantState.set(TENANT, { status: "SUSPENDED", apiAccessEnabled: false });
     expect(await validatePartnerApiKey(issued.plaintextKey)).toBeNull();
   });
 

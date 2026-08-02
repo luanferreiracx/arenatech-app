@@ -18,6 +18,11 @@ import { withAdmin } from "@/server/db";
 import { recordFailedAttempt, clearRateLimit } from "@/lib/utils/rate-limit";
 import { logger } from "@/lib/logger";
 import { allowedModulesForTenant, type ModuleKey } from "@/lib/modules";
+import {
+  SESSION_TENANT_STATUSES,
+  keepsSession,
+  isBlockedStatus,
+} from "@/lib/auth/tenant-status";
 import { decryptSecret, verifyTotp } from "@/lib/auth/two-factor";
 import { consumeBackupCodeAtomic } from "@/server/services/backup-code.service";
 import { TwoFactorRequiredError, TwoFactorInvalidError } from "@/lib/auth/two-factor-errors";
@@ -35,7 +40,8 @@ const DUMMY_PASSWORD_HASH = hashPassword("nonexistent-user-timing-equalizer");
 
 const MODULES_CACHE_TTL_MS = 60_000;
 const modulesCache = new Map<string, { modules: ModuleKey[]; expiresAt: number }>();
-const ACTIVE_TENANT_STATUS = "ACTIVE";
+// A regra de "que status ainda rende sessão" mora em @/lib/auth/tenant-status
+// (módulo puro), para ter guardião de teste sem carregar o NextAuth.
 const USER_SECURITY_CACHE_TTL_MS = 15_000;
 type UserSecurity = { mustChangePassword: boolean; pwdSig: string };
 const userSecurityCache = new Map<string, UserSecurity & { expiresAt: number }>();
@@ -105,7 +111,7 @@ async function resolveMembership(userId: string): Promise<MembershipTenant[]> {
 
   const rows = await withAdmin((tx) =>
     tx.userTenant.findMany({
-      where: { userId, tenant: { status: ACTIVE_TENANT_STATUS } },
+      where: { userId, tenant: { status: { in: SESSION_TENANT_STATUSES } } },
       include: {
         tenant: { select: { id: true, slug: true, name: true, plan: true, status: true } },
       },
@@ -147,26 +153,22 @@ async function resolveModulesByTenant(
       // Quando chamado em requisições subsequentes, não temos o plano no token:
       // buscamos tenant.plan no banco. No login já temos, mas reconsultar é
       // barato e mantém uma única fonte de verdade.
-      // cnpj entra no select para inferir NO-KYC (sem documento → teto wallet).
-      // Buscamos sempre no banco (mesmo sem withPlan): o token não carrega cnpj
-      // e o reforço de gating do NO-KYC não pode depender só do plano.
       const dbTenants = await tx.tenant.findMany({
         where: { id: { in: stale.map((t) => t.id) } },
-        select: { id: true, slug: true, plan: true, status: true, cnpj: true, apiAccessEnabled: true },
+        select: { id: true, slug: true, plan: true, status: true, apiAccessEnabled: true },
       });
 
-      const activeTenants = dbTenants.filter(
-        (t) => !("status" in t) || t.status === ACTIVE_TENANT_STATUS,
-      );
+      // `CANCELLED` some do mapa (fica sem módulos e sem sessão). `SUSPENDED`
+      // permanece, com os módulos derrubados ao piso — é o bloqueio suave.
+      const sessionTenants = dbTenants.filter((t) => keepsSession(t.status));
 
       // Fonte canônica do plano: a Subscription não-cancelada (ACTIVE ou PAST_DUE
-      // — em carência ainda concede acesso). O corte de fato (SUSPENDED/CANCELLED)
-      // já ocorre no login via Tenant.status. `Tenant.plan` (sombra) é só fallback
+      // — em carência ainda concede acesso). `Tenant.plan` (sombra) é só fallback
       // para o legado ainda sem Subscription durante a transição.
-      const subscriptions = activeTenants.length
+      const subscriptions = sessionTenants.length
         ? await tx.subscription.findMany({
             where: {
-              tenantId: { in: activeTenants.map((t) => t.id) },
+              tenantId: { in: sessionTenants.map((t) => t.id) },
               status: { in: ["ACTIVE", "PAST_DUE"] },
             },
             select: { tenantId: true, plan: { select: { features: true } } },
@@ -179,7 +181,7 @@ async function resolveModulesByTenant(
       // Fallback: só busca Plan por `Tenant.plan` para tenants sem Subscription.
       const fallbackPlanIds = Array.from(
         new Set(
-          activeTenants
+          sessionTenants
             .filter((t) => !subFeaturesByTenantId.has(t.id) && t.plan)
             .map((t) => t.plan)
             .filter((p): p is string => Boolean(p)),
@@ -192,7 +194,7 @@ async function resolveModulesByTenant(
           })
         : [];
       const fallbackFeaturesByPlanId = new Map(fallbackPlans.map((p) => [p.id, p.features]));
-      return { dbTenants: activeTenants, subFeaturesByTenantId, fallbackFeaturesByPlanId };
+      return { dbTenants: sessionTenants, subFeaturesByTenantId, fallbackFeaturesByPlanId };
     });
 
     for (const t of data.dbTenants) {
@@ -209,8 +211,11 @@ async function resolveModulesByTenant(
         tenantSlug: t.slug,
         hasPlan: hasSubscription || Boolean(t.plan),
         planFeatures,
-        // Tipo inferido pela presença de documento (ADR 0050): sem CNPJ = NO-KYC.
-        isNoKyc: !t.cnpj,
+        // Inadimplente suspenso: só o piso (carteira, cobrança, configurações).
+        // A consulta de Subscription acima já exclui SUSPENDED, então um tenant
+        // bloqueado também cairia sem plano; marcar explícito evita que o
+        // fallback por `Tenant.plan` (sombra do legado) o devolva ao plano pago.
+        blocked: isBlockedStatus(t.status),
         // Override por-tenant da API externa (ADR 0057).
         apiAccessEnabled: t.apiAccessEnabled === true,
       });
@@ -357,7 +362,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             return tx.userTenant.findMany({
               where: {
                 userId: user.id!,
-                tenant: { status: ACTIVE_TENANT_STATUS },
+                tenant: { status: { in: SESSION_TENANT_STATUSES } },
               },
               include: {
                 tenant: { select: { id: true, slug: true, name: true, plan: true, status: true } },
@@ -380,6 +385,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             name: ut.tenant.name,
             role: ut.role,
             isTechnician: ut.isTechnician,
+            blocked: isBlockedStatus(ut.tenant.status),
             modules: modulesByTenantId.get(ut.tenant.id) ?? [],
           }));
 
@@ -433,6 +439,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
               name: t.name,
               role: t.role,
               isTechnician: t.isTechnician,
+              blocked: isBlockedStatus(t.status),
               modules: modulesByTenantId.get(t.id) ?? [],
             }));
 
@@ -486,6 +493,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           name: string;
           role: string;
           isTechnician?: boolean;
+          blocked?: boolean;
           modules: string[];
         }>) ?? [];
       return session;

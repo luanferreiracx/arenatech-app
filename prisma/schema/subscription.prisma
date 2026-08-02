@@ -29,8 +29,14 @@ model Subscription {
   amountCents Int @map("amount_cents")
 
   startedAt        DateTime  @default(now()) @map("started_at")
-  /// Fim do período pago atual (vencimento). "Marcar pago" empurra esta data.
-  currentPeriodEnd DateTime? @map("current_period_end")
+  /// Fim do período pago atual (vencimento). "Marcar pago" e o pagamento por QR
+  /// empurram esta data.
+  ///
+  /// OBRIGATÓRIO desde o ADR 0061 (migration 20260802120000). Era nullable, e um
+  /// vencimento nulo saía do radar do cron de vencimento — que filtra por
+  /// `currentPeriodEnd < now` e nunca casa NULL. A assinatura ficava ativa e de
+  /// graça para sempre, sem sinal nenhum. Não afrouxe isto de volta.
+  currentPeriodEnd DateTime  @map("current_period_end")
   cancelReason     String?   @map("cancel_reason")
 
   createdAt DateTime @default(now()) @map("created_at")

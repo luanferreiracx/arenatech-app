@@ -9,10 +9,15 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { nextPeriodEnd } from "@/lib/billing/subscription";
 import { resolveTenantPlan } from "@/server/services/tenant-plan.service";
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
 const prisma = new PrismaClient({ adapter });
+
+// Vencimento obrigatório desde o ADR 0061. Usa o MESMO cálculo da produção em
+// vez de uma data inventada: se `nextPeriodEnd` mudar, o fixture acompanha.
+const nextMonth = () => nextPeriodEnd({ cycle: "MONTHLY", currentPeriodEnd: null, now: new Date() });
 
 const suffix = Date.now().toString(36);
 let planId: string;
@@ -52,7 +57,7 @@ describe("resolveTenantPlan — Subscription é a fonte canônica", () => {
   it("resolve o plano via Subscription mesmo com Tenant.plan = null", async () => {
     const tenantId = await makeTenant(null); // sombra vazia de propósito
     await prisma.subscription.create({
-      data: { tenantId, planId, status: "ACTIVE", billingCycle: "MONTHLY", amountCents: 9990 },
+      data: { tenantId, planId, status: "ACTIVE", billingCycle: "MONTHLY", amountCents: 9990, currentPeriodEnd: nextMonth() },
     });
 
     const resolved = await resolveTenantPlan(prisma, tenantId);
@@ -64,7 +69,7 @@ describe("resolveTenantPlan — Subscription é a fonte canônica", () => {
   it("PAST_DUE (carência) ainda concede o plano", async () => {
     const tenantId = await makeTenant(null);
     await prisma.subscription.create({
-      data: { tenantId, planId, status: "PAST_DUE", billingCycle: "MONTHLY", amountCents: 9990 },
+      data: { tenantId, planId, status: "PAST_DUE", billingCycle: "MONTHLY", amountCents: 9990, currentPeriodEnd: nextMonth() },
     });
     const resolved = await resolveTenantPlan(prisma, tenantId);
     expect(resolved?.id).toBe(planId);
@@ -73,7 +78,7 @@ describe("resolveTenantPlan — Subscription é a fonte canônica", () => {
   it("SUSPENDED/CANCELLED não concedem plano via Subscription", async () => {
     const tenantId = await makeTenant(null);
     await prisma.subscription.create({
-      data: { tenantId, planId, status: "CANCELLED", billingCycle: "MONTHLY", amountCents: 9990 },
+      data: { tenantId, planId, status: "CANCELLED", billingCycle: "MONTHLY", amountCents: 9990, currentPeriodEnd: nextMonth() },
     });
     const resolved = await resolveTenantPlan(prisma, tenantId);
     expect(resolved).toBeNull();
@@ -96,7 +101,7 @@ describe("FK subscriptions.plan_id — defesa em profundidade", () => {
   it("o banco recusa apagar um plano em uso (ON DELETE RESTRICT)", async () => {
     const tenantId = await makeTenant(null);
     await prisma.subscription.create({
-      data: { tenantId, planId, status: "ACTIVE", billingCycle: "MONTHLY", amountCents: 9990 },
+      data: { tenantId, planId, status: "ACTIVE", billingCycle: "MONTHLY", amountCents: 9990, currentPeriodEnd: nextMonth() },
     });
     await expect(prisma.plan.delete({ where: { id: planId } })).rejects.toThrow();
   });
