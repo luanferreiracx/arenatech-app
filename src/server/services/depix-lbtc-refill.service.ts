@@ -18,6 +18,7 @@ import { withAdmin, withTenant } from "@/server/db";
 import * as lwk from "@/lib/services/lwk-service";
 import { LBTC_ASSET_ID } from "@/lib/services/lwk-service";
 import { CENTRAL_TENANT_SLUG } from "@/server/api/trpc";
+import { evaluateLbtcRunway, type LbtcRunwayLevel } from "@/lib/depix/lbtc-runway";
 
 export const LBTC_LOW_SATS = Number(process.env.DEPIX_LBTC_LOW_SATS ?? "1000");
 export const LBTC_REFILL_SATS = Number(process.env.DEPIX_LBTC_REFILL_SATS ?? "5000");
@@ -57,41 +58,92 @@ async function getCentralTenantId(): Promise<string | null> {
   return _centralIdCache;
 }
 
+/** Carteiras que dependem da central para gás (todas menos a própria central). */
+async function countWalletsServedByCentral(centralId: string): Promise<number> {
+  return withAdmin(async (tx) =>
+    tx.tenantDepixWallet.count({
+      where: {
+        provisionedAt: { not: null },
+        custodyModel: { not: "external" },
+        tenantId: { not: centralId },
+      },
+    }),
+  );
+}
+
 /**
- * Monitor: alerta (logger.error -> Sentry) quando o L-BTC da CENTRAL cai abaixo do
- * piso. Se a central seca, NADA reabastece os tenants -> repasses do saque externo e
- * saques em geral travam por falta de gas. Roda de carona no cron de reconcile.
- * Best-effort: nunca lanca. Retorna o saldo pra observabilidade/teste.
+ * Monitor do gás da central. Se ela seca, NADA reabastece os tenants — repasses
+ * do saque externo e saques em geral travam, e o lojista vê "Saque
+ * temporariamente indisponível", que é mentira: não é temporário.
+ *
+ * Dois degraus, porque alarme no piso não dá tempo de reagir. Quando o piso
+ * dispara, o próximo tenant que tentar sacar já falha. Medido em produção em
+ * 2026-08-02: 10.328 sats contra piso de 10.000 — dois refills de fôlego e
+ * nenhum aviso, porque estava tecnicamente acima.
+ *
+ * Roda de carona no cron de reconcile. Best-effort: nunca lança. Retorna o saldo
+ * pra observabilidade/teste.
  */
-export async function checkCentralLbtcFloor(): Promise<{
+export async function checkCentralLbtcRunway(): Promise<{
   ok: boolean;
   sats: number | null;
   floor: number;
+  level: LbtcRunwayLevel | null;
+  refillsCovered: number | null;
 }> {
   const floor = LBTC_CENTRAL_FLOOR_SATS;
+  const unknown = { ok: false, sats: null, floor, level: null, refillsCovered: null };
   try {
     const centralId = await getCentralTenantId();
     if (!centralId) {
-      logger.warn("checkCentralLbtcFloor: central nao encontrada");
-      return { ok: false, sats: null, floor };
+      logger.warn("checkCentralLbtcRunway: central nao encontrada");
+      return unknown;
     }
     const balance = await lwk.getBalance(centralId);
     if (!balance.success) {
-      logger.warn("checkCentralLbtcFloor: getBalance falhou", { error: balance.error });
-      return { ok: false, sats: null, floor };
+      logger.warn("checkCentralLbtcRunway: getBalance falhou", { error: balance.error });
+      return unknown;
     }
     const sats = balance.lbtcSatoshis ?? 0;
-    if (sats < floor) {
+    const runway = evaluateLbtcRunway({
+      balanceSats: sats,
+      refillSats: LBTC_REFILL_SATS,
+      floorSats: floor,
+    });
+
+    // A contagem de carteiras entra só na mensagem: é o que responde "abastecer
+    // quanto?". Contar não pode derrubar o monitor.
+    const walletsServed = await countWalletsServedByCentral(centralId).catch(() => null);
+    const detail = {
+      sats,
+      floor,
+      refillsCovered: runway.refillsCovered,
+      refillSats: LBTC_REFILL_SATS,
+      walletsServed,
+    };
+
+    if (runway.level === "critical") {
       logger.error(
         "[lbtc-central] L-BTC da central abaixo do piso — repasses/saques podem travar; reabasteca a central",
-        { sats, floor },
+        detail,
       );
-      return { ok: false, sats, floor };
+      return { ok: false, sats, floor, level: runway.level, refillsCovered: runway.refillsCovered };
     }
-    return { ok: true, sats, floor };
+
+    if (runway.level === "warning") {
+      // `warn`, não `error`: ainda dá para operar, e alarme que grita todo ciclo
+      // no nível de incidente vira ruído que esconde o incidente de verdade —
+      // a lição do alerta de Esplora que disparava em 100% das execuções.
+      logger.warn(
+        "[lbtc-central] L-BTC da central perto do piso — abasteca antes que os saques comecem a falhar",
+        { ...detail, warningSats: runway.warningSats },
+      );
+    }
+
+    return { ok: true, sats, floor, level: runway.level, refillsCovered: runway.refillsCovered };
   } catch (err) {
     logger.warn("[lbtc-central] check falhou", { err: err instanceof Error ? err.message : String(err) });
-    return { ok: false, sats: null, floor };
+    return unknown;
   }
 }
 

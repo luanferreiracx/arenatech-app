@@ -9,7 +9,7 @@ import {
 import { expireStalePaymentLinks } from "@/server/services/payment-link.service";
 import { getEsploraHealth } from "@/lib/services/lwk-service";
 import { evaluateEsploraHealth } from "@/lib/services/esplora-health-alert";
-import { checkCentralLbtcFloor } from "@/server/services/depix-lbtc-refill.service";
+import { checkCentralLbtcRunway } from "@/server/services/depix-lbtc-refill.service";
 import { checkWalletCachesAndAlert } from "@/server/services/depix-cache-integrity.service";
 
 /**
@@ -73,8 +73,8 @@ export async function POST(request: NextRequest) {
       results.push(await reconcileStaleDepixTransactions());
       // Aproveita o mesmo job pra expirar links de pagamento vencidos (12h).
       expiredLinks = (await expireStalePaymentLinks()).expired;
-      // ...e pra alertar quando o L-BTC da central seca (gás dos repasses/saques).
-      await checkCentralLbtcFloor();
+      // ...e pra alertar ANTES de o L-BTC da central secar (gás dos repasses/saques).
+      await checkCentralLbtcRunway();
       // ...e pra detectar cache do LWK com UTXOs gastos (saldo inflado — guard de
       // recorrência do incidente 2026-07), em TODAS as carteiras, não só na
       // central. Best-effort: nunca lança.
