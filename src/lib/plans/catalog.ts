@@ -40,11 +40,11 @@ export const PLAN_CATALOG: CatalogPlan[] = [
     slug: "varejo",
     name: "Varejo",
     description:
-      "Venda de balcão no PDV com a base para operar: caixa, estoque, financeiro e clientes. " +
-      "Sem ordens de serviço.",
+      "Venda de balcão no PDV com a base para operar: caixa, estoque, financeiro e clientes, " +
+      "mais simulador de parcelamento e avaliação de aparelho. Sem ordens de serviço.",
     monthlyPriceReais: 149,
     maxUsers: 3,
-    modules: ["pdv-retail"],
+    modules: ["pdv-retail", "tools"],
   },
   {
     slug: "varejo-fiscal",
@@ -52,7 +52,7 @@ export const PLAN_CATALOG: CatalogPlan[] = [
     description: "Tudo do Varejo, mais emissão de NF-e e apuração de comissões.",
     monthlyPriceReais: 199,
     maxUsers: 5,
-    modules: ["pdv-retail", "fiscal", "commissions"],
+    modules: ["pdv-retail", "tools", "fiscal", "commissions"],
   },
   {
     slug: "completo",

@@ -59,8 +59,8 @@ faz o recurso voltar sem ninguém decidir.
 | Plano | Preço | Equipe | Módulos escolhidos |
 |---|---|---|---|
 | Assistência | R$ 149 | 3 | `service-orders` |
-| Varejo | R$ 149 | 3 | `pdv-retail` |
-| Varejo + Fiscal | R$ 199 | 5 | `pdv-retail`, `fiscal`, `commissions` |
+| Varejo | R$ 149 | 3 | `pdv-retail`, `tools` |
+| Varejo + Fiscal | R$ 199 | 5 | `pdv-retail`, `tools`, `fiscal`, `commissions` |
 | Completo | R$ 279 | 10 | os quatro acima + `tools` |
 
 Só o escolhido aparece; os pré-requisitos entram na gravação
@@ -109,7 +109,7 @@ Planos que já existiam tinham `pdv` significando PDV completo. A migration
 isso, quem já paga perderia a venda de balcão no deploy, em silêncio, no meio do
 expediente.
 
-**Interpretação registrada.** O dono descreveu os planos 1 a 3 pelo essencial e o
-4 como "completo, com tudo"; `tools` (simulador e avaliação de aparelho) não foi
-citado em nenhum, e ficou no Completo. Mudar é desmarcar uma caixa em
-`/admin/plans`.
+**Ferramentas acompanham quem vende.** Simulador de parcelamento e avaliação de
+aparelho entram nos planos com venda de balcão (decisão do dono). A assistência
+fica de fora: o PDV dela existe só para receber a OS. Um teste garante a regra —
+todo plano com `tools` tem `pdv-retail`.
