@@ -27,7 +27,7 @@ import {
   BLOCKED_SUBSCRIPTION_ROUTE,
 } from "@/lib/modules";
 import { resolveActiveTenant } from "@/lib/auth/active-tenant";
-import { isPublicRoute, isLegacyHostDirectServe } from "@/lib/auth/public-routes";
+import { isPublicRoute, isLegacyHostDirectServe, isApiRoute } from "@/lib/auth/public-routes";
 
 // A classificação de rotas mora em @/lib/auth/public-routes (módulo puro), pra
 // poder ser testada sem carregar o NextAuth. Ver proxy-partner-api-routes.test.ts.
@@ -167,6 +167,34 @@ export const proxy = auth((req) => {
     return NextResponse.next();
   }
 
+  // 1b. Rotas de API NUNCA são respondidas com redirect (ver `isApiRoute`).
+  //
+  // Elas falam JSON e se autorizam sozinhas. Um 307 daqui devolve HTML e o
+  // cliente recebe `Unexpected token '<', "<!DOCTYPE"`, que não diz nada sobre a
+  // causa — foi assim que o painel do superadmin sem tenant ficou inteiramente
+  // morto (a etapa 7 abaixo redirecionava `/api/trpc/admin.*` para `/admin`), e
+  // antes dele a API de parceiros (#732) e o gating de módulo.
+  //
+  // O que ainda precisa valer aqui é o que NÃO é navegação:
+  // - a barreira de senha temporária, que é controle de acesso: vira 403 JSON;
+  // - a injeção do `x-tenant-id`, sem a qual `tenantProcedure` recusa tudo.
+  if (isApiRoute(pathname)) {
+    if (session?.user.mustChangePassword && !isPasswordChangeRoute(pathname)) {
+      return NextResponse.json(
+        { error: "Troque a senha temporária antes de usar a API." },
+        { status: 403 },
+      );
+    }
+    if (!session) return NextResponse.next();
+
+    const apiTenant = resolveActiveTenant(session, req.cookies.get("x-active-tenant")?.value);
+    if (!apiTenant) return NextResponse.next();
+
+    const apiHeaders = new Headers(req.headers);
+    apiHeaders.set("x-tenant-id", apiTenant.id);
+    return NextResponse.next({ request: { headers: apiHeaders } });
+  }
+
   // 2. Not authenticated
   if (!session) {
     const loginUrl = selfUrl("/login");
@@ -234,11 +262,8 @@ export const proxy = auth((req) => {
   // por tenant (tenantProcedure/RLS); a gating de módulo em API não vale o custo
   // de quebrar o app inteiro. (Incidente: operadores/admins não-superadmin sem
   // acesso a nenhum dado — só o super admin, isento aqui, funcionava.)
-  if (
-    activeTenant &&
-    !session.user.isSuperAdmin &&
-    !pathname.startsWith("/api/")
-  ) {
+  // `/api/*` já retornou na etapa 1b; aqui só chega navegação de PÁGINA.
+  if (activeTenant && !session.user.isSuperAdmin) {
     // 7b-1. Assinatura suspensa (ADR 0061): o tenant navega só pelo que precisa
     // para voltar (pagar) ou para mexer no próprio dinheiro. Vem ANTES do gating
     // por módulo porque o destino é outro: quem não pagou merece a tela que

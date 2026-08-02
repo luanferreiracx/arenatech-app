@@ -27,6 +27,33 @@ const PUBLIC_ROUTES = new Set([
  */
 const PARTNER_API_PREFIX = "/api/v1/partner/";
 
+/**
+ * Rota de API: fala JSON e se autoriza sozinha. O proxy NUNCA a responde com
+ * redirect.
+ *
+ * Um 307 devolve HTML a quem espera JSON, e o erro que chega no cliente é
+ * `Unexpected token '<', "<!DOCTYPE"` — que não diz nada sobre a causa. Este
+ * codebase já pagou por isso três vezes:
+ *
+ * 1. o gating de módulo no proxy derrubando TODAS as queries tRPC de qualquer
+ *    não-superadmin (documentado em `server/api/trpc.ts`);
+ * 2. a API de parceiros inalcançável por um mês (#732), porque o proxy só
+ *    entendia cookie e a rota autentica por header;
+ * 3. o painel do superadmin sem tenant ativo, morto por inteiro: a etapa 7 do
+ *    proxy redirecionava `/api/trpc/admin.*` para `/admin`.
+ *
+ * As isenções em `isPublicRoute` (webhooks, `noKyc.*`, parceiros) foram remendos
+ * um a um do MESMO problema. Esta função é a regra que faltava.
+ *
+ * Seguro porque a autorização das rotas de API é delas: tRPC tem
+ * `protectedProcedure`/`tenantProcedure`/`adminProcedure`, a API de parceiros
+ * valida a key, webhooks conferem HMAC e o cron confere o segredo. Todas
+ * respondem em JSON, com o código certo.
+ */
+export function isApiRoute(pathname: string): boolean {
+  return pathname === "/api" || pathname.startsWith("/api/");
+}
+
 /** Rota pública = passa sem sessão. */
 export function isPublicRoute(pathname: string): boolean {
   return (
