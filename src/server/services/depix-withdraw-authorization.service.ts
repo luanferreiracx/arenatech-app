@@ -33,7 +33,7 @@ import { TRPCError } from "@trpc/server";
 import { withAdmin, withTenant } from "@/server/db";
 import { logger } from "@/lib/logger";
 import { createWithdraw } from "@/server/services/depix-transaction.service";
-import type { PixKeyType } from "@prisma/client";
+import { Prisma, type PixKeyType } from "@prisma/client";
 
 /**
  * Validade do pedido.
@@ -70,22 +70,39 @@ export async function requestWithdrawAuthorization(args: WithdrawAuthorizationRe
   );
   if (existing) return existing;
 
-  const created = await withTenant(args.tenantId, async (tx) =>
-    tx.depixWithdrawAuthorization.create({
-      data: {
-        tenantId: args.tenantId,
-        keyPrefix: args.keyPrefix,
-        idempotencyKey: args.idempotencyKey,
-        pixKeyType: args.pixKeyType,
-        pixKey: args.pixKey,
-        recipientName: args.recipientName ?? null,
-        recipientTaxId: args.recipientTaxId,
-        netAmountCents: args.netAmountCents,
-        description: args.description ?? null,
-        expiresAt: new Date(Date.now() + AUTHORIZATION_TTL_MS),
-      },
-    }),
-  );
+  // Entre o SELECT acima e este INSERT existe janela de corrida — duas entregas
+  // simultâneas da mesma requisição (retry automático do cliente HTTP) chegam
+  // juntas. Quem fecha é o índice único; ao perder a corrida, o P2002 traz de
+  // volta para o caminho de reuso. Sem este tratamento, o retry que deveria ser
+  // inócuo viraria um 500 na cara do parceiro.
+  let created;
+  try {
+    created = await withTenant(args.tenantId, async (tx) =>
+      tx.depixWithdrawAuthorization.create({
+        data: {
+          tenantId: args.tenantId,
+          keyPrefix: args.keyPrefix,
+          idempotencyKey: args.idempotencyKey,
+          pixKeyType: args.pixKeyType,
+          pixKey: args.pixKey,
+          recipientName: args.recipientName ?? null,
+          recipientTaxId: args.recipientTaxId,
+          netAmountCents: args.netAmountCents,
+          description: args.description ?? null,
+          expiresAt: new Date(Date.now() + AUTHORIZATION_TTL_MS),
+        },
+      }),
+    );
+  } catch (err) {
+    const isDuplicate =
+      err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002";
+    if (!isDuplicate) throw err;
+    return withTenant(args.tenantId, async (tx) =>
+      tx.depixWithdrawAuthorization.findFirstOrThrow({
+        where: { tenantId: args.tenantId, idempotencyKey: args.idempotencyKey },
+      }),
+    );
+  }
 
   logger.info("partner-api: saque pedido para autorizacao humana", {
     tenantId: args.tenantId,

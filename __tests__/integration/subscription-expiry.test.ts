@@ -13,7 +13,11 @@ import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { runSubscriptionExpiry } from "@/server/services/subscription-expiry.service";
 import { keepsSession, isBlockedStatus } from "@/lib/auth/tenant-status";
-import { allowedModulesForTenant, ALWAYS_ON_MODULES } from "@/lib/modules";
+import {
+  allowedModulesForTenant,
+  ALWAYS_ON_MODULES,
+  WALLET_FLOOR_MODULES,
+} from "@/lib/modules";
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
 const prisma = new PrismaClient({ adapter });
@@ -105,6 +109,32 @@ describe("estado pós-suspensão: bloqueio, não expulsão", () => {
   });
 
   it("os módulos do tenant suspenso caem no piso, com a carteira de pé", async () => {
+    // O tenant do caso é um cliente que OPERA DePix — é dele que a invariante
+    // fala. Desde o gate `depixEnabled` (ADR 0062), quem nunca habilitou DePix
+    // não tem carteira para preservar; quem habilitou não pode perdê-la por
+    // dever mensalidade, que é o beco sem saída que o ADR 0061 fechou.
+    const tenantId = await makeTenantWithSub("PAST_DUE", longExpired);
+    await prisma.tenant.update({ where: { id: tenantId }, data: { depixEnabled: true } });
+    await prisma.$transaction((tx) => runSubscriptionExpiry(tx, { now, graceDays: GRACE }));
+
+    const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
+    const plan = await prisma.plan.findUnique({ where: { id: planId } });
+    const modules = allowedModulesForTenant({
+      tenantSlug: tenant!.slug,
+      planFeatures: plan!.features,
+      hasPlan: true,
+      blocked: isBlockedStatus(tenant!.status),
+      depixEnabled: tenant!.depixEnabled,
+    });
+
+    expect([...modules].sort()).toEqual(
+      [...ALWAYS_ON_MODULES, ...WALLET_FLOOR_MODULES].sort(),
+    );
+    expect(modules).toContain("wallet");
+  });
+
+  it("suspenso SEM DePix habilitado não ganha carteira por causa do bloqueio", async () => {
+    // O contrapeso: o bloqueio suave preserva o piso, não concede módulo novo.
     const tenantId = await makeTenantWithSub("PAST_DUE", longExpired);
     await prisma.$transaction((tx) => runSubscriptionExpiry(tx, { now, graceDays: GRACE }));
 
@@ -115,10 +145,11 @@ describe("estado pós-suspensão: bloqueio, não expulsão", () => {
       planFeatures: plan!.features,
       hasPlan: true,
       blocked: isBlockedStatus(tenant!.status),
+      depixEnabled: tenant!.depixEnabled,
     });
 
+    expect(modules).not.toContain("wallet");
     expect([...modules].sort()).toEqual([...ALWAYS_ON_MODULES].sort());
-    expect(modules).toContain("wallet");
   });
 
   it("a assinatura suspensa deixa de conceder plano, mas a linha continua lá pra pagar", async () => {

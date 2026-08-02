@@ -79,7 +79,10 @@ export function WithdrawAuthorizationsCard({ canManage }: { canManage: boolean }
   if (!canManage || pending.length === 0) return null;
 
   return (
-    <Card className="p-6">
+    // `@container` precisa estar declarado aqui: as variantes `@md:` da lista
+    // abaixo se resolvem contra o container mais próximo, e sem um dono elas
+    // simplesmente nunca ativam — a linha ficaria empilhada em qualquer largura.
+    <Card className="@container p-6">
       <div className="mb-4 flex items-center gap-2">
         <ShieldCheck className="h-5 w-5 text-amber-500" />
         <h3 className="text-sm font-semibold uppercase text-muted-foreground">

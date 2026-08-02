@@ -61,8 +61,19 @@ const MAX_OUTPOINTS_PER_RUN = 80;
 const OUTSPEND_SPACING_MS = 250;
 const OUTSPEND_TIMEOUT_MS = 8_000;
 
-/** Teto de tempo de parede da coleta no cron. */
+/** Teto de tempo de parede da coleta de UMA carteira no cron. */
 const CRON_DEADLINE_MS = 60_000;
+
+/**
+ * Teto da varredura INTEIRA de uma rodada.
+ *
+ * O teto por carteira sozinho não limita a rodada: com Esplora lenta, N
+ * carteiras multiplicam o prazo, e o cron de reconcile faz muito mais coisa
+ * depois desta varredura. Uma checagem best-effort de saldo não pode empurrar
+ * para fora do relógio a reconciliação de saque, que é o que destrava dinheiro
+ * preso.
+ */
+const CRON_TOTAL_DEADLINE_MS = 90_000;
 
 /**
  * Orçamento do guard de saque — muito mais apertado que o do cron, porque aqui
@@ -308,9 +319,18 @@ export async function checkWalletCachesAndAlert(nowMs = Date.now()): Promise<voi
     });
   }
 
+  const runDeadline = nowMs + CRON_TOTAL_DEADLINE_MS;
   for (const check of checks) {
+    const remainingMs = runDeadline - Date.now();
+    if (remainingMs <= 0) {
+      logger.warn("cache-integrity: rodada estourou o prazo — carteiras restantes ficam para a proxima", {
+        tenantId: check.tenantId,
+      });
+      break;
+    }
     const result = await checkWalletCacheIntegrity(check.tenantId, {
       maxOutpoints: check.maxOutpoints,
+      deadlineMs: Math.min(CRON_DEADLINE_MS, remainingMs),
     });
 
     if (result.truncated) {

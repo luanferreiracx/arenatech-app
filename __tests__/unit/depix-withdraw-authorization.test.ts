@@ -13,15 +13,17 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { TRPCError } from "@trpc/server";
+import { Prisma } from "@prisma/client";
 
 const findFirst = vi.fn();
 const create = vi.fn();
 const update = vi.fn();
 const updateMany = vi.fn();
+const findFirstOrThrow = vi.fn();
 const createWithdraw = vi.fn();
 
 const tx = {
-  depixWithdrawAuthorization: { findFirst, create, update, updateMany },
+  depixWithdrawAuthorization: { findFirst, create, update, updateMany, findFirstOrThrow },
 };
 
 vi.mock("@/server/db", () => ({
@@ -70,7 +72,8 @@ const pedido = {
 };
 
 beforeEach(() => {
-  for (const m of [findFirst, create, update, updateMany, createWithdraw]) m.mockReset();
+  for (const m of [findFirst, create, update, updateMany, findFirstOrThrow, createWithdraw])
+    m.mockReset();
 });
 
 describe("requestWithdrawAuthorization", () => {
@@ -81,6 +84,23 @@ describe("requestWithdrawAuthorization", () => {
     const res = await requestWithdrawAuthorization(pedido);
     expect(res.id).toBe(AUTH_ID);
     expect(create).not.toHaveBeenCalled();
+  });
+
+  it("corrida entre dois retries simultâneos não vira erro para o parceiro", async () => {
+    // Entre o SELECT e o INSERT existe janela: duas entregas da mesma requisição
+    // chegam juntas. Quem fecha é o índice único, e o P2002 tem que voltar para
+    // o caminho de reuso — senão o retry inócuo viraria um 500 na cara do
+    // parceiro.
+    findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce(undefined);
+    const duplicado = Object.assign(
+      new Prisma.PrismaClientKnownRequestError("dup", { code: "P2002", clientVersion: "x" }),
+    );
+    create.mockRejectedValue(duplicado);
+    findFirstOrThrow.mockResolvedValue(pedidoPendente());
+
+    const res = await requestWithdrawAuthorization(pedido);
+
+    expect(res.id).toBe(AUTH_ID);
   });
 
   it("pedido novo nasce PENDING e com prazo de validade", async () => {
