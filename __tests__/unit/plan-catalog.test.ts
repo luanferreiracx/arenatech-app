@@ -105,13 +105,20 @@ describe("escada: cada degrau contém o anterior", () => {
     }
   });
 
-  it("completo é o único com as ferramentas (simulador e avaliação)", () => {
-    // Interpretação registrada: o dono descreveu os planos 1-3 pelo essencial e
-    // o 4 como "completo, com tudo". `tools` sobrou no topo. Mudar é desmarcar
-    // uma caixa em /admin/plans.
-    expect(bySlug("completo").modules.has("tools")).toBe(true);
-    for (const slug of ["assistencia", "varejo", "varejo-fiscal"]) {
-      expect(bySlug(slug).modules.has("tools")).toBe(false);
+  it("as ferramentas acompanham a venda de balcão, não a assistência", () => {
+    // Decisão do dono: simulador de parcelamento e avaliação de aparelho servem
+    // a quem VENDE. A assistência tem PDV só para receber OS, então fica fora.
+    for (const slug of ["varejo", "varejo-fiscal", "completo"]) {
+      expect(bySlug(slug).modules.has("tools")).toBe(true);
+      expect(bySlug(slug).modules.has("pdv-retail")).toBe(true);
+    }
+    expect(bySlug("assistencia").modules.has("tools")).toBe(false);
+  });
+
+  it("todo plano com ferramentas também vende no balcão (a regra é essa)", () => {
+    for (const plan of PLAN_CATALOG) {
+      const mods = new Set(catalogPlanModules(plan));
+      if (mods.has("tools")) expect(mods.has("pdv-retail")).toBe(true);
     }
   });
 });
