@@ -2,6 +2,7 @@
 import { formatCentsBRL as formatCurrency } from "@/lib/format";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useTRPC } from "@/trpc/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -15,6 +16,7 @@ import {
   CreditCard,
   DollarSign,
   AlertTriangle,
+  Lock as LockIcon,
   RefreshCw,
   ArrowRightLeft,
   History,
@@ -108,6 +110,9 @@ export function PdvScreen() {
 
   const [draftId, setDraftId] = useState<string | null>(saleIdFromUrl);
   const [draftError, setDraftError] = useState<string | null>(null);
+  // Distingue "plano não inclui venda livre" de falha transitória: um pede
+  // caminho alternativo, o outro pede retry.
+  const [draftRetailBlocked, setDraftRetailBlocked] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [showResults, setShowResults] = useState(false);
   // Índice destacado no dropdown de busca (navegação por ↑/↓ + Enter). -1 = nenhum.
@@ -150,6 +155,7 @@ export function PdvScreen() {
     if (initInFlightRef.current) return; // ja ha um abandon+create em andamento
     initInFlightRef.current = true;
     setDraftError(null);
+    setDraftRetailBlocked(false);
     // Abandona qualquer DRAFT anterior do operador antes de criar um novo.
     // Decisao do dono: PDV nunca reaproveita carrinho — sair e voltar = zero.
     abandonDraftMutation.mutate(undefined, {
@@ -162,6 +168,7 @@ export function PdvScreen() {
           },
           onError: (err) => {
             setDraftError(err.message);
+            setDraftRetailBlocked(err.data?.code === "FORBIDDEN");
           },
           onSettled: () => {
             initInFlightRef.current = false;
@@ -689,6 +696,30 @@ export function PdvScreen() {
 
   // -- Error state: draft creation failed --
   if (draftError && !draftId) {
+    // Plano sem venda livre (`pdv-retail`) NÃO é erro: é o contrato do plano de
+    // assistência, cujo PDV existe só para receber o valor da OS. Chamar isso de
+    // "erro" e oferecer "Tentar novamente" cria um botão que nunca vai funcionar
+    // — o mesmo defeito do menu que oferece caminho fechado.
+    if (draftRetailBlocked) {
+      return (
+        <div className="flex h-[calc(100vh-80px)] items-center justify-center">
+          <Card className="w-full max-w-md">
+            <CardContent className="space-y-4 p-8 text-center">
+              <LockIcon className="mx-auto size-12 text-muted-foreground opacity-60" aria-hidden />
+              <h2 className="text-lg font-semibold">Venda livre não está no seu plano</h2>
+              <p className="break-words text-sm text-muted-foreground">
+                Seu plano usa o PDV para receber o valor das ordens de serviço. Abra a OS
+                concluída e use &ldquo;Pagar via PDV&rdquo; — o carrinho já vem preenchido.
+              </p>
+              <Button asChild variant="outline">
+                <Link href="/service-orders">Ir para Ordens de Serviço</Link>
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      );
+    }
+
     return (
       <div className="flex items-center justify-center h-[calc(100vh-80px)]">
         <Card className="max-w-md w-full">

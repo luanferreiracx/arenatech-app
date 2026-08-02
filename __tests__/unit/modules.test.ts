@@ -14,6 +14,9 @@ import {
   PLAN_SELECTABLE_MODULES,
   isRouteAllowedWhileBlocked,
   BLOCKED_SUBSCRIPTION_ROUTE,
+  RETIRED_MODULES,
+  isRetiredModule,
+  MODULE_LABELS,
 } from "@/lib/modules";
 
 // Comparação robusta a ordem (a expansão de dependências não garante ordem).
@@ -221,13 +224,18 @@ describe("gate da carteira DePix (Tenant.depixEnabled)", () => {
 describe("allowedModulesForTenant", () => {
   // settings é sempre-on; pdv auto-inclui cashier+financial; service-orders/fiscal/
   // commissions auto-incluem pdv (e por transitividade cashier+financial).
-  it("arena-tech tem acesso TOTAL", () => {
+  it("arena-tech tem acesso total, EXCETO módulo aposentado", () => {
     const mods = allowedModulesForTenant({
       tenantSlug: TOTAL_ACCESS_TENANT_SLUG,
       planFeatures: { modules: ["wallet"] },
       hasPlan: true,
     });
-    expect(asSet(mods)).toEqual(asSet([...MODULE_KEYS]));
+    // "Morto" que continua vivo na loja do dono não é morto, é exceção
+    // esquecida — e a exceção esquecida é o que faz o recurso voltar sem
+    // ninguém decidir.
+    const esperado = MODULE_KEYS.filter((m) => !isRetiredModule(m));
+    expect(asSet(mods)).toEqual(asSet([...esperado]));
+    expect(mods).not.toContain("imei-lookup");
   });
 
   it("tenant sem plano fica só com o piso sempre-on (carteira, cobrança, settings)", () => {
@@ -378,6 +386,115 @@ describe("isRouteAllowedWhileBlocked", () => {
   it("não casa por prefixo solto (`/depix-wallet-outra` não é `/depix-wallet`)", () => {
     expect(isRouteAllowedWhileBlocked("/depix-wallet-outra")).toBe(false);
     expect(isRouteAllowedWhileBlocked("/settings/subscription-x")).toBe(false);
+  });
+});
+
+// ── Módulos aposentados: código preservado, recurso não oferecido ──
+describe("RETIRED_MODULES", () => {
+  it("não aparece no editor de plano", () => {
+    for (const retirado of RETIRED_MODULES) {
+      expect(PLAN_SELECTABLE_MODULES).not.toContain(retirado);
+    }
+  });
+
+  it("plano legado que ainda cite o módulo NÃO o ressuscita", () => {
+    // A aposentadoria não pode depender de ninguém ter guardado a chave antiga:
+    // o filtro é na LEITURA do plano, não só no editor.
+    const modules = modulesFromPlanFeatures({ modules: ["pdv", "imei-lookup"] });
+    expect(modules).toContain("pdv");
+    expect(modules).not.toContain("imei-lookup");
+  });
+
+  it("nenhum tenant recebe o módulo, com ou sem plano", () => {
+    const comPlano = allowedModulesForTenant({
+      tenantSlug: "loja-x",
+      planFeatures: { modules: ["imei-lookup", "pdv"] },
+      hasPlan: true,
+    });
+    const semPlano = allowedModulesForTenant({
+      tenantSlug: "loja-y",
+      planFeatures: null,
+      hasPlan: false,
+    });
+    expect(comPlano).not.toContain("imei-lookup");
+    expect(semPlano).not.toContain("imei-lookup");
+  });
+
+  it("a rota do módulo aposentado fica fechada para todos", () => {
+    expect(resolveModuleForPath("/imei")).toBe("imei-lookup");
+    // Sem o módulo na lista, `isPathAllowed` nega — e ninguém tem o módulo.
+    expect(isPathAllowed("/imei", ["pdv", "pdv-retail", "stock"])).toBe(false);
+  });
+
+  it("o código continua lá: a chave existe no catálogo e tem rótulo", () => {
+    // Aposentar ≠ apagar. Se um dia voltar, é tirar de RETIRED_MODULES.
+    expect(MODULE_KEYS).toContain("imei-lookup");
+    expect(MODULE_LABELS["imei-lookup"]).toBeTruthy();
+  });
+});
+
+// ── pdv vs pdv-retail: a trava que separa assistência de varejo ──
+//
+// O plano de assistência precisa RECEBER o valor de uma OS, e isso passa pelo
+// PDV. Enquanto "PDV" era um módulo só, o plano de OS arrastava a venda livre
+// junto e o plano de varejo virava subconjunto dele — dois planos, um sem razão
+// de existir.
+describe("pdv-retail (venda livre) separado de pdv (base)", () => {
+  const planoAssistencia = { modules: ["service-orders"] };
+  const planoVarejo = { modules: ["pdv-retail"] };
+
+  it("assistência recebe o PDV base (para receber OS) mas NÃO a venda livre", () => {
+    const mods = allowedModulesForTenant({
+      tenantSlug: "loja-os",
+      planFeatures: planoAssistencia,
+      hasPlan: true,
+    });
+    expect(mods).toContain("service-orders");
+    expect(mods).toContain("pdv");
+    expect(mods).not.toContain("pdv-retail");
+  });
+
+  it("varejo recebe a venda livre e o PDV base, sem assistência", () => {
+    const mods = allowedModulesForTenant({
+      tenantSlug: "loja-varejo",
+      planFeatures: planoVarejo,
+      hasPlan: true,
+    });
+    expect(mods).toContain("pdv-retail");
+    expect(mods).toContain("pdv");
+    expect(mods).not.toContain("service-orders");
+  });
+
+  it("os dois planos puxam a mesma base operacional (caixa, estoque, financeiro)", () => {
+    const assistencia = allowedModulesForTenant({
+      tenantSlug: "a", planFeatures: planoAssistencia, hasPlan: true,
+    });
+    const varejo = allowedModulesForTenant({
+      tenantSlug: "b", planFeatures: planoVarejo, hasPlan: true,
+    });
+    for (const base of ["cashier", "financial", "stock", "customers"]) {
+      expect(assistencia).toContain(base);
+      expect(varejo).toContain(base);
+    }
+  });
+
+  it("`/pdv` abre nos dois: é por lá que a OS é recebida", () => {
+    const assistencia = allowedModulesForTenant({
+      tenantSlug: "a", planFeatures: planoAssistencia, hasPlan: true,
+    });
+    expect(isPathAllowed("/pdv", assistencia)).toBe(true);
+    expect(isPathAllowed("/pdv/history", assistencia)).toBe(true);
+  });
+
+  it("nenhum plano é subconjunto do outro — é o que justifica vender os dois", () => {
+    const assistencia = new Set(
+      allowedModulesForTenant({ tenantSlug: "a", planFeatures: planoAssistencia, hasPlan: true }),
+    );
+    const varejo = new Set(
+      allowedModulesForTenant({ tenantSlug: "b", planFeatures: planoVarejo, hasPlan: true }),
+    );
+    expect([...assistencia].some((m) => !varejo.has(m))).toBe(true);
+    expect([...varejo].some((m) => !assistencia.has(m))).toBe(true);
   });
 });
 

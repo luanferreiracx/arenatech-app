@@ -25,6 +25,12 @@ LAG_MIN=50
 # timer (10min) de propósito: exige duas leituras realmente espaçadas.
 MIN_STALL_SECS=540
 
+# Modo manutenção: enquanto este arquivo existir, o watchdog não age.
+# Sem isto ele "conserta" um container parado de propósito — foi o que aconteceu
+# no desligamento de 2026-07-30, quando ele subiu o waterfalls de volta no meio
+# de uma parada limpa. Parada intencional não é falha.
+[ -f /opt/waterfalls/MAINTENANCE ] && exit 0
+
 ts() { date -u "+%Y-%m-%dT%H:%M:%SZ"; }
 say() { echo "$(ts) $*" >> "$LOG"; }
 

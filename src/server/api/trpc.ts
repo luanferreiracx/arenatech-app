@@ -133,7 +133,7 @@ const ROUTER_MODULE: Record<string, ModuleKey> = {
   reward: "customers",
   valuation: "tools",
   simulator: "tools",
-  imei: "tools",
+  imei: "imei-lookup", // aposentado — ninguém tem o módulo
   fiscal: "fiscal",
   providerCommission: "commissions",
   partnerApiKey: "partner-api",
@@ -154,13 +154,27 @@ const ROUTER_MODULE: Record<string, ModuleKey> = {
  * reintroduz o incidente. Aplicado uma vez em `tenantProcedure`, cobre as ~310
  * procedures sem tocar em cada uma.
  */
+/**
+ * Override por PROCEDURE, para capacidade vendida à parte DENTRO de um módulo.
+ * Consultado antes de `ROUTER_MODULE`.
+ *
+ * `sale.createDraft` é o ponto exato onde varejo se separa de assistência: abrir
+ * o PDV sem `?saleId` cria um rascunho livre (venda de balcão), enquanto pagar
+ * uma OS entra por `createFromOS` e chega ao PDV com o rascunho pronto. Gatear o
+ * router `sale` inteiro tiraria do plano de assistência o recebimento da própria
+ * OS; gatear só a abertura de venda livre é a trava que o dono pediu.
+ */
+const PROCEDURE_MODULE: Record<string, ModuleKey> = {
+  "sale.createDraft": "pdv-retail",
+};
+
 function assertModuleAllowed(
   session: NonNullable<Context["session"]>,
   tenantId: string,
   path: string,
 ): void {
   const routerName = path.split(".")[0] ?? "";
-  const required = ROUTER_MODULE[routerName];
+  const required = PROCEDURE_MODULE[path] ?? ROUTER_MODULE[routerName];
   if (!required) return; // router sem módulo comercializável → passa
 
   // Decisão compartilhada com as rotas REST (`server/auth/module-gate.ts`) —

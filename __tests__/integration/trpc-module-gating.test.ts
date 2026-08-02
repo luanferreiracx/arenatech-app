@@ -98,3 +98,57 @@ describe("gating de módulo na borda tRPC", () => {
     await expect(caller(ctx).settings.getGeneral()).resolves.toBeDefined();
   });
 });
+
+// ── A trava que separa assistência de varejo (decisão do dono, 2026-08-02) ──
+//
+// O plano de assistência precisa RECEBER o valor de uma OS, e isso passa pelo
+// PDV. Gatear o router `sale` inteiro tiraria dele o próprio recebimento; a
+// separação real está em `sale.createDraft`, que é abrir venda do zero.
+describe("pdv-retail — PDV do plano de assistência só recebe OS", () => {
+  /** O que `catalogPlanModules` produz para o plano Assistência. */
+  const ASSISTENCIA = [
+    "service-orders", "pdv", "cashier", "financial", "stock", "customers", "settings",
+  ];
+  /** O que produz para o plano Varejo. */
+  const VAREJO = [
+    "pdv-retail", "pdv", "cashier", "financial", "stock", "customers", "settings",
+  ];
+
+  it("assistência é BARRADA ao abrir venda livre (sale.createDraft)", async () => {
+    const ctx = ctxFor(fullTenantId, "assist", ASSISTENCIA);
+    await expect(caller(ctx).sale.createDraft()).rejects.toThrow(/FORBIDDEN|plano/i);
+  });
+
+  it("varejo abre venda livre normalmente", async () => {
+    const ctx = ctxFor(fullTenantId, "varejo", VAREJO);
+    const draft = await caller(ctx).sale.createDraft();
+    expect(draft).toBeTruthy();
+    await caller(ctx).sale.abandonDraft();
+  });
+
+  it("assistência CONTINUA alcançando o resto do PDV — senão não recebia a OS", async () => {
+    // `sale.list` e `sale.stats` são do módulo `pdv` (base). Se o gate tivesse
+    // sido posto no router inteiro, o plano de assistência perderia o
+    // recebimento da própria ordem de serviço.
+    const ctx = ctxFor(fullTenantId, "assist", ASSISTENCIA);
+    await expect(caller(ctx).sale.stats()).resolves.toBeTruthy();
+  });
+
+  it("quem não tem nem `pdv` continua barrado no router inteiro", async () => {
+    const ctx = ctxFor(walletTenantId, "wallet", WALLET_ONLY);
+    await expect(caller(ctx).sale.stats()).rejects.toThrow(/FORBIDDEN|plano/i);
+    await expect(caller(ctx).sale.createDraft()).rejects.toThrow(/FORBIDDEN|plano/i);
+  });
+});
+
+// ── Módulo aposentado: código preservado, ninguém alcança ──
+describe("imei-lookup aposentado", () => {
+  it("nem o tenant com plano completo alcança o router aposentado", async () => {
+    const completo = [
+      "service-orders", "pdv", "pdv-retail", "cashier", "financial", "stock",
+      "customers", "fiscal", "commissions", "tools", "settings",
+    ];
+    const ctx = ctxFor(fullTenantId, "completo", completo);
+    await expect(caller(ctx).imei.history({})).rejects.toThrow(/FORBIDDEN|plano/i);
+  });
+});

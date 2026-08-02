@@ -1,0 +1,17 @@
+import { chromium } from "@playwright/test";
+const BASE = "http://localhost:3000";
+const b = await chromium.launch();
+const ctx = await b.newContext({ viewport: { width: 1440, height: 900 } });
+const page = await ctx.newPage();
+await page.goto(`${BASE}/login`, { waitUntil: "networkidle" });
+await page.waitForSelector('input[name="cpf"]');
+await page.fill('input[name="cpf"]', "assistencia@teste.local");
+await page.fill('input[name="password"]', "Teste@1234");
+await page.click('button[type="submit"]');
+await page.waitForTimeout(6000);
+await page.goto(`${BASE}/pdv`, { waitUntil: "domcontentloaded" });
+await page.waitForTimeout(3500);
+await page.screenshot({ path: "/tmp/pdv-assistencia.png", fullPage: false });
+const txt = await page.locator("body").innerText();
+console.log(JSON.stringify({ url: new URL(page.url()).pathname, texto: txt.slice(0, 400) }, null, 2));
+await b.close();

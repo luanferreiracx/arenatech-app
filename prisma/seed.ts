@@ -1,75 +1,47 @@
 import { PrismaClient, Prisma } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { hashSync } from "bcryptjs";
-import { withModuleDependencies, type ModuleKey } from "../src/lib/modules";
+import { PLAN_CATALOG, CATALOG_SLUGS, catalogPlanModules } from "../src/lib/plans/catalog";
 
 /**
- * Planos-modelo (seed idempotente por slug). Preços placeholder — o superadmin
- * ajusta em /admin/plans. `modules` guarda a INTENÇÃO; `seedPlans` expande os
- * pré-requisitos ao gravar (withModuleDependencies), e `settings` é sempre-on.
- * Por isso listamos só o essencial de cada plano (ex.: `pdv` já traz stock,
- * customers, cashier, financial).
+ * Planos do catálogo comercial (idempotente por slug). A definição mora em
+ * `lib/plans/catalog` — o mesmo arquivo que a migration de produção usa, para o
+ * banco de dev e o de prod não divergirem.
  */
-const SEED_PLANS: Array<{
-  slug: string;
-  name: string;
-  description: string;
-  modules: ModuleKey[];
-}> = [
-  {
-    slug: "wallet",
-    name: "Wallet",
-    description: "Carteira DePix e cobrança por link. O piso.",
-    modules: ["wallet", "depix-ops"],
-  },
-  {
-    slug: "assistencia",
-    name: "Assistência",
-    description: "Foco em conserto: ordens de serviço, clientes, ferramentas e estoque.",
-    modules: ["wallet", "depix-ops", "service-orders", "customers", "tools", "stock"],
-  },
-  {
-    slug: "loja",
-    name: "Loja",
-    description: "Foco em varejo: PDV, estoque, clientes, fiscal e comissões.",
-    modules: ["wallet", "depix-ops", "pdv", "stock", "customers", "fiscal", "commissions"],
-  },
-  {
-    slug: "completo",
-    name: "Completo",
-    description: "Venda + assistência + fiscal + comissões. Todos os módulos.",
-    modules: [
-      "wallet", "depix-ops", "service-orders", "customers", "tools",
-      "pdv", "stock", "cashier", "financial", "fiscal", "commissions",
-    ],
-  },
-];
-
 async function seedPlans(): Promise<void> {
-  for (const plan of SEED_PLANS) {
+  for (const plan of PLAN_CATALOG) {
     // Grava já expandido (pré-requisitos), como o editor de plano faz — o plano
     // persistido reflete o que o tenant realmente terá.
-    const modules = withModuleDependencies(plan.modules);
+    const modules = catalogPlanModules(plan);
+    const shared = {
+      name: plan.name,
+      description: plan.description,
+      monthlyPrice: plan.monthlyPriceReais,
+      maxUsers: plan.maxUsers,
+      // Consultas IMEI foram aposentadas (RETIRED_MODULES): a cota deixou de
+      // significar qualquer coisa. A coluna fica para não perder histórico.
+      maxImeiQueries: 0,
+      status: "ACTIVE" as const,
+      features: { modules } as Prisma.InputJsonValue,
+    };
     await prisma.plan.upsert({
       where: { slug: plan.slug },
-      update: {
-        name: plan.name,
-        description: plan.description,
-        features: { modules } as Prisma.InputJsonValue,
-      },
-      create: {
-        slug: plan.slug,
-        name: plan.name,
-        description: plan.description,
-        monthlyPrice: 0,
-        maxUsers: 5,
-        maxImeiQueries: 50,
-        status: "ACTIVE",
-        features: { modules } as Prisma.InputJsonValue,
-      },
+      update: shared,
+      create: { slug: plan.slug, ...shared },
     });
   }
-  console.log(`Plans seeded: ${SEED_PLANS.map((p) => p.slug).join(", ")}.`);
+
+  // Plano fora do catálogo é legado: some da oferta sem ser apagado. Apagar
+  // quebraria a FK das assinaturas que ainda apontam pra ele (onDelete: Restrict).
+  const retired = await prisma.plan.updateMany({
+    where: { slug: { notIn: CATALOG_SLUGS }, status: "ACTIVE" },
+    data: { status: "INACTIVE" },
+  });
+
+  console.log(
+    `Plans seeded: ${CATALOG_SLUGS.join(", ")}` +
+      (retired.count > 0 ? ` (${retired.count} legado(s) inativado(s))` : "") + ".",
+  );
 }
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
