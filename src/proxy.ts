@@ -20,7 +20,12 @@ import {
   getCatalogSubdomainSlug,
   CANONICAL_APP_HOST,
 } from "@/lib/brand-host";
-import { isAdminOnlySettingsPath, isRouteAllowedForTenant } from "@/lib/modules";
+import {
+  isAdminOnlySettingsPath,
+  isRouteAllowedForTenant,
+  isRouteAllowedWhileBlocked,
+  BLOCKED_SUBSCRIPTION_ROUTE,
+} from "@/lib/modules";
 import { resolveActiveTenant } from "@/lib/auth/active-tenant";
 import { isPublicRoute, isLegacyHostDirectServe } from "@/lib/auth/public-routes";
 
@@ -234,6 +239,15 @@ export const proxy = auth((req) => {
     !session.user.isSuperAdmin &&
     !pathname.startsWith("/api/")
   ) {
+    // 7b-1. Assinatura suspensa (ADR 0061): o tenant navega só pelo que precisa
+    // para voltar (pagar) ou para mexer no próprio dinheiro. Vem ANTES do gating
+    // por módulo porque o destino é outro: quem não pagou merece a tela que
+    // explica e cobra, não `/painel?error=modulo-indisponivel`, que descreveria
+    // o problema errado.
+    if (activeTenant.blocked && !isRouteAllowedWhileBlocked(pathname)) {
+      return NextResponse.redirect(selfUrl(BLOCKED_SUBSCRIPTION_ROUTE));
+    }
+
     if (!isRouteAllowedForTenant(pathname, activeTenant)) {
       return NextResponse.redirect(selfUrl("/painel?error=modulo-indisponivel"));
     }

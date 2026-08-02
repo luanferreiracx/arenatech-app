@@ -4,6 +4,8 @@ export type SessionTenant = {
   name: string;
   role: string;
   isTechnician?: boolean;
+  /** Assinatura suspensa por falta de pagamento (ADR 0061 — bloqueio suave). */
+  blocked?: boolean;
   modules: string[];
 };
 

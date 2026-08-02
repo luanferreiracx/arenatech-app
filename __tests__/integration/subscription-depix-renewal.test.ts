@@ -26,8 +26,21 @@ let subscriptionId: string;
 let depositId: string;
 let sysUserId: string;
 
-// vencimento inicial no futuro — pagar avança +1 mês a partir dele.
-const initialPeriodEnd = new Date("2026-08-01T00:00:00.000Z");
+// Vencimento inicial no futuro — pagar avança +1 mês a partir DELE (renovação
+// antecipada não perde dias).
+//
+// Relativo a `now` de propósito. Era a data absoluta 2026-08-01, e o teste passou
+// a falhar sozinho em 02/08/2026, quando "o futuro" virou passado e o serviço
+// (corretamente) passou a contar a partir de agora. Um teste com data fixa tem
+// prazo de validade; este não tem.
+const initialPeriodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+/** O que o serviço deve gravar: +1 mês sobre `initialPeriodEnd`. */
+const expectedPeriodEnd = (() => {
+  const next = new Date(initialPeriodEnd);
+  next.setMonth(next.getMonth() + 1);
+  return next.toISOString();
+})();
 
 beforeAll(async () => {
   const central = await prisma.tenant.findFirstOrThrow({ where: { slug: "arena-tech" } });
@@ -83,7 +96,7 @@ describe("renewSubscriptionFromPayment — idempotência (dinheiro)", () => {
     const afterFirst = await prisma.subscription.findUniqueOrThrow({ where: { id: subscriptionId } });
     const tenantAfter = await prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
     // +1 mês a partir do vencimento futuro (não perde dias).
-    expect(afterFirst.currentPeriodEnd?.toISOString()).toBe("2026-09-01T00:00:00.000Z");
+    expect(afterFirst.currentPeriodEnd?.toISOString()).toBe(expectedPeriodEnd);
     expect(afterFirst.status).toBe("ACTIVE");
     expect(tenantAfter.status).toBe("ACTIVE"); // reativado
 
@@ -92,7 +105,7 @@ describe("renewSubscriptionFromPayment — idempotência (dinheiro)", () => {
     expect(second.applied).toBe(false);
 
     const afterSecond = await prisma.subscription.findUniqueOrThrow({ where: { id: subscriptionId } });
-    expect(afterSecond.currentPeriodEnd?.toISOString()).toBe("2026-09-01T00:00:00.000Z"); // inalterado
+    expect(afterSecond.currentPeriodEnd?.toISOString()).toBe(expectedPeriodEnd); // inalterado
   });
 
   it("não renova assinatura CANCELADA (pagamento não reativa sozinho)", async () => {

@@ -8,6 +8,7 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { nextPeriodEnd } from "@/lib/billing/subscription";
 
 // appRouter puxa NextAuth (next/server) — mock igual aos demais caller-tests.
 vi.mock("@/server/auth", () => ({ auth: async () => null }));
@@ -17,6 +18,10 @@ import { appRouter } from "@/server/api/root";
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
 const prisma = new PrismaClient({ adapter });
+
+// Vencimento obrigatório desde o ADR 0061. Usa o MESMO cálculo da produção em
+// vez de uma data inventada: se `nextPeriodEnd` mudar, o fixture acompanha.
+const nextMonth = () => nextPeriodEnd({ cycle: "MONTHLY", currentPeriodEnd: null, now: new Date() });
 
 const suffix = Date.now().toString(36);
 let planId: string;
@@ -41,7 +46,7 @@ beforeAll(async () => {
   });
   tenantId = tenant.id;
   await prisma.subscription.create({
-    data: { tenantId, planId, status: "ACTIVE", billingCycle: "MONTHLY", amountCents: 5000 },
+    data: { tenantId, planId, status: "ACTIVE", billingCycle: "MONTHLY", amountCents: 5000, currentPeriodEnd: nextMonth() },
   });
 });
 
