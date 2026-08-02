@@ -57,8 +57,8 @@ describe("auto-reparo do cache LWK", () => {
 
   it("exige scan estável entre duas passadas antes de instalar", () => {
     // Defesa contra Esplora servindo dados parciais sem erro.
-    expect(script).toMatch(/a = scan\(b, HEAL\)/);
-    expect(script).toMatch(/bb = scan\(b, HEAL\)/);
+    expect(script).toMatch(/a = scan\(b, HEAL, desc\)/);
+    expect(script).toMatch(/bb = scan\(b, HEAL, desc\)/);
     expect(script).toMatch(/if a != bb:/);
   });
 
@@ -77,6 +77,39 @@ describe("auto-reparo do cache LWK", () => {
     // O script só pode mexer no diretório de cache `liquid/`.
     expect(script).not.toMatch(/rm .*descriptor\.txt/);
     expect(script).not.toMatch(/rm .*mnemonic/);
+  });
+
+  it("trata TODAS as carteiras, não um UUID fixo", () => {
+    // A versão anterior tinha o UUID da central hardcoded. Em produção isso
+    // deixou a carteira espelho do NO-KYC divergindo R$ 2.362 da central, porque
+    // reparar uma não repara a outra e ninguém reparava a segunda.
+    expect(script).not.toMatch(/dd308431-0525-417a-97c5-459e4b6cf45a/);
+    expect(script).toMatch(/-name descriptor\.txt/);
+    expect(script).toMatch(/for C in TARGETS:/);
+  });
+
+  it("rotaciona com cursor em vez de cortar sempre nas mesmas carteiras", () => {
+    // Teto por rodada sem cursor deixaria as últimas carteiras eternamente sem
+    // reparo — o mesmo bug de antes, só que em escala maior.
+    expect(script).toMatch(/CURSOR=/);
+    expect(script).toMatch(/MAX_WALLETS_PER_RUN/);
+    expect(script).toMatch(/>"\$CURSOR"/);
+  });
+
+  it("uma carteira que falha não impede a avaliação das demais", () => {
+    expect(script).toMatch(/except Exception as e:\s*\n\s*# Uma carteira que explode/);
+  });
+
+  it("religa o LWK mesmo se a troca falhar no meio", () => {
+    // LWK parado é saque parado e saldo indisponível para TODOS os tenants —
+    // um mv que falha não pode deixar a carteira de todo mundo offline.
+    expect(script).toMatch(/trap 'docker start "\$LWK"/);
+  });
+
+  it("alerta quando uma carteira pedida não devolve decisão", () => {
+    // Sumiço silencioso de uma carteira é a mesma classe de falha que deixou o
+    // incidente de 2026-07-28 sangrar 7h sem ninguém ver.
+    expect(script).toMatch(/nao devolveu decisao/);
   });
 
   it("prioriza a waterfalls como fonte primária (ADR 0059)", () => {
