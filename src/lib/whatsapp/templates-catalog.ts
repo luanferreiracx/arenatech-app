@@ -258,6 +258,11 @@ export const TEMPLATE_CONTEXTS: Record<string, keyof typeof APPROVED_TEMPLATES> 
   // 24h vai o texto livre digitado; fora dela, cai no `padrao` ([nome, assunto]) —
   // o texto cru seria rejeitado pela Meta fora da janela.
   contato_loja: "padrao",
+  // Cobrança da assinatura (ADR 0061). O admin do tenant quase nunca falou com a
+  // Arena pelo WhatsApp → sempre fora da janela 24h → cai no `padrao`
+  // ([nome, assunto]). O detalhe completo (valor, vencimento, prazo) vai no
+  // e-mail; aqui é o empurrão para a pessoa abrir o sistema.
+  cobranca_assinatura: "padrao",
 };
 
 /**
