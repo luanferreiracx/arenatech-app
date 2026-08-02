@@ -139,6 +139,7 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
           id: tenant.id,
           name: tenant.name,
           apiAccessEnabled: tenant.apiAccessEnabled,
+          depixEnabled: tenant.depixEnabled,
           depixWithdrawDailyCapCents: tenant.depixWithdrawDailyCapCents,
           partnerApiWithdrawDailyCapCents: tenant.partnerApiWithdrawDailyCapCents,
         }
@@ -171,6 +172,7 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
     },
   });
   const tenantApiAccess = useWatch({ control: tenantForm.control, name: "apiAccessEnabled" });
+  const tenantDepixEnabled = useWatch({ control: tenantForm.control, name: "depixEnabled" });
   const panelCapCents = useWatch({ control: tenantForm.control, name: "depixWithdrawDailyCapCents" });
   const apiCapCents = useWatch({ control: tenantForm.control, name: "partnerApiWithdrawDailyCapCents" });
 
@@ -178,6 +180,9 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
   if (!tenant) return <p className="text-muted-foreground">Tenant nao encontrado</p>;
 
   const capDefaults = tenant.withdrawCapDefaults;
+  // Desligar o DePix de quem já tem carteira trancaria o cliente do lado de fora
+  // do próprio dinheiro — o servidor recusa, e a UI não oferece.
+  const walletProvisioned = tenant.depixWalletProvisioned;
 
   const invalidateTenant = () =>
     queryClient.invalidateQueries({ queryKey: trpc.admin.getTenant.queryKey({ id: tenantId }) });
@@ -335,6 +340,27 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
             <Switch
               checked={tenantApiAccess === true}
               onCheckedChange={(v) => tenantForm.setValue("apiAccessEnabled", v)}
+            />
+          </div>
+          <div className="flex items-start justify-between gap-4 rounded-md border p-3">
+            <div className="min-w-0">
+              <Label htmlFor="tenant-depix-enabled">Carteira DePix</Label>
+              <p className="mt-0.5 text-xs text-muted-foreground break-words">
+                Libera a carteira e as vendas avulsas para este tenant. Desligado, ele opera o
+                sistema sem nenhuma superfície de DePix.
+              </p>
+              {walletProvisioned ? (
+                <p className="mt-1.5 text-xs text-amber-600 dark:text-amber-500 break-words">
+                  Carteira já provisionada: não dá para desligar sem deixar o cliente sem acesso
+                  ao próprio saldo.
+                </p>
+              ) : null}
+            </div>
+            <Switch
+              id="tenant-depix-enabled"
+              checked={tenantDepixEnabled === true}
+              disabled={walletProvisioned}
+              onCheckedChange={(v) => tenantForm.setValue("depixEnabled", v)}
             />
           </div>
           <div className="rounded-md border p-3">

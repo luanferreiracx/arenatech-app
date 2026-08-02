@@ -454,8 +454,17 @@ export const adminRouter = createTRPCRouter({
         // Uso de usuários vs teto do plano efetivo (via Subscription; sem plano =
         // default 5). A UI mostra "X de Y" e o admin entende o bloqueio de criação.
         const plan = await resolveTenantPlan(tx, tenant.id);
+        // Carteira provisionada trava o desligamento do gate de DePix: tirar o
+        // módulo de quem tem saldo deixaria o cliente sem acesso ao próprio
+        // dinheiro. A UI usa isto pra desabilitar o switch em vez de oferecer
+        // uma ação que o servidor vai recusar.
+        const wallet = await tx.tenantDepixWallet.findUnique({
+          where: { tenantId: tenant.id },
+          select: { provisionedAt: true },
+        });
         return {
           ...tenant,
+          depixWalletProvisioned: Boolean(wallet?.provisionedAt),
           userCount: tenant.users.length,
           maxUsers: plan?.maxUsers ?? DEFAULT_TENANT_MAX_USERS,
           // Defaults efetivos do ambiente, pra UI mostrar o que vale quando o
@@ -478,6 +487,24 @@ export const adminRouter = createTRPCRouter({
         });
         if (!currentTenant) throw new TRPCError({ code: "NOT_FOUND" });
 
+        // Desligar o DePix de quem já tem carteira provisionada trancaria o
+        // cliente do lado de fora do PRÓPRIO dinheiro — o beco sem saída que o
+        // ADR 0061 existe para fechar. Ligar é sempre permitido; desligar só
+        // enquanto não há carteira.
+        if (input.depixEnabled === false) {
+          const wallet = await tx.tenantDepixWallet.findUnique({
+            where: { tenantId: input.id },
+            select: { provisionedAt: true },
+          });
+          if (wallet?.provisionedAt) {
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message:
+                "Este tenant já tem carteira DePix provisionada. Desligar o módulo o deixaria sem acesso ao próprio saldo.",
+            });
+          }
+        }
+
         // PLANO e STATUS NÃO são editáveis aqui: a fonte da verdade é a Subscription,
         // alterada só por activateSubscription/suspendSubscription (que sincronizam
         // Tenant.plan/Tenant.status). updateTenant cuida apenas de identidade/config
@@ -490,6 +517,7 @@ export const adminRouter = createTRPCRouter({
             ...(input.apiAccessEnabled !== undefined
               ? { apiAccessEnabled: input.apiAccessEnabled }
               : {}),
+            ...(input.depixEnabled !== undefined ? { depixEnabled: input.depixEnabled } : {}),
             // Tetos de saque: `undefined` = campo nao veio (nao mexe);
             // `null` = superadmin limpou o campo -> volta pro default do ambiente.
             ...(input.depixWithdrawDailyCapCents !== undefined

@@ -10,6 +10,7 @@ import {
   NO_PLAN_MODULES,
   TOTAL_ACCESS_TENANT_SLUG,
   ALWAYS_ON_MODULES,
+  WALLET_FLOOR_MODULES,
   PLAN_SELECTABLE_MODULES,
   isRouteAllowedWhileBlocked,
   BLOCKED_SUBSCRIPTION_ROUTE,
@@ -166,11 +167,54 @@ describe("catálogo de módulos", () => {
   // plano permitiria tirá-la de quem deve — e reter saldo alheio como alavanca
   // de cobrança seria abuso. Guardião: se alguém devolver `wallet` para a matriz
   // de plano, este teste cai.
-  it("carteira DePix e link de cobrança são sempre-on, fora do editor de plano", () => {
-    expect(ALWAYS_ON_MODULES).toContain("wallet");
-    expect(ALWAYS_ON_MODULES).toContain("depix-ops");
+  it("carteira DePix e link de cobrança ficam fora do editor de plano", () => {
+    expect(WALLET_FLOOR_MODULES).toContain("wallet");
+    expect(WALLET_FLOOR_MODULES).toContain("depix-ops");
     expect(PLAN_SELECTABLE_MODULES).not.toContain("wallet");
     expect(PLAN_SELECTABLE_MODULES).not.toContain("depix-ops");
+  });
+});
+
+describe("gate da carteira DePix (Tenant.depixEnabled)", () => {
+  const loja = { tenantSlug: "loja-x", planFeatures: { modules: ["pdv"] }, hasPlan: true };
+
+  it("sem o gate, o tenant nunca é exposto à carteira", () => {
+    // O motivo de existir do gate: abrir cadastro não pode jogar 100% dos
+    // clientes novos na superfície mais frágil do sistema.
+    const mods = allowedModulesForTenant(loja);
+    expect(mods).not.toContain("wallet");
+    expect(mods).not.toContain("depix-ops");
+  });
+
+  it("com o gate, a carteira entra como piso", () => {
+    const mods = allowedModulesForTenant({ ...loja, depixEnabled: true });
+    expect(mods).toContain("wallet");
+    expect(mods).toContain("depix-ops");
+  });
+
+  it("suspenso por inadimplência MANTÉM a carteira (ADR 0061)", () => {
+    // A trava que preserva o princípio do ADR 0061: o cliente que deve continua
+    // alcançando o próprio dinheiro. Perde os módulos pagos, não o saldo.
+    const mods = allowedModulesForTenant({ ...loja, depixEnabled: true, blocked: true });
+    expect(mods).toContain("wallet");
+    expect(mods).toContain("depix-ops");
+    expect(mods).toContain("settings");
+    expect(mods).not.toContain("pdv");
+  });
+
+  it("suspenso SEM o gate não ganha carteira por causa do bloqueio", () => {
+    const mods = allowedModulesForTenant({ ...loja, blocked: true });
+    expect(mods).not.toContain("wallet");
+    expect(mods).toEqual([...ALWAYS_ON_MODULES]);
+  });
+
+  it("acesso total (arena-tech) tem a carteira de qualquer jeito", () => {
+    const mods = allowedModulesForTenant({
+      tenantSlug: "arena-tech",
+      planFeatures: null,
+      hasPlan: false,
+    });
+    expect(mods).toContain("wallet");
   });
 });
 
@@ -193,6 +237,8 @@ describe("allowedModulesForTenant", () => {
   });
 
   it("tenant com plano usa o que o plano libera + pré-requisitos + settings", () => {
+    // Sem `depixEnabled`, a carteira NÃO entra: quem contratou para vender
+    // celular não é exposto à superfície de DePix.
     expect(
       asSet(allowedModulesForTenant({
         tenantSlug: "loja-x",
@@ -200,7 +246,7 @@ describe("allowedModulesForTenant", () => {
         hasPlan: true,
       })),
     ).toEqual(
-      asSet(["wallet", "depix-ops", "pdv", "cashier", "financial", "stock", "customers", "settings"]),
+      asSet(["pdv", "cashier", "financial", "stock", "customers", "settings"]),
     );
   });
 
@@ -215,7 +261,7 @@ describe("allowedModulesForTenant", () => {
         hasPlan: true,
       })),
     ).toEqual(
-      asSet(["wallet", "depix-ops", "pdv", "stock", "financial", "cashier", "customers", "settings"]),
+      asSet(["pdv", "stock", "financial", "cashier", "customers", "settings"]),
     );
   });
 
@@ -228,7 +274,7 @@ describe("allowedModulesForTenant", () => {
       })),
     ).toEqual(
       asSet([
-        "wallet", "depix-ops", "service-orders", "customers",
+        "service-orders", "customers",
         "pdv", "cashier", "financial", "stock", "settings",
       ]),
     );
@@ -395,7 +441,7 @@ describe("partner-api — módulo com override por-tenant (ADR 0057)", () => {
       planFeatures: null,
       apiAccessEnabled: true,
     });
-    expect(mods).toContain("wallet"); // piso sempre-on
+    expect(mods).toContain("settings"); // piso sempre-on
     expect(mods).toContain("partner-api"); // + override
   });
 

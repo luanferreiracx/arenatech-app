@@ -41,6 +41,10 @@ export function isModuleAllowedForTenant(
   // Dependências: quem tem `pdv` tem `cashier`/`financial` implicitamente —
   // mesma expansão que o gating de rota de página aplica.
   const granted = new Set(withModuleDependencies((tenant?.modules ?? []).filter(isModuleKey)));
+  // `wallet`/`depix-ops` NÃO entram aqui como sempre-ligados: desde o gate
+  // `Tenant.depixEnabled` eles chegam pela lista de módulos da sessão, montada
+  // por `allowedModulesForTenant`. Tratá-los como incondicionais aqui furaria o
+  // gate justamente na borda que protege as rotas REST.
   return (
     tenant?.slug === TOTAL_ACCESS_TENANT_SLUG ||
     ALWAYS_ON_MODULES.includes(required) ||

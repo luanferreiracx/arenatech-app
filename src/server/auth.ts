@@ -155,7 +155,14 @@ async function resolveModulesByTenant(
       // barato e mantém uma única fonte de verdade.
       const dbTenants = await tx.tenant.findMany({
         where: { id: { in: stale.map((t) => t.id) } },
-        select: { id: true, slug: true, plan: true, status: true, apiAccessEnabled: true },
+        select: {
+          id: true,
+          slug: true,
+          plan: true,
+          status: true,
+          apiAccessEnabled: true,
+          depixEnabled: true,
+        },
       });
 
       // `CANCELLED` some do mapa (fica sem módulos e sem sessão). `SUSPENDED`
@@ -218,6 +225,9 @@ async function resolveModulesByTenant(
         blocked: isBlockedStatus(t.status),
         // Override por-tenant da API externa (ADR 0057).
         apiAccessEnabled: t.apiAccessEnabled === true,
+        // Gate da carteira DePix: só quem opera DePix recebe o piso da carteira,
+        // e recebe mesmo suspenso (o saldo é dele).
+        depixEnabled: t.depixEnabled === true,
       });
       modulesCache.set(t.id, { modules, expiresAt: now + MODULES_CACHE_TTL_MS });
       result.set(t.id, modules);
