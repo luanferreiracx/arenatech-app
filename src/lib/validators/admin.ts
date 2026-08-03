@@ -122,6 +122,18 @@ export type SubmitPreRegistrationInput = z.infer<typeof submitPreRegistrationSch
 export const approvePreRegistrationSchema = z.object({
   id: z.string().uuid(),
   planId: z.string().uuid().optional().nullable(),
+  /**
+   * Aprovar SÓ com a carteira DePix (ADR 0066): sem plano, sem assinatura, e o
+   * gate `Tenant.depixEnabled` ligado no mesmo ato.
+   *
+   * Existe como flag própria porque `planId: null` é ambíguo — significa tanto
+   * "não mandei nada, usa o que o cliente escolheu" quanto "não quero plano
+   * nenhum". Sem separar os dois, aprovar só-carteira um cadastro que veio da
+   * página de preços daria o plano escolhido do mesmo jeito.
+   *
+   * Ignora `planId` quando `true`: a intenção explícita vence.
+   */
+  walletOnly: z.boolean().optional(),
 });
 export type ApprovePreRegistrationInput = z.infer<typeof approvePreRegistrationSchema>;
 

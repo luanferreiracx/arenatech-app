@@ -317,3 +317,86 @@ describe("aceite dos Termos fica registrado, com versão", () => {
     expect(tenant.termsAcceptedAt?.getTime()).toBe(pr.termsAcceptedAt?.getTime());
   });
 });
+
+/**
+ * Cliente SÓ-CARTEIRA (ADR 0066). Existem clientes que vêm exclusivamente pela
+ * carteira DePix e nunca vão tocar em PDV nem em ordem de serviço.
+ *
+ * O caminho já existia (aprovar sem plano), mas tinha uma armadilha: o gate
+ * `Tenant.depixEnabled` nasce `false` (ADR 0062 — não impor a superfície mais
+ * frágil do sistema a quem não pediu). Aprovar sem plano E sem ligar o gate
+ * entregava uma tela VAZIA: sem plano e sem carteira. Era um segundo passo
+ * manual, e quem pagava o esquecimento era justamente o cliente que só veio pela
+ * carteira.
+ */
+describe("aprovação só-carteira", () => {
+  it("liga o gate DePix no mesmo ato — sem plano e sem assinatura", async () => {
+    const pr = await cadastrar(null);
+    const aprovado = await superadmin(superadminId).admin.approvePreRegistration({
+      id: pr.id,
+      walletOnly: true,
+    });
+    tenantsCriados.push(aprovado.tenantId);
+
+    const tenant = await prisma.tenant.findUniqueOrThrow({ where: { id: aprovado.tenantId } });
+    // O ponto do ADR: a carteira LIGADA. Sem isto o cliente entra e não vê nada.
+    expect(tenant.depixEnabled).toBe(true);
+    expect(tenant.plan).toBeNull();
+    expect(tenant.status).toBe("ACTIVE");
+
+    // Sem assinatura: não há o que cobrar nem o que expirar. A receita vem da
+    // taxa das transações DePix.
+    const sub = await prisma.subscription.findUnique({ where: { tenantId: aprovado.tenantId } });
+    expect(sub).toBeNull();
+    expect(aprovado.trialEndsAt).toBeNull();
+  });
+
+  it("DESCARTA o plano que o cliente escolheu na vitrine", async () => {
+    // `planId: null` significaria "não mandei nada" e o servidor cairia no plano
+    // do pré-cadastro. A flag existe para dizer "não quero plano NENHUM", e a
+    // intenção explícita do superadmin tem que vencer a escolha do cliente.
+    const pr = await cadastrar(CATALOG_PLAN_SLUG);
+    expect(pr.planId).toBe(planoCompletoId);
+
+    const aprovado = await superadmin(superadminId).admin.approvePreRegistration({
+      id: pr.id,
+      walletOnly: true,
+    });
+    tenantsCriados.push(aprovado.tenantId);
+
+    const tenant = await prisma.tenant.findUniqueOrThrow({ where: { id: aprovado.tenantId } });
+    expect(tenant.plan).toBeNull();
+    expect(tenant.depixEnabled).toBe(true);
+    expect(await prisma.subscription.findUnique({ where: { tenantId: aprovado.tenantId } })).toBeNull();
+  });
+
+  it("registra no audit log quem liberou a carteira", async () => {
+    // Ligar o DePix é mudança de postura de risco. O caminho manual
+    // (`updateTenant`) já deixa rastro; o automático não podia ser o único que
+    // não deixa.
+    const pr = await cadastrar(null);
+    const aprovado = await superadmin(superadminId).admin.approvePreRegistration({
+      id: pr.id,
+      walletOnly: true,
+    });
+    tenantsCriados.push(aprovado.tenantId);
+
+    const log = await prisma.auditLog.findFirst({
+      where: { tenantId: aprovado.tenantId, action: "tenant.depix.enable" },
+    });
+    expect(log).not.toBeNull();
+    expect(log!.userId).toBe(superadminId);
+  });
+
+  it("aprovar COM plano não liga a carteira por engano", async () => {
+    // O gate continua `false` por padrão: quem contratou o sistema para vender
+    // celular não é exposto à carteira sem pedir (ADR 0062).
+    const pr = await cadastrar(CATALOG_PLAN_SLUG);
+    const aprovado = await superadmin(superadminId).admin.approvePreRegistration({ id: pr.id });
+    tenantsCriados.push(aprovado.tenantId);
+
+    const tenant = await prisma.tenant.findUniqueOrThrow({ where: { id: aprovado.tenantId } });
+    expect(tenant.depixEnabled).toBe(false);
+    expect(tenant.plan).toBe(planoCompletoId);
+  });
+});

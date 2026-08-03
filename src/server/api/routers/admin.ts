@@ -1405,9 +1405,17 @@ export const adminRouter = createTRPCRouter({
           throw new TRPCError({ code: "BAD_REQUEST", message: "Pre-cadastro ja processado" });
         }
 
-        // `input.planId` (o superadmin corrigiu na tela) vence a escolha do
-        // cliente (`pr.planId`, vinda da página de preços).
-        const plan = await resolveOnboardingPlan(tx, input.planId ?? pr.planId);
+        // Aprovação SÓ-CARTEIRA (ADR 0066): descarta qualquer plano, inclusive o
+        // que o cliente escolheu na página de preços. É a intenção explícita do
+        // superadmin e vence tudo — daí a flag própria, e não `planId: null`
+        // (que significa "não mandei nada", não "não quero plano").
+        //
+        // Fora isso, `input.planId` (o superadmin corrigiu na tela) vence a
+        // escolha do cliente (`pr.planId`).
+        const walletOnly = input.walletOnly === true;
+        const plan = walletOnly
+          ? null
+          : await resolveOnboardingPlan(tx, input.planId ?? pr.planId);
         const planId = plan?.id ?? null;
         const cnpj = normalizeDigits(pr.cnpj);
         await assertTenantCnpjAvailable(tx, cnpj);
@@ -1451,6 +1459,15 @@ export const adminRouter = createTRPCRouter({
             plan: planId,
             status: "ACTIVE",
             apiAccessEnabled: isNoKyc ? true : false,
+            // Só-carteira liga o gate DePix AQUI, no mesmo ato da aprovação
+            // (ADR 0066). O gate nasce `false` por padrão — não se impõe a
+            // superfície mais frágil do sistema a quem nunca vai tocar em DePix
+            // (ADR 0062). Mas para ESTE cliente a carteira é o produto inteiro:
+            // aprovar sem ligar o gate o deixaria numa tela vazia, sem plano e
+            // sem carteira. Era um segundo passo manual, fácil de esquecer, e
+            // quem pagava o esquecimento era justamente quem só veio pela
+            // carteira.
+            ...(walletOnly ? { depixEnabled: true } : {}),
             // Aceite copiado do pré-cadastro (ADR 0065). O pré-cadastro é
             // registro de passagem — a senha dele já é apagada aqui, e um dia a
             // fila será podada. A prova do consentimento precisa durar o quanto
@@ -1552,6 +1569,23 @@ export const adminRouter = createTRPCRouter({
               trialDays: trial.trialDays,
               trialEndsAt: trial.currentPeriodEnd.toISOString(),
             },
+          });
+        }
+
+        if (walletOnly) {
+          // Ligar o DePix é mudança de postura de risco (expõe o tenant à
+          // carteira, ao LWK e ao off-ramp de terceiro). Fica no audit log para
+          // dar pra responder "quem liberou a carteira deste tenant, e quando" —
+          // do mesmo jeito que `updateTenant` registra quando o gate é mexido à
+          // mão. Sem isto, o único caminho que liga o gate automaticamente seria
+          // o único que não deixa rastro.
+          await logAudit(tx as never, {
+            tenantId: tenant.id,
+            userId: ctx.session.user.id,
+            action: "tenant.depix.enable",
+            entity: "tenant",
+            entityId: tenant.id,
+            payload: { source: "pre_registration_wallet_only" },
           });
         }
 
