@@ -2,6 +2,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { Prisma } from "@prisma/client";
 import { toPublicPlanView } from "@/lib/plans/public-plan-view";
+import { CATALOG_SLUGS } from "@/lib/plans/catalog";
 import { createTRPCRouter, adminProcedure, publicProcedure } from "@/server/api/trpc";
 import { prisma } from "@/server/db";
 import { tenantFinancialInit } from "@/server/services/tenant-financial-init.service";
@@ -9,7 +10,12 @@ import { assertTenantUserQuota, DEFAULT_MAX_USERS as DEFAULT_TENANT_MAX_USERS } 
 import { resolveTenantPlan } from "@/server/services/tenant-plan.service";
 import { logAudit } from "@/server/services/audit-log.service";
 import { aggregateSubscriptionMetrics } from "@/lib/subscription-metrics";
-import { modulesFromPlanFeatures, withModuleDependencies, isModuleKey } from "@/lib/modules";
+import {
+  modulesFromPlanFeatures,
+  withModuleDependencies,
+  isModuleKey,
+  isPlanSelectableModule,
+} from "@/lib/modules";
 
 /**
  * Funde a lista de módulos (gating) dentro do JSON `features` do plano,
@@ -60,6 +66,7 @@ import {
   updatePlatformSettings,
   trialEndsAt,
 } from "@/server/services/platform-settings.service";
+import { startSubscription } from "@/server/services/subscription-start.service";
 import {
   createAddonSchema,
   updateAddonSchema,
@@ -173,8 +180,19 @@ async function mapOnboardingConflicts<T>(operation: () => Promise<T>): Promise<T
   }
 }
 
-function isWalletOnlyModules(modules: readonly string[]): boolean {
-  return modules.length === 1 && modules[0] === "wallet";
+/**
+ * Plano SEM módulo de plano nenhum — o tenant fica só com o piso (carteira
+ * DePix, quando habilitada, e configurações). É o estado de quem entrou sem
+ * escolher plano: usa a carteira e decide depois.
+ *
+ * Antes esta função exigia exatamente `["wallet"]`. Duas coisas a tornaram
+ * errada: `wallet`/`depix-ops` saíram da matriz de plano (viraram piso
+ * condicionado a `Tenant.depixEnabled`, ADR 0062), e o dono trocou venda
+ * assistida por funil self-service (ADR 0061) — a partir daí "não escolheu
+ * plano" é a exceção, não a regra.
+ */
+function isPlanlessModules(modules: readonly string[]): boolean {
+  return modules.every((m) => !isPlanSelectableModule(m));
 }
 
 /**
@@ -203,26 +221,27 @@ async function resolveActivePlanId(
 }
 
 /**
- * Como resolveActivePlanId, mas restringe ao plano wallet-only. Usado no
- * ONBOARDING inicial (createTenant, approvePreRegistration): todo tenant nasce
- * só com a Carteira DePix; a liberação dos demais módulos acontece depois, na
- * ativação, quando o superadmin escolhe o plano definitivo.
+ * Plano do ONBOARDING (createTenant, approvePreRegistration).
+ *
+ * Devolve o id e se o plano vende módulos. Aceita QUALQUER plano ativo: no funil
+ * self-service o cliente escolhe o plano na página de preços, e a aprovação abre
+ * o teste grátis nele (ADR 0061). A regra anterior — "onboarding só aceita plano
+ * wallet-only" — vinha da venda assistida, em que o superadmin atribuía o plano
+ * depois, à mão; mantê-la faria a aprovação rejeitar exatamente a escolha que o
+ * cliente acabou de fazer.
+ *
+ * Quem não escolheu plano continua entrando sem nenhum (`null`): usa a carteira
+ * e decide depois.
  */
-async function resolveWalletOnlyActivePlanId(
+async function resolveOnboardingPlan(
   tx: Prisma.TransactionClient,
   planId: string | null | undefined,
-): Promise<string | null> {
+): Promise<{ id: string; sellsModules: boolean } | null> {
   const plan = await resolveActivePlanId(tx, planId);
   if (!plan) return null;
 
   const modules = modulesFromPlanFeatures(plan.features);
-  if (!isWalletOnlyModules(modules)) {
-    throw new TRPCError({
-      code: "BAD_REQUEST",
-      message: "Onboarding inicial permite apenas planos com Carteira DePix",
-    });
-  }
-  return plan.id;
+  return { id: plan.id, sellsModules: !isPlanlessModules(modules) };
 }
 
 async function assertTenantCnpjAvailable(
@@ -607,62 +626,13 @@ export const adminRouter = createTRPCRouter({
         });
         if (!tenant) throw new TRPCError({ code: "NOT_FOUND", message: "Tenant nao encontrado" });
 
-        const plan = await tx.plan.findUnique({
-          where: { id: input.planId },
-          select: { id: true, status: true, monthlyPrice: true, yearlyPrice: true },
-        });
-        if (!plan) throw new TRPCError({ code: "BAD_REQUEST", message: "Plano selecionado nao existe" });
-        if (plan.status !== "ACTIVE") {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Plano selecionado esta inativo" });
-        }
-
-        const amountCents =
-          input.amountCents ??
-          snapshotAmountCents({
-            cycle: input.billingCycle,
-            monthlyCents: decimalToCents(plan.monthlyPrice),
-            yearlyCents: plan.yearlyPrice == null ? null : decimalToCents(plan.yearlyPrice),
-          });
-
-        // Teste grátis (ADR 0061): concede os módulos do plano sem cobrar. O fim
-        // do teste ocupa o mesmo `currentPeriodEnd` do vencimento, então acabar o
-        // teste percorre o caminho já existente (PAST_DUE → carência → bloqueio).
-        const now = new Date();
-        const status = input.asTrial ? "TRIALING" : "ACTIVE";
-        const trialDays =
-          input.trialDays ?? (await getPlatformSettings(tx)).trialDays;
-        const periodEnd = input.asTrial
-          ? trialEndsAt(now, trialDays)
-          : nextPeriodEnd({ cycle: input.billingCycle, currentPeriodEnd: null, now });
-
-        const subscription = await tx.subscription.upsert({
-          where: { tenantId: input.tenantId },
-          create: {
-            tenantId: input.tenantId,
-            planId: input.planId,
-            status,
-            billingCycle: input.billingCycle,
-            amountCents,
-            currentPeriodEnd: periodEnd,
-          },
-          update: {
-            planId: input.planId,
-            status,
-            billingCycle: input.billingCycle,
-            amountCents,
-            cancelReason: null,
-            // Trocar de plano NÃO mexe no vencimento de quem já paga — o período
-            // comprado é dele. Só o início de um teste redefine a data.
-            ...(input.asTrial ? { currentPeriodEnd: periodEnd } : {}),
-          },
-        });
-
-        // Fonte canônica do plano = a Subscription (acima). `Tenant.plan` é sombra
-        // mantida sincronizada durante a transição (fallback do gating). Reativa o
-        // acesso (status ACTIVE).
-        await tx.tenant.update({
-          where: { id: input.tenantId },
-          data: { plan: input.planId, status: "ACTIVE" },
+        const started = await startSubscription(tx, {
+          tenantId: input.tenantId,
+          planId: input.planId,
+          billingCycle: input.billingCycle,
+          amountCents: input.amountCents,
+          asTrial: input.asTrial === true,
+          trialDays: input.trialDays,
         });
 
         await logAudit(tx as never, {
@@ -670,16 +640,25 @@ export const adminRouter = createTRPCRouter({
           userId: ctx.session.user.id,
           action: input.asTrial ? "subscription.trial.start" : "subscription.activate",
           entity: "subscription",
-          entityId: subscription.id,
+          entityId: started.subscriptionId,
           payload: {
             planId: input.planId,
             billingCycle: input.billingCycle,
-            amountCents,
-            ...(input.asTrial ? { trialDays, trialEndsAt: periodEnd.toISOString() } : {}),
+            amountCents: started.amountCents,
+            ...(input.asTrial
+              ? {
+                  trialDays: started.trialDays,
+                  trialEndsAt: started.currentPeriodEnd.toISOString(),
+                }
+              : {}),
           },
         });
 
-        return { success: true, status, currentPeriodEnd: periodEnd };
+        return {
+          success: true,
+          status: started.status,
+          currentPeriodEnd: started.currentPeriodEnd,
+        };
       });
     }),
 
@@ -1395,9 +1374,23 @@ export const adminRouter = createTRPCRouter({
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       return ctx.withAdmin(async (tx) => {
-        const pr = await tx.preRegistration.findUnique({ where: { id: input.id } });
+        const pr = await tx.preRegistration.findUnique({
+          where: { id: input.id },
+          // `plan` junto: aprovar sem ver o plano que o cliente escolheu é decidir
+          // no escuro — a aprovação abre o teste grátis NELE (ADR 0061).
+          include: { plan: { select: { id: true, name: true, monthlyPrice: true } } },
+        });
         if (!pr) throw new TRPCError({ code: "NOT_FOUND" });
-        return pr;
+        return {
+          ...pr,
+          plan: pr.plan
+            ? {
+                id: pr.plan.id,
+                name: pr.plan.name,
+                monthlyPriceCents: decimalToCents(pr.plan.monthlyPrice),
+              }
+            : null,
+        };
       });
     }),
 
@@ -1411,7 +1404,10 @@ export const adminRouter = createTRPCRouter({
           throw new TRPCError({ code: "BAD_REQUEST", message: "Pre-cadastro ja processado" });
         }
 
-        const planId = await resolveWalletOnlyActivePlanId(tx, input.planId ?? pr.planId);
+        // `input.planId` (o superadmin corrigiu na tela) vence a escolha do
+        // cliente (`pr.planId`, vinda da página de preços).
+        const plan = await resolveOnboardingPlan(tx, input.planId ?? pr.planId);
+        const planId = plan?.id ?? null;
         const cnpj = normalizeDigits(pr.cnpj);
         await assertTenantCnpjAvailable(tx, cnpj);
 
@@ -1520,13 +1516,52 @@ export const adminRouter = createTRPCRouter({
           },
         });
 
+        // Funil self-service (ADR 0061): quem escolheu plano começa TESTANDO ele.
+        // Sem isto o tenant nasceria com os módulos do plano (via `Tenant.plan`)
+        // e SEM assinatura — acesso liberado que nunca vence, nunca cobra e não
+        // aparece em nenhuma métrica de receita.
+        //
+        // Plano sem módulo de plano (só carteira) NÃO abre assinatura: não há o
+        // que cobrar nem o que expirar.
+        const trial = plan?.sellsModules
+          ? await startSubscription(tx, {
+              tenantId: tenant.id,
+              planId: plan.id,
+              billingCycle: "MONTHLY",
+              asTrial: true,
+            })
+          : null;
+
+        if (trial) {
+          await logAudit(tx as never, {
+            tenantId: tenant.id,
+            userId: ctx.session.user.id,
+            action: "subscription.trial.start",
+            entity: "subscription",
+            entityId: trial.subscriptionId,
+            payload: {
+              planId: plan!.id,
+              source: "pre_registration",
+              trialDays: trial.trialDays,
+              trialEndsAt: trial.currentPeriodEnd.toISOString(),
+            },
+          });
+        }
+
         logger.info("Pre-registration approved", {
           preRegId: input.id,
           tenantId: tenant.id,
           userId: user.id,
+          planId,
+          trialEndsAt: trial?.currentPeriodEnd.toISOString() ?? null,
         });
 
-        return { tenantId: tenant.id, userId: user.id, tempPassword: existingUser ? null : tempPassword };
+        return {
+          tenantId: tenant.id,
+          userId: user.id,
+          tempPassword: existingUser ? null : tempPassword,
+          trialEndsAt: trial?.currentPeriodEnd ?? null,
+        };
       }));
 
       // Carteira DePix nasce non-custodial no 1o acesso (ADR 0051): o tenant
@@ -1571,7 +1606,8 @@ export const adminRouter = createTRPCRouter({
     .input(createTenantSchema)
     .mutation(async ({ ctx, input }) => {
       const created = await mapOnboardingConflicts(() => ctx.withAdmin(async (tx) => {
-        const planId = await resolveWalletOnlyActivePlanId(tx, input.planId);
+        const plan = await resolveOnboardingPlan(tx, input.planId);
+        const planId = plan?.id ?? null;
         const cnpj = normalizeDigits(input.cnpj);
         const ownerCpf = normalizeRequiredDigits(input.ownerCpf);
         const ownerPhone = normalizeDigits(input.phone);
@@ -1647,13 +1683,48 @@ export const adminRouter = createTRPCRouter({
           state: input.state?.toUpperCase() ?? null,
         });
 
+        // Mesma regra da aprovação do cadastro: plano que vende módulos nasce em
+        // teste. O caminho manual precisa concordar com o self-service, senão o
+        // tenant criado à mão fica com módulos liberados e sem assinatura.
+        const trial = plan?.sellsModules
+          ? await startSubscription(tx, {
+              tenantId: tenant.id,
+              planId: plan.id,
+              billingCycle: "MONTHLY",
+              asTrial: true,
+            })
+          : null;
+
+        if (trial) {
+          await logAudit(tx as never, {
+            tenantId: tenant.id,
+            userId: ctx.session.user.id,
+            action: "subscription.trial.start",
+            entity: "subscription",
+            entityId: trial.subscriptionId,
+            payload: {
+              planId: plan!.id,
+              source: "create_tenant",
+              trialDays: trial.trialDays,
+              trialEndsAt: trial.currentPeriodEnd.toISOString(),
+            },
+          });
+        }
+
         logger.info("Tenant created manually", {
           tenantId: tenant.id,
           userId,
           byAdmin: ctx.session.user.id,
+          planId,
+          trialEndsAt: trial?.currentPeriodEnd.toISOString() ?? null,
         });
 
-        return { tenantId: tenant.id, userId, tempPassword: existingUser ? null : tempPassword };
+        return {
+          tenantId: tenant.id,
+          userId,
+          tempPassword: existingUser ? null : tempPassword,
+          trialEndsAt: trial?.currentPeriodEnd ?? null,
+        };
       }));
 
       // Carteira DePix nasce non-custodial no 1o acesso (ADR 0051): o tenant
@@ -2136,8 +2207,12 @@ export const adminRouter = createTRPCRouter({
   // ═══════════════════════════════════════
 
   publicPlans: publicProcedure.query(async () => {
+    // Só o CATÁLOGO comercial entra na vitrine. Planos legados (`free`, `pro`)
+    // seguem ATIVOS porque um tenant ainda aponta pra eles — a FK das assinaturas
+    // é `Restrict` —, mas não estão à venda: mostrá-los ofereceria ao visitante
+    // um "FREE R$ 0,00" que ninguém pode contratar.
     const plans = await prisma.plan.findMany({
-      where: { status: "ACTIVE" },
+      where: { status: "ACTIVE", slug: { in: CATALOG_SLUGS } },
       orderBy: { monthlyPrice: "asc" },
     });
 
@@ -2145,6 +2220,35 @@ export const adminRouter = createTRPCRouter({
     // `features` — é a intenção de gating de módulos (P2 auditoria 2026-07-14).
     return plans.map(toPublicPlanView);
   }),
+
+  /**
+   * Dias de teste grátis anunciados na página de preços.
+   *
+   * Público de propósito: a promessa exibida ao visitante ("7 dias grátis") tem
+   * que ser a MESMA que a aprovação aplica. Hardcodar o número na página faria
+   * o dono mudar o padrão em /admin e a vitrine continuar prometendo o antigo.
+   * Não é segredo — é o que se anuncia.
+   */
+  publicTrialDays: publicProcedure.query(async () => {
+    const settings = await getPlatformSettings(prisma);
+    return { trialDays: settings.trialDays };
+  }),
+
+  /**
+   * UM plano do catálogo, por slug — o que a tela de cadastro mostra para
+   * confirmar a escolha feita na página de preços ("Você escolheu: Completo,
+   * R$ 279/mês"). Devolve `null` para slug desconhecido/legado/inativo, o mesmo
+   * critério de `resolvePlanIdBySlug` no cadastro: a tela nunca confirma um
+   * plano que o servidor descartaria.
+   */
+  publicPlanBySlug: publicProcedure
+    .input(z.object({ slug: z.string().max(50) }))
+    .query(async ({ input }) => {
+      if (!CATALOG_SLUGS.includes(input.slug)) return null;
+      const plan = await prisma.plan.findUnique({ where: { slug: input.slug } });
+      if (!plan || plan.status !== "ACTIVE") return null;
+      return toPublicPlanView(plan);
+    }),
 
   // O auto-cadastro público KYC (submitPreRegistration) foi aposentado na Fase 5
   // do ADR 0050: o pré-cadastro público agora é exclusivo do NO-KYC (router

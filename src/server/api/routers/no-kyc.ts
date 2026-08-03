@@ -18,6 +18,7 @@ import {
   verifyCode,
   type IssueVerificationInput,
 } from "@/server/services/verification.service";
+import { CATALOG_SLUGS } from "@/lib/plans/catalog";
 import {
   startNoKycRegistrationSchema,
   verifyNoKycEmailSchema,
@@ -42,9 +43,37 @@ type PendingRegistrationData = {
   ownerEmail: string;
   ownerPhone: string;
   passwordHash: string;
+  planId: string | null;
   emailVerifiedAt: null;
   phoneVerifiedAt: null;
 };
+
+/**
+ * Resolve o SLUG de plano vindo da página de preços para um id do banco.
+ *
+ * Três filtros, nesta ordem: precisa estar no CATÁLOGO comercial (plano legado
+ * como `free`/`pro` não se contrata por aqui), precisa EXISTIR no banco e
+ * precisa estar ATIVO. Qualquer falha devolve `null` em vez de erro: o cadastro
+ * é a última coisa que se deve derrubar por causa de um parâmetro de URL torto.
+ * Sem plano, o superadmin escolhe na aprovação.
+ */
+async function resolvePlanIdBySlug(slug: string | null | undefined): Promise<string | null> {
+  if (!slug) return null;
+  if (!CATALOG_SLUGS.includes(slug)) {
+    logger.warn("NO-KYC: slug de plano fora do catálogo ignorado", { slug });
+    return null;
+  }
+
+  const plan = await prisma.plan.findUnique({
+    where: { slug },
+    select: { id: true, status: true },
+  });
+  if (!plan || plan.status !== "ACTIVE") {
+    logger.warn("NO-KYC: plano do catálogo ausente ou inativo no banco", { slug });
+    return null;
+  }
+  return plan.id;
+}
 
 /**
  * Reaproveita o pré-cadastro PENDENTE do mesmo e-mail em vez de acumular
@@ -129,18 +158,20 @@ export const noKycRouter = createTRPCRouter({
       }
 
       const passwordHash = hashSync(input.password, BCRYPT_ROUNDS);
+      const planId = await resolvePlanIdBySlug(input.planSlug);
       const pr = await createOrReusePending({
         tradeName: input.tradeName?.trim() || "Loja NO-KYC",
         ownerName: input.ownerName,
         ownerEmail: email,
         ownerPhone: phone,
         passwordHash,
+        planId,
         emailVerifiedAt: null,
         phoneVerifiedAt: null,
       });
 
       await issueCodeOrThrow({ target: email, channel: "EMAIL", preRegistrationId: pr.id });
-      logger.info("NO-KYC: pré-cadastro iniciado", { id: pr.id });
+      logger.info("NO-KYC: pré-cadastro iniciado", { id: pr.id, planId });
 
       return { preRegistrationId: pr.id, emailMasked: maskEmail(email) };
     }),

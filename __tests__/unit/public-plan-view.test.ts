@@ -24,7 +24,7 @@ const basePlan = {
 describe("toPublicPlanView", () => {
   it("expõe só campos públicos e converte preços pra centavos", () => {
     const view = toPublicPlanView(basePlan);
-    expect(view).toEqual({
+    expect(view).toMatchObject({
       id: "plan-1",
       name: "Completo",
       slug: "completo",
@@ -33,6 +33,34 @@ describe("toPublicPlanView", () => {
       yearlyPrice: 149900,
       maxUsers: 10,
     });
+    // Chaves EXATAS: o teste de shape é o que impede um campo novo de entrar no
+    // contrato público sem alguém decidir que ele pode ser público.
+    expect(Object.keys(view).sort()).toEqual([
+      "description",
+      "featured",
+      "highlights",
+      "id",
+      "maxUsers",
+      "monthlyPrice",
+      "name",
+      "slug",
+      "yearlyPrice",
+    ]);
+  });
+
+  it("traz os benefícios de VENDA do catálogo, não os módulos do gating", () => {
+    const view = toPublicPlanView(basePlan);
+    // O plano do banco tem `iphone-hunter` em `features`; os benefícios vêm do
+    // catálogo, escritos à mão. Se um dia alguém derivar `highlights` de
+    // `features`, a chave interna aparece aqui e o teste cai.
+    expect(view.highlights.length).toBeGreaterThan(0);
+    expect(view.highlights.join(" ")).not.toMatch(/iphone-hunter|pdv-retail|service-orders/);
+  });
+
+  it("plano LEGADO (fora do catálogo) não inventa benefício nem destaque", () => {
+    const view = toPublicPlanView({ ...basePlan, slug: "pro" });
+    expect(view.highlights).toEqual([]);
+    expect(view.featured).toBe(false);
   });
 
   it("NUNCA inclui `features`/gating de módulos (guard do vazamento)", () => {

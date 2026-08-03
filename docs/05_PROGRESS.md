@@ -19,6 +19,51 @@
 
 ---
 
+### 2026-08-03 — Funil self-service: da vitrine ao teste grátis (ADR 0064)
+
+O que faltava para comercializar não era mais funcionalidade — era o caminho. Um
+interessado se cadastrava e caía numa tela mandando falar com o suporte. O
+endpoint `admin.publicPlans` existia desde sempre e **nenhuma página o
+consumia**.
+
+**O bloqueio real.** `resolveWalletOnlyActivePlanId` rejeitava qualquer plano com
+módulos no onboarding — regra correta na venda assistida (ADR 0050: tenant nasce
+wallet-only, superadmin atribui o plano depois), e exatamente ao contrário do
+self-service que o dono escolheu. A aprovação **rejeitaria a escolha que o cliente
+acabou de fazer**. Virou `resolveOnboardingPlan`: aceita qualquer plano ativo, e
+"sem plano" continua válido.
+
+**Assinatura tem uma implementação só.** `startSubscription` novo, usado por
+`activateSubscription`, `approvePreRegistration` e `createTenant`. Sem isso seria
+a oitava ocorrência de "duas implementações da mesma regra" — um trial de 7 dias
+por um caminho e 0 pelo outro só apareceria com o cliente bloqueado no dia
+seguinte ao cadastro.
+
+**Buraco fechado:** aprovar com plano liberava os módulos via `Tenant.plan` **sem
+criar Subscription** — acesso que nunca vence, nunca cobra e não aparece em
+receita. Agora abre `TRIALING` com vencimento no fim do teste.
+
+**Entregue:** `/planos` pública (Server Component); `?plano=<slug>` → cadastro →
+`PreRegistration.planId` → trial na aprovação; benefícios de venda no catálogo
+(`highlights`), deliberadamente **não** derivados de `features.modules`; vitrine
+filtra planos legados (`free` R$ 0 não é contratável por URL); FK
+`pre_registrations.plan_id` com `SET NULL` (era uuid solto); plano visível na tela
+de aprovação; entrada para o funil no `/login`.
+
+**O navegador achou o que o diff escondia:** a 200% de zoom o preço estourava o
+card (WCAG 1.4.4), os quatro CTAs tinham nome acessível idêntico, e o `Field` do
+cadastro renderizava `<Label>` sem `htmlFor` — rótulo não anunciado, clique no
+rótulo sem efeito, erro não associado. Os três corrigidos e re-medidos.
+
+**Testes:** 11 de integração contra routers+banco de verdade (verificado que
+falham com o trial desligado), 6 E2E (3 `@smoke`), unit 2242 verdes.
+
+**Produção:** os 4 planos do catálogo criados (`assistencia`, `varejo`,
+`varejo-fiscal`, `completo`). `free`/`pro` seguem ACTIVE porque `demo-paybis`
+aponta para `pro` — invisíveis na vitrine, inativá-los fica para depois.
+
+---
+
 ### 2026-08-01 — Catálogo: marcas gerenciáveis, nome em caixa alta, busca sem acento
 
 Três correções pedidas pelo dono, todas no cadastro/busca de produto.

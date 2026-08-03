@@ -33,6 +33,14 @@ export const startNoKycRegistrationSchema = z
     phone: phoneSchema,
     password: passwordSchema,
     confirmPassword: z.string().max(MAX_SENHA),
+    /**
+     * SLUG do plano escolhido na página de preços (funil self-service, ADR 0061).
+     *
+     * Slug e não id: o servidor resolve o slug contra o catálogo, então uma URL
+     * adulterada (`?plano=<uuid de um plano inativo>`) não vira escolha válida.
+     * Opcional — quem chega direto em /register entra sem plano e escolhe depois.
+     */
+    planSlug: z.string().max(50).optional().nullable(),
   })
   .refine((d) => d.password === d.confirmPassword, {
     message: "As senhas não coincidem",

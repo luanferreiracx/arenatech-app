@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { LoadingState } from "@/components/domain/loading-state";
 import { toast } from "@/lib/toast";
 import { PRE_REGISTRATION_STATUS_LABELS, PRE_REGISTRATION_STATUS_VARIANT } from "@/lib/validators/admin";
+import { formatCentsBRL } from "@/lib/format";
 
 export function PreRegistrationDetail({ preRegId }: { preRegId: string }) {
   const trpc = useTRPC();
@@ -37,10 +38,13 @@ export function PreRegistrationDetail({ preRegId }: { preRegId: string }) {
       { id: preRegId },
       {
         onSuccess: (result) => {
+          const trial = result.trialEndsAt
+            ? ` Teste grátis até ${new Date(result.trialEndsAt).toLocaleDateString("pt-BR")}.`
+            : "";
           toast.success(
-            result.tempPassword
+            (result.tempPassword
               ? `Aprovado! Senha temporaria: ${result.tempPassword}`
-              : "Aprovado! Responsavel ja existia no sistema.",
+              : "Aprovado! Responsavel ja existia no sistema.") + trial,
           );
           queryClient.invalidateQueries({ queryKey: trpc.admin.getPreRegistration.queryKey({ id: preRegId }) });
         },
@@ -107,6 +111,25 @@ export function PreRegistrationDetail({ preRegId }: { preRegId: string }) {
                 )}
                 <div><span className="text-muted-foreground">Email:</span><p className="font-medium">{pr.ownerEmail}</p></div>
                 <div><span className="text-muted-foreground">Telefone:</span><p className="font-medium">{pr.ownerPhone}</p></div>
+                {/* Plano escolhido pelo cliente na página de preços. Aprovar
+                    abre o TESTE GRÁTIS nele (ADR 0061) — sem mostrar aqui, o
+                    superadmin confirma uma cobrança futura que não viu. */}
+                <div className="col-span-2">
+                  <span className="text-muted-foreground">Plano escolhido:</span>
+                  {pr.plan ? (
+                    <p className="min-w-0 break-words font-medium">
+                      {pr.plan.name}{" "}
+                      <span className="tabular-nums text-muted-foreground">
+                        ({formatCentsBRL(pr.plan.monthlyPriceCents)}/mês após o teste)
+                      </span>
+                    </p>
+                  ) : (
+                    <p className="text-muted-foreground">
+                      Nenhum — o cliente se cadastrou sem escolher. Aprovar dá acesso
+                      só à carteira; defina o plano depois na ficha do tenant.
+                    </p>
+                  )}
+                </div>
                 {pr.notes && (
                   <div className="col-span-2"><span className="text-muted-foreground">Observacoes:</span><p>{pr.notes}</p></div>
                 )}

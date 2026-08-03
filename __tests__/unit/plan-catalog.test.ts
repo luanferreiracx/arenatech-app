@@ -7,8 +7,13 @@
  * grafo de dependências sem perceber o efeito comercial.
  */
 import { describe, it, expect } from "vitest";
-import { PLAN_CATALOG, CATALOG_SLUGS, catalogPlanModules } from "@/lib/plans/catalog";
-import { isRetiredModule, ALWAYS_ON_MODULES } from "@/lib/modules";
+import {
+  PLAN_CATALOG,
+  CATALOG_SLUGS,
+  catalogPlanModules,
+  catalogPlanBySlug,
+} from "@/lib/plans/catalog";
+import { isRetiredModule, ALWAYS_ON_MODULES, MODULE_KEYS } from "@/lib/modules";
 
 const bySlug = (slug: string) => {
   const plan = PLAN_CATALOG.find((p) => p.slug === slug);
@@ -120,5 +125,55 @@ describe("escada: cada degrau contém o anterior", () => {
       const mods = new Set(catalogPlanModules(plan));
       if (mods.has("tools")) expect(mods.has("pdv-retail")).toBe(true);
     }
+  });
+});
+
+/**
+ * A vitrine (ADR 0061). O que se promete ao visitante tem que ser verdade e não
+ * pode vazar a estrutura interna de gating.
+ */
+describe("vitrine: o que a página de preços mostra", () => {
+  it("todo plano tem benefícios escritos — card vazio não vende", () => {
+    for (const plan of PLAN_CATALOG) {
+      expect(plan.highlights.length).toBeGreaterThan(0);
+      for (const highlight of plan.highlights) {
+        expect(highlight.trim()).not.toBe("");
+      }
+    }
+  });
+
+  it("benefício nunca é a chave de um módulo (vazaria o gating)", () => {
+    // A lista de módulos é a intenção de gating e o endpoint público a esconde
+    // por construção. Escrever "pdv-retail" num benefício reabriria o vazamento
+    // pela porta da frente — foi um P2 de auditoria.
+    for (const plan of PLAN_CATALOG) {
+      for (const highlight of plan.highlights) {
+        for (const mod of MODULE_KEYS) {
+          expect(highlight).not.toContain(mod);
+        }
+      }
+    }
+  });
+
+  it("o limite de equipe anunciado bate com o `maxUsers` cobrado", () => {
+    // Prometer "até 5 pessoas" num plano de 3 é o tipo de divergência que só
+    // aparece quando o cliente tenta cadastrar a quarta pessoa e leva erro.
+    for (const plan of PLAN_CATALOG) {
+      const anuncio = plan.highlights.find((h) => /pessoas? na equipe/i.test(h));
+      expect(anuncio, `plano ${plan.slug} não anuncia o limite de equipe`).toBeDefined();
+      expect(anuncio).toContain(String(plan.maxUsers));
+    }
+  });
+
+  it("exatamente UM plano é o destacado", () => {
+    expect(PLAN_CATALOG.filter((p) => p.featured)).toHaveLength(1);
+  });
+
+  it("catalogPlanBySlug encontra os do catálogo e ignora os legados", () => {
+    for (const slug of CATALOG_SLUGS) {
+      expect(catalogPlanBySlug(slug)?.slug).toBe(slug);
+    }
+    expect(catalogPlanBySlug("pro")).toBeUndefined();
+    expect(catalogPlanBySlug("free")).toBeUndefined();
   });
 });
