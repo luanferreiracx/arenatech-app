@@ -52,6 +52,22 @@ model ChatbotMessage {
   @@index([tenantId, conversationId])
   @@index([tenantId, createdAt])
   @@index([tenantId, externalId])
+  /// SEM `tenantId` na frente, de propósito. Os três índices acima começam por
+  /// `tenantId` e nenhum serve para o `include: { messages }` do Prisma: ele
+  /// resolve a relação com `WHERE conversation_id IN (...)` e **não** repassa o
+  /// `tenantId` do pai. Resultado medido em produção (pg_stat_statements,
+  /// 2026-08-03): Seq Scan em 43.917 linhas para devolver 414 — 53% do tempo
+  /// total do banco, vindo dos crons do Talison que rodam a cada poucos minutos.
+  ///
+  /// Com este índice: 31,7ms → 1,56ms, 1.286 → 154 buffers.
+  ///
+  /// `createdAt DESC` acompanha o `orderBy` desses mesmos crons (as N mensagens
+  /// mais recentes da conversa), então o índice serve o filtro e a ordenação.
+  ///
+  /// Segurança: não enfraquece o isolamento por tenant. O RLS de
+  /// `chatbot_messages` continua valendo — índice é caminho de acesso, não
+  /// política.
+  @@index([conversationId, createdAt(sort: Desc)])
   @@map("chatbot_messages")
 }
 

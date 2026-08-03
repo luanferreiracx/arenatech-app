@@ -1,0 +1,23 @@
+-- Índice descoberto MEDINDO produção com `pg_stat_statements` (2026-08-03).
+--
+-- A query campeã do banco — 53% do tempo total — era o `include: { messages }`
+-- dos crons do Talison. O Prisma resolve a relação com
+-- `WHERE conversation_id IN ($1..$11)` e **não** repassa o `tenantId` do pai;
+-- como os três índices existentes começam por `tenant_id`, nenhum servia.
+--
+-- Plano medido antes: Seq Scan varrendo 43.917 mensagens para devolver 414.
+-- Depois: Nested Loop por índice. 31,7ms → 1,56ms; 1.286 → 154 buffers.
+--
+-- `created_at DESC` acompanha o `orderBy` dos mesmos crons (as N mensagens mais
+-- recentes da conversa), então o índice serve o filtro E a ordenação.
+--
+-- NOTA: em produção este índice já foi criado à mão com `CONCURRENTLY` (sem
+-- lock de escrita) antes desta migration existir. O `IF NOT EXISTS` a torna
+-- no-op lá e efetiva em qualquer banco novo — CI, dev, réplica.
+--
+-- Sem `CONCURRENTLY` aqui de propósito: o Prisma roda migration dentro de
+-- transação, e `CREATE INDEX CONCURRENTLY` não é permitido em transação. Em
+-- banco novo a tabela está vazia e o lock é instantâneo; em produção o índice
+-- já existe.
+CREATE INDEX IF NOT EXISTS "chatbot_messages_conversation_id_created_at_idx"
+  ON "chatbot_messages" ("conversation_id", "created_at" DESC);
