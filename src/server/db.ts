@@ -44,8 +44,45 @@ function createPrismaClient() {
     );
   }
 
-  const adapter = new PrismaPg({ connectionString });
+  const adapter = new PrismaPg({ connectionString, max: resolvePoolSize() });
   return new PrismaClient({ adapter });
+}
+
+/** Teto de conexões do pool. Ver `resolvePoolSize` para o porquê do número. */
+const DEFAULT_POOL_SIZE = 25;
+
+/**
+ * Quantas conexões o pool pode abrir.
+ *
+ * Por que isto precisa ser explícito: com o driver adapter do Prisma 7 quem
+ * gerencia o pool é o `pg`, cujo default é **10** — e o `connection_limit` da
+ * URL, que seria o jeito de ajustar isso no Prisma clássico, é parâmetro do
+ * engine e o adapter IGNORA. Sem esta linha o teto fica em 10 e não há string de
+ * conexão que mude.
+ *
+ * Dez é pouco aqui por causa do RLS: `SET LOCAL` só vale dentro de transação,
+ * então TODA procedure — inclusive leitura pura — roda em transação interativa e
+ * segura uma conexão do começo ao fim (`withTenant`, timeout de 20s). O teto do
+ * pool é, na prática, o teto de requisições simultâneas que tocam o banco. Na
+ * 11ª, a requisição espera até `maxWait` (10s) e então falha com erro de
+ * transação — não com lentidão, que seria o sintoma honesto.
+ *
+ * 25 sai de: `max_connections` do Postgres em produção é 100, e é preciso deixar
+ * folga para migrations, crons, psql de operação e um segundo container durante
+ * o deploy. Ajustável por `DATABASE_POOL_MAX` sem novo build.
+ */
+function resolvePoolSize(): number {
+  const raw = process.env.DATABASE_POOL_MAX;
+  if (!raw) return DEFAULT_POOL_SIZE;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    logger.warn("DATABASE_POOL_MAX invalido — usando o padrao", {
+      valor: raw,
+      padrao: DEFAULT_POOL_SIZE,
+    });
+    return DEFAULT_POOL_SIZE;
+  }
+  return parsed;
 }
 
 const globalForPrisma = globalThis as unknown as {
