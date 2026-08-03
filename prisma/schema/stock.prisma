@@ -183,6 +183,24 @@ model ProductVariation {
 
   @@index([tenantId, productId])
   @@index([tenantId, sku])
+  /// NOTA: existe também um índice PARCIAL criado por SQL puro
+  /// (migration 20260803190000_product_variations_in_stock_index):
+  ///   (product_id) WHERE active AND deleted_at IS NULL AND current_stock > 0
+  ///
+  /// Sem `tenantId` na frente, de propósito — os dois índices acima começam por
+  /// ele e nenhum servia: o catálogo público pergunta "este produto tem alguma
+  /// variação em estoque?" com um `EXISTS` que o Prisma resolve filtrando só por
+  /// `product_id`.
+  ///
+  /// Medido em produção (pg_stat_statements, 2026-08-03): Seq Scan varrendo as
+  /// 2.316 variações para achar 81, em toda listagem do catálogo. 79ms → 4,9ms.
+  ///
+  /// PARCIAL porque o catálogo só se interessa por variação ativa, não-deletada
+  /// e com saldo — que é uma fração pequena da tabela. Índice menor, escrita
+  /// mais barata.
+  ///
+  /// O Prisma não expressa índice parcial no schema; não remova a migration
+  /// achando que é resíduo.
   @@map("product_variations")
 }
 
