@@ -67,6 +67,7 @@ import {
   trialEndsAt,
 } from "@/server/services/platform-settings.service";
 import { startSubscription } from "@/server/services/subscription-start.service";
+import { notifyPreRegistrationApproved } from "@/server/services/onboarding-notify.service";
 import {
   createAddonSchema,
   updateAddonSchema,
@@ -1561,6 +1562,13 @@ export const adminRouter = createTRPCRouter({
           userId: user.id,
           tempPassword: existingUser ? null : tempPassword,
           trialEndsAt: trial?.currentPeriodEnd ?? null,
+          // Só para o aviso pós-transação (não vaza para o cliente da API).
+          notify: {
+            tenantName: tenant.name,
+            ownerName: pr.ownerName,
+            ownerEmail: pr.ownerEmail,
+            ownerPhone,
+          },
         };
       }));
 
@@ -1568,7 +1576,24 @@ export const adminRouter = createTRPCRouter({
       // escolhe criar/importar e define a passphrase via depixWallet.setupWallet.
       // Nenhuma carteira e provisionada aqui.
 
-      return approved;
+      // Aviso DEPOIS da transação, de propósito: e-mail/WhatsApp são I/O de rede,
+      // e enviá-los dentro da transação prenderia conexão e transformaria um
+      // timeout do provedor em rollback do tenant inteiro. O serviço nunca lança
+      // — perder o aviso é recuperável, perder a aprovação não.
+      await notifyPreRegistrationApproved({
+        tenantId: approved.tenantId,
+        tenantName: approved.notify.tenantName,
+        ownerName: approved.notify.ownerName,
+        ownerEmail: approved.notify.ownerEmail,
+        ownerPhone: approved.notify.ownerPhone,
+        tempPassword: approved.tempPassword,
+        trialEndsAt: approved.trialEndsAt,
+      });
+
+      // `notify` era só transporte para o aviso — não faz parte do contrato do
+      // endpoint e não volta para o cliente.
+      const { notify: _notify, ...result } = approved;
+      return result;
     }),
 
   rejectPreRegistration: adminProcedure
