@@ -1,7 +1,13 @@
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { createTRPCRouter, tenantProcedure } from "@/server/api/trpc";
-import { resolveCurrentStockByProduct } from "@/server/services/stock-item.service";
+import {
+  countLowStockProducts,
+  findLowStockProducts,
+} from "@/server/services/stock-item.service";
+
+/** Quantos produtos em falta o painel de alertas mostra. */
+const LOW_STOCK_ALERT_LIMIT = 10;
 import {
   startOfTodayBrt,
   startOfMonthBrt,
@@ -74,7 +80,7 @@ export const dashboardRouter = createTRPCRouter({
         salesMonthRev,
         salesPrevMonthRev,
         financialOverdue,
-        productsLowStock,
+        productsLowStockCount,
       ] = await Promise.all([
         tx.customer.count({ where: { deletedAt: null } }),
         tx.customer.count({
@@ -108,26 +114,11 @@ export const dashboardRouter = createTRPCRouter({
             deletedAt: null,
           },
         }),
-        // Candidatos a estoque baixo: produtos com minimo definido. O saldo real
-        // (serializado/variacoes/simples) e resolvido abaixo — contar so por
-        // minStock>0 marcaria como "baixo" todo produto com minimo, mesmo cheio.
-        tx.product.findMany({
-          where: { active: true, deletedAt: null, minStock: { gt: 0 } },
-          select: {
-            id: true,
-            minStock: true,
-            currentStock: true,
-            hasVariations: true,
-            isSerialized: true,
-          },
-        }),
+        // Estoque baixo resolvido NO BANCO: o saldo efetivo (serializado /
+        // variações / simples) entra no WHERE, então volta um número em vez de
+        // todo produto com mínimo definido. Ver `countLowStockProducts`.
+        countLowStockProducts(tx),
       ]);
-
-      // Estoque efetivo por produto (fonte unica) e conta so os <= minimo.
-      const lowStockCandidateStock = await resolveCurrentStockByProduct(tx, productsLowStock);
-      const productsLowStockCount = productsLowStock.filter(
-        (p) => (lowStockCandidateStock.get(p.id) ?? 0) <= p.minStock,
-      ).length;
 
       const salesTodayCount = salesTodayRev.count;
       const salesMonthCount = salesMonthRev.count;
@@ -317,26 +308,12 @@ export const dashboardRouter = createTRPCRouter({
     return ctx.withTenant(async (tx) => {
       const now = new Date();
 
-      const [lowStockCandidates, overdueFinancials, lateOrders] = await Promise.all([
-        // Candidatos a estoque baixo (minimo definido). O saldo real e resolvido
-        // depois; so entao filtramos <= minimo e cortamos em 10 — cortar antes
-        // (take:10 no DB) podia trazer 10 produtos cheios e esconder os baixos.
-        tx.product.findMany({
-          where: {
-            active: true,
-            deletedAt: null,
-            minStock: { gt: 0 },
-          },
-          select: {
-            id: true,
-            name: true,
-            minStock: true,
-            currentStock: true,
-            hasVariations: true,
-            isSerialized: true,
-          },
-          orderBy: { name: "asc" },
-        }),
+      const [lowStockProducts, overdueFinancials, lateOrders] = await Promise.all([
+        // Estoque baixo resolvido NO BANCO. O comentário antigo dizia, com razão,
+        // que `take: 10` traria dez produtos quaisquer e esconderia os baixos —
+        // por isso o corte era em memória, depois de carregar TODOS. O SQL calcula
+        // o saldo antes de ordenar, então dá para cortar no banco sem esse risco.
+        findLowStockProducts(tx, LOW_STOCK_ALERT_LIMIT),
 
         // Overdue financial transactions
         tx.financialTransaction.findMany({
@@ -378,19 +355,13 @@ export const dashboardRouter = createTRPCRouter({
       ]);
 
       // Resolve o saldo real e mantem so quem esta <= minimo (max 10 no card).
-      const lowStockByProduct = await resolveCurrentStockByProduct(tx, lowStockCandidates);
-      const lowStockProducts = lowStockCandidates
-        .map((p) => ({
+      return {
+        lowStock: lowStockProducts.map((p) => ({
           id: p.id,
           name: p.name,
           minStock: p.minStock,
-          currentStock: lowStockByProduct.get(p.id) ?? 0,
-        }))
-        .filter((p) => p.currentStock <= p.minStock)
-        .slice(0, 10);
-
-      return {
-        lowStock: lowStockProducts,
+          currentStock: p.effectiveStock,
+        })),
         overdueFinancials: overdueFinancials.map((f) => ({
           id: f.id,
           description: f.description,
