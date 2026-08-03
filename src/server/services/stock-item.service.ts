@@ -609,3 +609,82 @@ export async function releaseStaleReservations(
   })
   return { releasedCount: result.count }
 }
+
+/**
+ * Produtos abaixo do estoque mínimo, resolvidos no BANCO.
+ *
+ * O painel fazia isso em duas etapas: `findMany` de TODO produto com mínimo
+ * definido (sem `take`) e o filtro em memória — duas vezes por carga, porque
+ * `dashboard.stats` e `dashboard.alerts` repetiam a conta cada um do seu jeito.
+ * Com 935 produtos é irrelevante; uma loja com 20 mil carrega 40 mil linhas toda
+ * vez que alguém abre o painel.
+ *
+ * Cortar no `findMany` não resolvia, e o comentário original explicava por quê:
+ * `take: 10` traria dez produtos quaisquer, possivelmente cheios, escondendo os
+ * baixos. O saldo precisa ser calculado ANTES de ordenar e cortar — e é isso que
+ * o SQL faz.
+ *
+ * SQL cru aqui é deliberado: o saldo efetivo vem de três fontes conforme o tipo
+ * do produto (itens serializados, soma das variações, ou o contador simples), e
+ * isso não se expressa no query builder. Não há entrada de usuário interpolada —
+ * `limit` é number. O RLS continua valendo: roda no `withTenant`, como app_user
+ * com `app.current_tenant_id` setado.
+ */
+type LowStockRow = {
+  id: string
+  name: string
+  minStock: number
+  effectiveStock: number
+}
+
+/** Saldo efetivo por tipo de produto — a mesma regra de `resolveCurrentStockByProduct`. */
+const EFFECTIVE_STOCK_SQL = Prisma.sql`
+  CASE
+    WHEN p.is_serialized THEN (
+      SELECT count(*) FROM stock_items si
+      WHERE si.product_id = p.id AND si.status = 'AVAILABLE' AND si.deleted_at IS NULL
+    )
+    WHEN p.has_variations THEN COALESCE((
+      SELECT sum(pv.current_stock) FROM product_variations pv
+      WHERE pv.product_id = p.id AND pv.deleted_at IS NULL AND pv.active
+    ), 0)
+    ELSE p.current_stock
+  END
+`
+
+/** Quantos produtos estão no mínimo ou abaixo. */
+export async function countLowStockProducts(tx: Prisma.TransactionClient): Promise<number> {
+  const rows = await tx.$queryRaw<Array<{ total: bigint }>>(Prisma.sql`
+    SELECT count(*)::bigint AS total FROM (
+      SELECT ${EFFECTIVE_STOCK_SQL} AS eff, p.min_stock
+      FROM products p
+      WHERE p.active AND p.deleted_at IS NULL AND p.min_stock > 0
+    ) x WHERE x.eff <= x.min_stock
+  `)
+  return Number(rows[0]?.total ?? 0)
+}
+
+/** Os `limit` produtos mais críticos (menor saldo primeiro), para o painel de alertas. */
+export async function findLowStockProducts(
+  tx: Prisma.TransactionClient,
+  limit: number,
+): Promise<LowStockRow[]> {
+  const rows = await tx.$queryRaw<
+    Array<{ id: string; name: string; min_stock: number; eff: bigint | number }>
+  >(Prisma.sql`
+    SELECT x.id, x.name, x.min_stock, x.eff FROM (
+      SELECT p.id, p.name, p.min_stock, ${EFFECTIVE_STOCK_SQL} AS eff
+      FROM products p
+      WHERE p.active AND p.deleted_at IS NULL AND p.min_stock > 0
+    ) x
+    WHERE x.eff <= x.min_stock
+    ORDER BY x.eff ASC, x.name ASC
+    LIMIT ${limit}
+  `)
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    minStock: r.min_stock,
+    effectiveStock: Number(r.eff),
+  }))
+}
