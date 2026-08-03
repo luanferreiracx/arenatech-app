@@ -32,6 +32,18 @@ model Tenant {
   /// vazar — e, para a carteira central (isenta do teto do painel), é o ÚNICO
   /// limite diário. Subir sem necessidade real amplia o raio do dano.
   partnerApiWithdrawDailyCapCents Int? @map("partner_api_withdraw_daily_cap_cents")
+  /// Aceite dos Termos copiado do pré-cadastro na aprovação (ADR 0065).
+  ///
+  /// Duplicado de propósito: o `PreRegistration` é um registro de PASSAGEM (a
+  /// senha dele é apagada na aprovação, e um dia a fila será podada), enquanto o
+  /// aceite precisa durar o quanto durar a relação comercial. Manter só no
+  /// pré-cadastro seria guardar a prova no lugar que se joga fora.
+  ///
+  /// Nulo em tenants criados antes da mudança e nos criados à mão pelo
+  /// superadmin (`createTenant`), onde não há aceite do titular a registrar —
+  /// não se inventa consentimento que ninguém deu.
+  termsAcceptedAt      DateTime? @map("terms_accepted_at")
+  termsAcceptedVersion String?   @map("terms_accepted_version")
   createdAt DateTime     @default(now()) @map("created_at")
   updatedAt DateTime     @updatedAt @map("updated_at")
 

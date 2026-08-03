@@ -18,6 +18,7 @@ import {
   startNoKycRegistrationSchema,
   type StartNoKycRegistrationInput,
 } from "@/lib/validators/no-kyc";
+import { CURRENT_TERMS_LABEL } from "@/lib/legal/terms-version";
 
 type Step = "form" | "email" | "phone";
 
@@ -134,7 +135,14 @@ export function RegisterForm({ planSlug }: { planSlug: string | null }) {
       </CardHeader>
       <CardContent>
         <form
-          onSubmit={form.handleSubmit((data) => startMutation.mutate({ ...data, planSlug }))}
+          onSubmit={form.handleSubmit((data) => {
+            // Guarda explícita em vez de `as true`: o botão desabilitado é
+            // conveniência de tela, e o cast só calaria o compilador. A regra
+            // mesmo é do servidor (o schema exige `true`) — sem ela, quem
+            // chamasse o endpoint direto criaria conta sem concordar com nada.
+            if (!acceptedTerms) return;
+            startMutation.mutate({ ...data, planSlug, acceptedTerms: true });
+          })}
           className="space-y-4"
           noValidate
         >
@@ -219,7 +227,10 @@ export function RegisterForm({ planSlug }: { planSlug: string | null }) {
               <a href="/legal/privacidade" target="_blank" rel="noopener noreferrer" className="underline hover:text-foreground">
                 Política de Privacidade
               </a>
-              .
+              {/* A versão fica visível: o servidor registra qual texto foi
+                  aceito, e a pessoa tem que poder ver qual é esse texto. Um
+                  aceite de documento sem versão identificada não diz nada. */}
+              , na versão de {CURRENT_TERMS_LABEL}.
             </span>
           </label>
 

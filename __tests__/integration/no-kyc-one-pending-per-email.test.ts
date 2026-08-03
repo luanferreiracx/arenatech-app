@@ -48,6 +48,8 @@ function dadosCadastro(email = EMAIL, senha = SENHA) {
     phone: "86999990000",
     password: senha,
     confirmPassword: senha,
+    // Aceite obrigatório no servidor desde o ADR 0065.
+    acceptedTerms: true as const,
   };
 }
 

@@ -1,10 +1,14 @@
 import type { Metadata } from "next";
 import { resolveLegalBrand } from "../brand";
 import { LegalShell } from "../legal-shell";
+import { CURRENT_TERMS_LABEL } from "@/lib/legal/terms-version";
 
 export const metadata: Metadata = { title: "Termos de Uso" };
 
-const UPDATED_AT = "07 de julho de 2026";
+// Fonte única da versão: o aceite do cadastro grava ESTA data (ADR 0065).
+// Editou o texto? Mude `CURRENT_TERMS_VERSION` — um teste confere que as duas
+// batem, para não existir documento novo com aceite carimbado como antigo.
+const UPDATED_AT = CURRENT_TERMS_LABEL;
 
 export default async function TermsPage() {
   const brand = await resolveLegalBrand();

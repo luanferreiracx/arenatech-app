@@ -38,6 +38,7 @@ import { createCallerFactory } from "@/server/api/trpc";
 import { appRouter } from "@/server/api/root";
 import { catalogPlanModules, PLAN_CATALOG } from "@/lib/plans/catalog";
 import { DEFAULT_TRIAL_DAYS } from "@/server/services/platform-settings.service";
+import { CURRENT_TERMS_VERSION } from "@/lib/legal/terms-version";
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
 const prisma = new PrismaClient({ adapter });
@@ -92,6 +93,7 @@ async function cadastrar(planSlug: string | null) {
     phone: "86999990000",
     password: "senha1234",
     confirmPassword: "senha1234",
+    acceptedTerms: true,
     planSlug,
   });
 
@@ -265,5 +267,53 @@ describe("a vitrine pública", () => {
     const { trialDays } = await anon().admin.publicTrialDays();
     const settings = await prisma.platformSettings.findUnique({ where: { id: "singleton" } });
     expect(trialDays).toBe(settings?.trialDays);
+  });
+});
+
+/**
+ * Aceite de Termos (ADR 0065). Antes disto o aceite era um `useState` no
+ * navegador — desabilitava o botão e morria ali, sem NENHUM registro no
+ * servidor. Um aceite que não deixa rastro não prova nada quando precisa provar.
+ */
+describe("aceite dos Termos fica registrado, com versão", () => {
+  it("o cadastro grava data e versão do documento aceito", async () => {
+    const pr = await cadastrar(CATALOG_PLAN_SLUG);
+    expect(pr.termsAcceptedAt).not.toBeNull();
+    // A VERSÃO é o que dá valor ao registro: sem ela não dá para distinguir quem
+    // concordou com o texto novo de quem concordou com a redação antiga.
+    expect(pr.termsAcceptedVersion).toBe(CURRENT_TERMS_VERSION);
+  });
+
+  it("o servidor RECUSA cadastro sem aceite, mesmo sem passar pela tela", async () => {
+    // O botão desabilitado é conveniência de tela. Quem chama o endpoint direto
+    // tem que esbarrar na mesma regra.
+    const email = `funil-sem-aceite-${suffix}@exemplo.test`;
+    emailsCriados.push(email);
+    await expect(
+      anon().noKyc.startRegistration({
+        ownerName: "Nao Aceitou",
+        email,
+        phone: "86999997777",
+        password: "senha1234",
+        confirmPassword: "senha1234",
+        acceptedTerms: false as unknown as true,
+        planSlug: null,
+      }),
+    ).rejects.toThrow();
+
+    const pr = await prisma.preRegistration.findFirst({ where: { ownerEmail: email } });
+    expect(pr).toBeNull();
+  });
+
+  it("a aprovação COPIA o aceite para o tenant (o pré-cadastro é de passagem)", async () => {
+    // A senha do pré-cadastro é apagada na aprovação e um dia a fila será podada.
+    // Guardar a prova só ali seria guardá-la no lugar que se joga fora.
+    const pr = await cadastrar(CATALOG_PLAN_SLUG);
+    const aprovado = await superadmin(superadminId).admin.approvePreRegistration({ id: pr.id });
+    tenantsCriados.push(aprovado.tenantId);
+
+    const tenant = await prisma.tenant.findUniqueOrThrow({ where: { id: aprovado.tenantId } });
+    expect(tenant.termsAcceptedVersion).toBe(CURRENT_TERMS_VERSION);
+    expect(tenant.termsAcceptedAt?.getTime()).toBe(pr.termsAcceptedAt?.getTime());
   });
 });

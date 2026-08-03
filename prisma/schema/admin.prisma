@@ -65,6 +65,22 @@ model PreRegistration {
   emailVerifiedAt DateTime? @map("email_verified_at")
   phoneVerifiedAt DateTime? @map("phone_verified_at")
 
+  /// Aceite dos Termos de Uso e da Política de Privacidade (ADR 0065).
+  ///
+  /// Antes disto o aceite era um `useState` no navegador: desabilitava o botão e
+  /// morria ali. Não havia registro NENHUM no servidor de que alguém concordou
+  /// com alguma coisa — e um aceite que não deixa rastro não prova nada quando
+  /// precisa provar.
+  ///
+  /// A VERSÃO é o que dá valor ao registro: quando os Termos mudarem, "aceitou"
+  /// sozinho não distingue quem concordou com o texto novo de quem concordou com
+  /// a redação de meses atrás.
+  ///
+  /// Nulo em pré-cadastros anteriores à mudança — não se inventa consentimento
+  /// retroativo.
+  termsAcceptedAt      DateTime? @map("terms_accepted_at")
+  termsAcceptedVersion String?   @map("terms_accepted_version")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
