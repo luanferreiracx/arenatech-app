@@ -263,6 +263,11 @@ export const TEMPLATE_CONTEXTS: Record<string, keyof typeof APPROVED_TEMPLATES> 
   // ([nome, assunto]). O detalhe completo (valor, vencimento, prazo) vai no
   // e-mail; aqui é o empurrão para a pessoa abrir o sistema.
   cobranca_assinatura: "padrao",
+  // Aprovação do cadastro (ADR 0064). A pessoa verificou o WhatsApp no cadastro,
+  // então costuma estar DENTRO da janela de 24h e recebe o texto livre; se a
+  // aprovação demorar, cai no `padrao` ([nome, assunto]). O acesso vai só por
+  // e-mail — senha temporária não se manda por WhatsApp.
+  onboarding_aprovado: "padrao",
 };
 
 /**
@@ -286,4 +291,6 @@ export const CONTEXT_SUBJECT: Record<string, string> = {
   entregador_solicitacao: "uma solicitação de coleta/entrega",
   lead_contato: "seu interesse",
   contato_loja: "seu atendimento",
+  cobranca_assinatura: "a sua assinatura da Arena Tech",
+  onboarding_aprovado: "a aprovação da sua conta na Arena Tech",
 };

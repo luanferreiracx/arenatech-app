@@ -19,6 +19,7 @@ import {
   type IssueVerificationInput,
 } from "@/server/services/verification.service";
 import { CATALOG_SLUGS } from "@/lib/plans/catalog";
+import { notifyNewPreRegistration } from "@/server/services/onboarding-notify.service";
 import {
   startNoKycRegistrationSchema,
   verifyNoKycEmailSchema,
@@ -226,6 +227,25 @@ export const noKycRouter = createTRPCRouter({
         data: { phoneVerifiedAt: new Date() },
       });
       logger.info("NO-KYC: telefone verificado — aguardando aprovação", { id: pr.id });
+
+      // Avisa o superadmin AQUI, e não no `startRegistration`: só agora o
+      // cadastro está completo (e-mail e telefone verificados) e realmente
+      // entrou na fila. Avisar antes encheria a caixa de entrada de tentativas
+      // abandonadas na primeira tela.
+      //
+      // Fora de qualquer transação e sem `await` no caminho crítico do usuário?
+      // Não: com `await`, porque o serviço nunca lança e a espera é de um envio
+      // de e-mail. Soltar a promise deixaria a falha sem log em serverless.
+      const plan = pr.planId
+        ? await prisma.plan.findUnique({ where: { id: pr.planId }, select: { name: true } })
+        : null;
+      await notifyNewPreRegistration({
+        preRegistrationId: pr.id,
+        tradeName: pr.tradeName,
+        ownerName: pr.ownerName,
+        ownerEmail: pr.ownerEmail,
+        planName: plan?.name ?? null,
+      });
 
       return { done: true };
     }),
