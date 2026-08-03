@@ -28,8 +28,10 @@ export const MODULE_KEYS = [
   "depix-ops", // Operações DePix wallet-backed: vendas avulsas (/quick-sales)
   "service-orders", // Assistência: OS, serviços, operação, comunicação
   "customers", // Clientes e interesses
-  "tools", // Simulador, avaliação, consultas
-  "pdv", // Vendas / PDV
+  "tools", // Simulador de parcelamento e avaliação de aparelho
+  "imei-lookup", // Consulta de IMEI/NF-e. APOSENTADO — ver RETIRED_MODULES.
+  "pdv", // Base de vendas: caixa, histórico e RECEBIMENTO de OS
+  "pdv-retail", // Venda livre no PDV (o que separa varejo de assistência)
   "stock", // Estoque e catálogo de aparelhos
   "cashier", // Caixa e conferências
   "financial", // Financeiro (exceto DePix wallet/saques)
@@ -49,8 +51,10 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
   "depix-ops": "Vendas Avulsas Wallet",
   "service-orders": "Assistência (Ordens de Serviço)",
   customers: "Clientes",
-  tools: "Ferramentas (Simulador, Avaliação, Consultas)",
-  pdv: "Vendas / PDV",
+  tools: "Ferramentas (Simulador e Avaliação)",
+  "imei-lookup": "Consultas IMEI/NF-e (aposentado)",
+  pdv: "Vendas — base (caixa, histórico, recebimento de OS)",
+  "pdv-retail": "Venda livre no PDV",
   stock: "Estoque",
   cashier: "Caixa",
   financial: "Financeiro",
@@ -59,6 +63,28 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
   settings: "Configurações",
   "partner-api": "API de Parceiros",
 };
+
+/**
+ * Módulos APOSENTADOS: o código fica inteiro, o recurso não é oferecido a
+ * ninguém — nem por plano, nem pelo tenant de acesso total.
+ *
+ * `imei-lookup` (decisão do dono, 2026-08-02): a consulta de IMEI/NF-e teve 3
+ * usos em produção, o último em 29/05. Aposentar em vez de apagar preserva
+ * router, telas, schema e histórico; voltar a oferecer é tirar a chave desta
+ * lista.
+ *
+ * Um plano legado cujo `features.modules` ainda cite um módulo aposentado NÃO o
+ * ressuscita: `modulesFromPlanFeatures` filtra na leitura. Aposentadoria que
+ * depende de ninguém ter guardado a chave antiga não é aposentadoria.
+ */
+export const RETIRED_MODULES: ModuleKey[] = ["imei-lookup"];
+
+const RETIRED_MODULE_SET = new Set<string>(RETIRED_MODULES);
+
+/** True se o módulo está aposentado (código preservado, recurso não oferecido). */
+export function isRetiredModule(value: string): boolean {
+  return RETIRED_MODULE_SET.has(value);
+}
 
 export function isModuleKey(value: string): value is ModuleKey {
   return MODULE_KEY_SET.has(value);
@@ -73,14 +99,30 @@ export function isModuleKey(value: string): value is ModuleKey {
  *   venda exige `productId`, e Product é do módulo stock — sem estoque não há o
  *   que vender) + `customers` (produto: não se vende um aparelho sem cadastrar
  *   o cliente).
- * - `service-orders` → `pdv` (OS é paga via PDV — createFromOS, herda pdv→...) +
- *   `customers` (produto: uma OS é sempre de um cliente).
+ * - `pdv-retail` → `pdv`: a venda livre é uma CAPACIDADE dentro do PDV, não um
+ *   PDV paralelo. Ver a nota abaixo.
+ * - `service-orders` → `pdv` (OS é paga via PDV — createFromOS) + `customers`
+ *   (produto: uma OS é sempre de um cliente).
  * - `depix-ops` → `wallet` (quick-sale cria depósito na carteira).
  * - `fiscal` → `pdv` (NF-e é emitida a partir de uma venda).
  * - `commissions` → `pdv` (comissão deriva de venda/OS).
+ *
+ * ## Por que `pdv` foi partido em dois (decisão do dono, 2026-08-02)
+ *
+ * O plano de assistência precisa RECEBER o valor de uma OS, e isso passa pelo
+ * PDV (`sale.createFromOS`). Enquanto "PDV" era um módulo só, vender assistência
+ * sem varejo era impossível: o plano de OS arrastava a venda livre junto, e o
+ * plano de varejo virava subconjunto do de assistência — dois planos, um deles
+ * sem razão de existir.
+ *
+ * A separação é onde os dois fluxos realmente divergem no código: `/pdv` sem
+ * `?saleId` chama `sale.createDraft` e abre uma venda livre; com `?saleId` está
+ * pagando uma OS, e o rascunho veio de `createFromOS`. `pdv` é a base
+ * (caixa, histórico, recebimento de OS); `pdv-retail` é abrir venda do zero.
  */
 export const MODULE_DEPENDENCIES: Partial<Record<ModuleKey, ModuleKey[]>> = {
   pdv: ["cashier", "financial", "stock", "customers"],
+  "pdv-retail": ["pdv"],
   "service-orders": ["pdv", "customers"],
   "depix-ops": ["wallet"],
   fiscal: ["pdv"],
@@ -162,14 +204,20 @@ export const ALWAYS_ON_MODULES: ModuleKey[] = ["settings"];
 export const WALLET_FLOOR_MODULES: ModuleKey[] = ["wallet", "depix-ops"];
 
 /**
- * Módulos selecionáveis no editor de PLANO: exclui os de override por-tenant e os
- * sempre-ligados (esses não são escolha de plano).
+ * Módulos selecionáveis no editor de PLANO. Quatro exclusões, por motivos
+ * diferentes:
+ *
+ * - override por-tenant (`partner-api`): quem libera é o superadmin, não o plano;
+ * - sempre-ligados (`settings`): todo tenant tem, não se vende;
+ * - piso da carteira: condicionado a `Tenant.depixEnabled`, também fora do plano;
+ * - aposentados: o código fica, o recurso não é oferecido a ninguém.
  */
 export const PLAN_SELECTABLE_MODULES: ModuleKey[] = MODULE_KEYS.filter(
   (m) =>
     !PER_TENANT_OVERRIDE_MODULES.includes(m) &&
     !ALWAYS_ON_MODULES.includes(m) &&
-    !WALLET_FLOOR_MODULES.includes(m),
+    !WALLET_FLOOR_MODULES.includes(m) &&
+    !isRetiredModule(m),
 );
 
 /** Slug do tenant com acesso total (bypass do gating). */
@@ -318,7 +366,7 @@ const ROUTE_MODULE_PREFIXES: ReadonlyArray<readonly [string, ModuleKey]> = [
   // tools
   ["/simulator", "tools"],
   ["/valuations", "tools"],
-  ["/imei", "tools"],
+  ["/imei", "imei-lookup"], // aposentado — ninguém tem o módulo, a rota fecha
 
   // pdv
   ["/pdv", "pdv"],
@@ -383,7 +431,9 @@ export function modulesFromPlanFeatures(features: unknown): ModuleKey[] {
   const raw = (features as { modules: unknown }).modules;
   if (!Array.isArray(raw)) return [...NO_PLAN_MODULES];
 
-  const parsed = raw.filter((m): m is ModuleKey => typeof m === "string" && isModuleKey(m));
+  const parsed = raw.filter(
+    (m): m is ModuleKey => typeof m === "string" && isModuleKey(m) && !isRetiredModule(m),
+  );
   return Array.from(new Set(parsed));
 }
 
@@ -435,7 +485,11 @@ function resolveBaseModules(args: {
   // Inadimplente vem ANTES do acesso total: o bloqueio vale até para arena-tech,
   // senão o teste do bloqueio nunca reproduz o que o cliente vive.
   if (args.blocked) return [...NO_PLAN_MODULES];
-  if (args.tenantSlug === TOTAL_ACCESS_TENANT_SLUG) return [...MODULE_KEYS];
+  // Nem o acesso total ressuscita um módulo aposentado: "morto" que continua
+  // vivo na loja do dono não é morto, é exceção esquecida.
+  if (args.tenantSlug === TOTAL_ACCESS_TENANT_SLUG) {
+    return MODULE_KEYS.filter((m) => !isRetiredModule(m));
+  }
   // Com plano, o plano manda. Sem plano, nada além do piso: desde o ADR 0061 a
   // carteira entra por fora da matriz de plano, então "tenant sem plano" e
   // "tenant NO-KYC" viraram o mesmo caso e a distinção entre eles saiu daqui.

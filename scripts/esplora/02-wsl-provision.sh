@@ -55,18 +55,27 @@ docker version --format '  engine {{.Server.Version}}' || { echo "Docker não su
 log "3/6 Tuning a partir do hardware"
 RAM_MB=$(awk '/MemTotal/ {printf "%d", $2/1024}' /proc/meminfo)
 CORES=$(nproc)
-# Cache grande acelera o IBD, mas o teto real é a RAM: com trim_headers o nó fica
-# em ~1,7GiB de base e o dbcache soma por cima. Na medição de 2026-07 nesta mesma
-# máquina (WSL2 com 5,5GiB), dbcache=1000 levou a RSS a ~3,6GiB contra mem_limit
-# de 4GiB — já apertado. A fórmula reserva 3,5GiB antes de dividir justamente para
-# não reproduzir o OOM que custou 40 restarts.
-DBCACHE=$(( (RAM_MB - 3500) / 2 )); [ "$DBCACHE" -lt 300 ] && DBCACHE=300; [ "$DBCACHE" -gt 4000 ] && DBCACHE=4000
 # Os limites dos DOIS containers têm de caber na RAM real. `mem_limit` é teto, não
-# reserva, mas somar elements+waterfalls acima do total é convite a OOM justamente
-# no fim do IBD, quando os dois trabalham ao mesmo tempo.
-WATERFALLS_MEM=$(( RAM_MB / 4 )); [ "$WATERFALLS_MEM" -lt 768 ] && WATERFALLS_MEM=768; [ "$WATERFALLS_MEM" -gt 2048 ] && WATERFALLS_MEM=2048
-ELEMENTS_MEM=$(( RAM_MB - WATERFALLS_MEM - 600 )); [ "$ELEMENTS_MEM" -lt 2048 ] && ELEMENTS_MEM=2048
-PAR=$CORES; [ "$PAR" -gt 8 ] && PAR=8
+# reserva, mas somar elements+waterfalls acima do total é convite a OOM.
+WATERFALLS_MEM=$(( RAM_MB / 5 )); [ "$WATERFALLS_MEM" -lt 768 ] && WATERFALLS_MEM=768; [ "$WATERFALLS_MEM" -gt 1536 ] && WATERFALLS_MEM=1536
+ELEMENTS_MEM=$(( RAM_MB - WATERFALLS_MEM - 550 )); [ "$ELEMENTS_MEM" -lt 2048 ] && ELEMENTS_MEM=2048
+
+# dbcache dimensionado pelo PIOR momento, que é o DESLIGAMENTO — não o regime
+# normal. Medido nesta máquina em 2026-07-30: com dbcache=961 e teto de 3467MiB,
+# o regime estável ficava em ~3,3GiB (base ~1,7GiB + cache + ~0,65GiB de
+# overhead) e o cgroup matou o nó justamente durante o flush do shutdown
+# (`oomkilled=true`), zerando o chainstate e ~12h de validação.
+#
+# Daí a conta: teto − base − overhead − FOLGA DE FLUSH. Cache menor também
+# significa flush mais FREQUENTE, ou seja, menos trabalho a perder num crash —
+# o que vale mais que velocidade num nó que já perdeu o progresso duas vezes.
+BASE_MB=1700; OVERHEAD_MB=650; FLUSH_HEADROOM_MB=1000
+DBCACHE=$(( ELEMENTS_MEM - BASE_MB - OVERHEAD_MB - FLUSH_HEADROOM_MB ))
+[ "$DBCACHE" -lt 300 ] && DBCACHE=300; [ "$DBCACHE" -gt 4000 ] && DBCACHE=4000
+
+# Deixa um núcleo livre: o congelamento do WSL (`Wsl/Service/0x8007274c`), que
+# nos cegou por horas, apareceu com os 4 núcleos saturados pelo nó.
+PAR=$(( CORES > 1 ? CORES - 1 : 1 )); [ "$PAR" -gt 8 ] && PAR=8
 echo "  RAM ${RAM_MB}MiB / ${CORES} vCPU -> dbcache=${DBCACHE}MiB par=${PAR} mem_limit=${ELEMENTS_MEM}MiB"
 
 log "4/6 Stack em $STACK_DIR"
@@ -124,7 +133,7 @@ services:
     networks: [esplora]
     stop_grace_period: 3m
     mem_limit: ${ELEMENTS_MEM}m
-    cpus: ${CORES}.0
+    cpus: ${PAR}.0
     healthcheck:
       test: ["CMD", "elements-cli", "-datadir=/data", "-conf=/etc/elements/elements.conf", "getblockchaininfo"]
       interval: 30s
