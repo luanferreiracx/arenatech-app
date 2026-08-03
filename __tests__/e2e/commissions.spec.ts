@@ -27,7 +27,21 @@ test.describe.configure({ mode: "serial" });
 const PRESTADOR = "Tecnico Arena";
 
 async function login(page: Page, cpf: string, senha: string) {
+  // Sair DE VERDADE antes de entrar como outro usuário.
+  //
+  // `clearCookies()` limpa o jar do contexto, mas quem estava logado continua
+  // logado até a próxima navegação — e o proxy, vendo sessão válida, manda
+  // `/login` direto para `/painel`. O helper então esperava 15s por um campo
+  // "CPF" que nunca ia aparecer, e o teste morria com um timeout que não diz
+  // nada sobre a causa (foi assim que o CO-5 ficou vermelho na main, parecendo
+  // um bug de comissão quando era troca de sessão).
+  //
+  // `/logout` encerra a sessão no servidor; o `clearCookies` depois garante que
+  // nada sobreviva no cliente. Só então `/login` renderiza o formulário.
+  await page.goto("/logout");
+  await page.waitForLoadState("domcontentloaded");
   await page.context().clearCookies();
+
   await page.goto("/login");
   await page.waitForLoadState("domcontentloaded");
   const cpfInput = page.getByLabel("CPF");

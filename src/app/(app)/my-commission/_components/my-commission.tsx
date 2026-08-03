@@ -13,6 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DateInput } from "@/components/inputs/date-input";
 import { EmptyState } from "@/components/domain/empty-state";
+import { QueryErrorState } from "@/components/domain/query-error-state";
 import { StatusBadge } from "@/components/domain/status-badge";
 import { toast } from "@/lib/toast";
 import {
@@ -90,7 +91,20 @@ export function MyCommission() {
     );
   };
 
-  if (detailQuery.isLoading) {
+  // Carregando, falhou e "nao e prestador" sao TRES estados diferentes, e o
+  // usuario precisa distinguir os tres.
+  //
+  // Antes, o codigo caia no empty state para qualquer `data` falsy — e
+  // `undefined` (consulta em voo ou com erro) e `null` (o servidor disse que
+  // nao ha prestador) sao coisas distintas. Na pratica, um prestador legitimo
+  // via "Voce nao e um prestador" durante o carregamento, mensagem que ainda o
+  // manda falar com o administrador. Medido: a tela renderizava esse texto
+  // ANTES da primeira chamada a `getMyDetail` sair.
+  //
+  // `isPending` e nao `isLoading`: com a query habilitada, `isLoading` so cobre
+  // a primeira busca sem cache, e um refetch (troca de mes) voltava a piscar o
+  // empty state.
+  if (detailQuery.isPending) {
     return (
       <div className="space-y-4">
         <Skeleton className="h-32 w-full" />
@@ -99,8 +113,19 @@ export function MyCommission() {
     );
   }
 
-  // getMyDetail retorna null quando o usuario logado nao e um prestador.
-  if (!detailQuery.data) {
+  if (detailQuery.isError) {
+    return (
+      <QueryErrorState
+        error={detailQuery.error}
+        forbiddenTitle="Voce nao tem acesso a esta tela"
+        forbiddenDescription="A area de comissao do prestador nao esta liberada para o seu usuario."
+      />
+    );
+  }
+
+  // Aqui `data` e null de verdade: o servidor respondeu que este usuario nao
+  // tem cadastro de prestador.
+  if (detailQuery.data === null) {
     return (
       <EmptyState
         title="Voce nao e um prestador"
