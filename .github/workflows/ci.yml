@@ -249,6 +249,100 @@ jobs:
           NEXTAUTH_URL: http://localhost:3000
 
   # ============================================================
+  # Testes de integração (paralelo ao unit)
+  #
+  # Rodavam SÓ na máquina de quem lembrasse. São 365 testes contra banco real, e
+  # entre eles os que guardam DINHEIRO: idempotência da renovação DePix (webhook
+  # duplicado não credita 2×), lost-update de parcela, CAS de fechamento de
+  # comissão, isolamento de RLS. Nenhum deles gateava merge.
+  #
+  # O custo de não rodar já apareceu: um teste com data absoluta ("2026-08-01"
+  # como futuro) virou vermelho sozinho e ninguém viu — foi encontrado à mão,
+  # dias depois.
+  #
+  # Job próprio, e não um passo do unit: falha fica atribuível, e o feedback do
+  # unit (~1min) não passa a esperar pela integração.
+  # ============================================================
+  integration-test:
+    name: Integration tests
+    needs: setup
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: arenatech
+          POSTGRES_PASSWORD: testpass
+          POSTGRES_DB: arenatech_integration
+        ports:
+          - 5436:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6384:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://arenatech:testpass@localhost:5436/arenatech_integration
+      REDIS_URL: redis://localhost:6384
+      NEXTAUTH_SECRET: test-secret-do-not-use-in-prod
+      NEXTAUTH_URL: http://localhost:3000
+      SUPERADMIN_CPF: "12345678909"
+      SUPERADMIN_PASSWORD: ci-superadmin-nao-usar-em-prod
+      BCRYPT_ROUNDS: "4"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Restore deps cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            node_modules/.prisma
+            node_modules/@prisma/client
+          key: deps-${{ runner.os }}-node${{ env.NODE_VERSION }}-${{ hashFiles('pnpm-lock.yaml', 'prisma/schema/**/*.prisma') }}
+
+      - name: Install deps (fallback se cache miss)
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm prisma generate
+
+      # Banco limpo do zero, igual ao E2E: prova de que as migrations aplicam
+      # numa base nova, não só na que já existe na máquina de alguém.
+      - name: Migrate + seed
+        run: |
+          pnpm prisma migrate deploy
+          pnpm tsx prisma/seed.ts
+
+      # `--no-file-parallelism` é obrigatório: os testes compartilham o banco e,
+      # em paralelo, um enxerga o fixture do outro (medido: falso vermelho em
+      # subscription-dunning quando roda junto de rls).
+      - name: Integration tests
+        run: pnpm vitest run __tests__/integration --no-file-parallelism
+
+  # ============================================================
   # LWK (Python) — testes do servico de carteira: cripto da seed
   # non-custodial (ADR 0051) + roteamento custodial/non-custodial.
   # A lib `lwk` nativa e stubada nos testes (so cripto + flask).

@@ -115,3 +115,69 @@ describe("upload de source map do Sentry", () => {
     expect(nextConfig).toMatch(/project:\s*"javascript-nextjs"/);
   });
 });
+
+/**
+ * Guardião dos testes de integração no CI.
+ *
+ * Eles rodavam SÓ na máquina de quem lembrasse: o job de unit usa
+ * `--exclude="**‍/integration/**"` e nenhum outro job os chamava. São 365 testes
+ * contra banco real, e entre eles os que guardam DINHEIRO — idempotência da
+ * renovação DePix (webhook duplicado não credita 2×), lost-update de parcela,
+ * CAS de fechamento de comissão, isolamento de RLS.
+ *
+ * O custo de não rodar já apareceu: um teste com data absoluta ("2026-08-01"
+ * tratado como futuro) virou vermelho sozinho quando a data chegou, e ninguém
+ * viu — foi encontrado à mão, dias depois, durante uma auditoria.
+ */
+describe("CI roda os testes de integração", () => {
+  it("existe um job dedicado que os executa", () => {
+    expect(ci).toContain("integration-test:");
+    expect(ci).toMatch(/pnpm vitest run __tests__\/integration/);
+  });
+
+  it("usa --no-file-parallelism (os testes compartilham o banco)", () => {
+    // Sem isto, um arquivo enxerga o fixture do outro. Medido: falso vermelho em
+    // subscription-dunning quando roda junto de rls.
+    const job = ci.slice(ci.indexOf("integration-test:"));
+    expect(job).toMatch(/__tests__\/integration --no-file-parallelism/);
+  });
+
+  it("sobe banco próprio e roda migrate + seed antes (banco limpo do zero)", () => {
+    const job = ci.slice(ci.indexOf("integration-test:"), ci.indexOf("lwk-test:"));
+    expect(job).toContain("prisma migrate deploy");
+    expect(job).toContain("prisma/seed.ts");
+    expect(job).toContain("image: postgres:16");
+  });
+
+  it("não compartilha a porta do banco do job de unit", () => {
+    // Dois jobs no mesmo runner-pool com a mesma porta se atropelariam.
+    const unit = ci.slice(ci.indexOf("  test:"), ci.indexOf("integration-test:"));
+    const integration = ci.slice(ci.indexOf("integration-test:"), ci.indexOf("lwk-test:"));
+    expect(unit).toContain("5435:5432");
+    expect(integration).toContain("5436:5432");
+  });
+});
+
+/**
+ * Guardião do `DATABASE_URL` nos testes.
+ *
+ * `test.env` do Vitest SOBRESCREVE o ambiente do processo. Com um literal ali, o
+ * `DATABASE_URL` que o CI define era descartado e as 101 suítes de integração
+ * falavam com um banco inexistente no runner — todas caíam com erro de conexão
+ * do Prisma, e o log do GitHub trunca a mensagem, o que faz o sintoma parecer
+ * "os testes quebraram" em vez de "não há banco".
+ *
+ * O literal continua lá como fallback, para `pnpm vitest` funcionar sem preâmbulo
+ * na máquina de quem desenvolve. O que não pode voltar é ele ser incondicional.
+ */
+describe("vitest respeita o DATABASE_URL do ambiente", () => {
+  const vitestConfig = readFileSync(join(process.cwd(), "vitest.config.ts"), "utf8");
+
+  it("usa o env do processo antes do literal local", () => {
+    expect(vitestConfig).toMatch(/DATABASE_URL:\s*\n?\s*process\.env\.DATABASE_URL\s*\?\?/);
+  });
+
+  it("mantém o fallback local (não exige env para rodar na máquina do dev)", () => {
+    expect(vitestConfig).toContain("localhost:5432/arenatech");
+  });
+});
