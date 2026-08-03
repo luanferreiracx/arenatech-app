@@ -1451,6 +1451,12 @@ export const adminRouter = createTRPCRouter({
             plan: planId,
             status: "ACTIVE",
             apiAccessEnabled: isNoKyc ? true : false,
+            // Aceite copiado do pré-cadastro (ADR 0065). O pré-cadastro é
+            // registro de passagem — a senha dele já é apagada aqui, e um dia a
+            // fila será podada. A prova do consentimento precisa durar o quanto
+            // durar a relação comercial, então mora no tenant.
+            termsAcceptedAt: pr.termsAcceptedAt,
+            termsAcceptedVersion: pr.termsAcceptedVersion,
           },
         });
 

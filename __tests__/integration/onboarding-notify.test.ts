@@ -78,6 +78,7 @@ async function cadastrar() {
     phone: "86999991234",
     password: "senha1234",
     confirmPassword: "senha1234",
+    acceptedTerms: true,
     planSlug: "completo",
   });
   await anon().noKyc.verifyEmail({ preRegistrationId: started.preRegistrationId, code: "123456" });
@@ -146,6 +147,7 @@ describe("superadmin fica sabendo do cadastro novo", () => {
       phone: "86999995555",
       password: "senha1234",
       confirmPassword: "senha1234",
+      acceptedTerms: true,
       planSlug: null,
     });
 

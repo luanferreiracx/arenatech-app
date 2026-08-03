@@ -41,6 +41,18 @@ export const startNoKycRegistrationSchema = z
      * Opcional — quem chega direto em /register entra sem plano e escolhe depois.
      */
     planSlug: z.string().max(50).optional().nullable(),
+    /**
+     * Aceite dos Termos e da Política de Privacidade (ADR 0065).
+     *
+     * `literal(true)` e não `boolean()`: o aceite é OBRIGATÓRIO, e um `false`
+     * tem que ser recusado pelo servidor, não só pelo botão desabilitado da
+     * tela. Antes disto o aceite vivia num `useState` e o servidor sequer sabia
+     * que ele existia — quem chamasse o endpoint direto criava conta sem
+     * concordar com nada.
+     */
+    acceptedTerms: z.literal(true, {
+      error: "É preciso aceitar os Termos de Uso e a Política de Privacidade",
+    }),
   })
   .refine((d) => d.password === d.confirmPassword, {
     message: "As senhas não coincidem",

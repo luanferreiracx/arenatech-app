@@ -20,6 +20,7 @@ import {
 } from "@/server/services/verification.service";
 import { CATALOG_SLUGS } from "@/lib/plans/catalog";
 import { notifyNewPreRegistration } from "@/server/services/onboarding-notify.service";
+import { CURRENT_TERMS_VERSION } from "@/lib/legal/terms-version";
 import {
   startNoKycRegistrationSchema,
   verifyNoKycEmailSchema,
@@ -45,6 +46,8 @@ type PendingRegistrationData = {
   ownerPhone: string;
   passwordHash: string;
   planId: string | null;
+  termsAcceptedAt: Date;
+  termsAcceptedVersion: string;
   emailVerifiedAt: null;
   phoneVerifiedAt: null;
 };
@@ -167,6 +170,11 @@ export const noKycRouter = createTRPCRouter({
         ownerPhone: phone,
         passwordHash,
         planId,
+        // Carimbado no SERVIDOR, com a versão vigente do documento. Aceitar a
+        // data ou a versão vindas do cliente deixaria o registro valer o que
+        // vale um campo de formulário — nada, como prova.
+        termsAcceptedAt: new Date(),
+        termsAcceptedVersion: CURRENT_TERMS_VERSION,
         emailVerifiedAt: null,
         phoneVerifiedAt: null,
       });
