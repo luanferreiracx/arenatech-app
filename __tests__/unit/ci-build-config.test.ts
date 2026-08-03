@@ -157,3 +157,27 @@ describe("CI roda os testes de integração", () => {
     expect(integration).toContain("5436:5432");
   });
 });
+
+/**
+ * Guardião do `DATABASE_URL` nos testes.
+ *
+ * `test.env` do Vitest SOBRESCREVE o ambiente do processo. Com um literal ali, o
+ * `DATABASE_URL` que o CI define era descartado e as 101 suítes de integração
+ * falavam com um banco inexistente no runner — todas caíam com erro de conexão
+ * do Prisma, e o log do GitHub trunca a mensagem, o que faz o sintoma parecer
+ * "os testes quebraram" em vez de "não há banco".
+ *
+ * O literal continua lá como fallback, para `pnpm vitest` funcionar sem preâmbulo
+ * na máquina de quem desenvolve. O que não pode voltar é ele ser incondicional.
+ */
+describe("vitest respeita o DATABASE_URL do ambiente", () => {
+  const vitestConfig = readFileSync(join(process.cwd(), "vitest.config.ts"), "utf8");
+
+  it("usa o env do processo antes do literal local", () => {
+    expect(vitestConfig).toMatch(/DATABASE_URL:\s*\n?\s*process\.env\.DATABASE_URL\s*\?\?/);
+  });
+
+  it("mantém o fallback local (não exige env para rodar na máquina do dev)", () => {
+    expect(vitestConfig).toContain("localhost:5432/arenatech");
+  });
+});
