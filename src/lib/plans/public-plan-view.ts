@@ -9,6 +9,7 @@
  * de retorno não tem o campo, então o TypeScript impede reintroduzi-lo.
  */
 import type { Prisma } from "@prisma/client";
+import { catalogPlanBySlug } from "./catalog";
 
 export interface PublicPlanView {
   id: string;
@@ -20,6 +21,14 @@ export interface PublicPlanView {
   /** Preço anual em centavos, ou null se o plano é só mensal. */
   yearlyPrice: number | null;
   maxUsers: number | null;
+  /**
+   * Benefícios exibidos na página de preços. Vêm do CATÁLOGO (texto de venda
+   * escrito à mão), nunca de `features` — ver o comentário de `highlights` em
+   * `lib/plans/catalog`. Plano legado, fora do catálogo, vem com lista vazia.
+   */
+  highlights: string[];
+  /** Plano em destaque na página de preços. */
+  featured: boolean;
 }
 
 /** Subconjunto do Plan que a view pública consome. `features` NÃO entra. */
@@ -39,6 +48,9 @@ function toCents(v: Prisma.Decimal | number | null | undefined): number {
 }
 
 export function toPublicPlanView(plan: PublicPlanInput): PublicPlanView {
+  // Preço/nome/limite vêm do BANCO (o superadmin edita em /admin/plans); os
+  // benefícios vêm do catálogo em código. Cada campo tem um dono só.
+  const catalog = catalogPlanBySlug(plan.slug);
   return {
     id: plan.id,
     name: plan.name,
@@ -47,5 +59,7 @@ export function toPublicPlanView(plan: PublicPlanInput): PublicPlanView {
     monthlyPrice: toCents(plan.monthlyPrice),
     yearlyPrice: plan.yearlyPrice != null ? toCents(plan.yearlyPrice) : null,
     maxUsers: plan.maxUsers,
+    highlights: catalog?.highlights ?? [],
+    featured: catalog?.featured === true,
   };
 }

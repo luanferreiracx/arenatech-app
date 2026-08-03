@@ -1,8 +1,9 @@
 import { Metadata } from "next";
 import Link from "next/link";
+import { Clock } from "lucide-react";
 
 export const metadata: Metadata = {
-  title: "Aguardando Aprovacao | Arena Tech",
+  title: "Aguardando aprovação | Arena Tech",
 };
 
 export default function RegisterPendingPage() {
@@ -11,30 +12,32 @@ export default function RegisterPendingPage() {
   // público (CTU-2). São a porta de entrada de quem chega de fora e ainda não tem
   // conta; sem `main` não há como pular para o conteúdo (WCAG 1.3.1).
   return (
-    <main className="min-h-screen bg-gradient-to-br from-neutral-950 via-neutral-900 to-neutral-950 flex items-center justify-center p-4">
-      <div className="w-full max-w-lg text-center">
-        <div className="bg-white/5 border border-white/10 rounded-2xl p-12">
-          {/* Icon */}
-          <div className="w-20 h-20 rounded-full bg-gradient-to-br from-amber-500 to-primary flex items-center justify-center mx-auto mb-6">
-            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
-              <circle cx="12" cy="12" r="10" />
-              <polyline points="12 6 12 12 16 14" />
-            </svg>
+    <main className="flex min-h-screen items-center justify-center bg-gradient-to-br from-background to-accent/20 p-4">
+      <div className="w-full max-w-lg">
+        <div className="rounded-2xl border border-border bg-card p-8 text-center sm:p-12">
+          <div className="mx-auto mb-6 flex size-16 items-center justify-center rounded-full bg-primary/10 text-primary">
+            <Clock className="size-8" aria-hidden />
           </div>
 
-          <h1 className="text-2xl font-bold text-white mb-4">Aguardando Aprovacao</h1>
+          <h1 className="text-2xl font-bold">Aguardando aprovação</h1>
 
-          <p className="text-white/60 text-lg mb-8 leading-relaxed">
-            Seu pre-cadastro foi recebido e esta em analise pela nossa equipe.
-            <br />
-            Voce recebera uma mensagem no <strong className="text-white/80">WhatsApp</strong> informado assim que for aprovado.
+          <p className="mt-4 text-pretty leading-relaxed text-muted-foreground">
+            Recebemos seu cadastro e ele está em análise. Assim que for aprovado, você
+            recebe uma mensagem no <strong className="text-foreground">WhatsApp</strong>{" "}
+            informado e já entra com o e-mail e a senha que você acabou de cadastrar.
           </p>
 
-          <p className="text-white/40 text-sm">
-            Duvidas? Entre em contato pelo WhatsApp{" "}
-            <a href="https://wa.me/5586999999999" className="text-primary hover:underline">
-              (86) 99999-9999
-            </a>
+          {/* O teste grátis começa na APROVAÇÃO, não aqui — dizer isso evita que a
+              pessoa ache que está queimando dias de teste na fila. */}
+          <p className="mt-4 text-sm text-muted-foreground">
+            Seu período de teste só começa a contar depois da aprovação.
+          </p>
+
+          <p className="mt-8 text-sm text-muted-foreground">
+            <Link href="/planos" className="underline hover:text-foreground">
+              Ver os planos
+            </Link>{" "}
+            enquanto espera.
           </p>
         </div>
       </div>

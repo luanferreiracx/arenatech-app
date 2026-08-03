@@ -12,6 +12,7 @@ import {
   ALWAYS_ON_MODULES,
   WALLET_FLOOR_MODULES,
   PLAN_SELECTABLE_MODULES,
+  isPlanSelectableModule,
   isRouteAllowedWhileBlocked,
   BLOCKED_SUBSCRIPTION_ROUTE,
   RETIRED_MODULES,
@@ -175,6 +176,19 @@ describe("catálogo de módulos", () => {
     expect(WALLET_FLOOR_MODULES).toContain("depix-ops");
     expect(PLAN_SELECTABLE_MODULES).not.toContain("wallet");
     expect(PLAN_SELECTABLE_MODULES).not.toContain("depix-ops");
+  });
+
+  // Usado pelo onboarding (`resolveOnboardingPlan`) para decidir se o plano
+  // escolhido abre assinatura em teste ou se o tenant entra só com o piso.
+  it("isPlanSelectableModule concorda com a lista e trata chave desconhecida", () => {
+    for (const mod of PLAN_SELECTABLE_MODULES) {
+      expect(isPlanSelectableModule(mod)).toBe(true);
+    }
+    expect(isPlanSelectableModule("wallet")).toBe(false);
+    expect(isPlanSelectableModule("settings")).toBe(false);
+    // Plano legado no banco pode citar módulo que não existe mais no código. A
+    // resposta segura é "não é vendável", nunca uma exceção no meio do cadastro.
+    expect(isPlanSelectableModule("modulo-que-nao-existe")).toBe(false);
   });
 });
 

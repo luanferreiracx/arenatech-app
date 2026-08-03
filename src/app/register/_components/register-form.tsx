@@ -24,8 +24,12 @@ type Step = "form" | "email" | "phone";
 /**
  * Auto-cadastro NO-KYC (ADR 0050): dados → verificação de e-mail por código →
  * verificação de telefone por código → /register/pending (aguardando aprovação).
+ *
+ * `planSlug` vem da página de preços (ADR 0061), já validado no servidor pela
+ * page. Viaja no `startRegistration` e vira `PreRegistration.planId` — é o que
+ * faz a aprovação abrir o teste grátis no plano que o cliente escolheu.
  */
-export function RegisterForm() {
+export function RegisterForm({ planSlug }: { planSlug: string | null }) {
   const trpc = useTRPC();
   const router = useRouter();
   const [step, setStep] = useState<Step>("form");
@@ -130,27 +134,66 @@ export function RegisterForm() {
       </CardHeader>
       <CardContent>
         <form
-          onSubmit={form.handleSubmit((data) => startMutation.mutate(data))}
+          onSubmit={form.handleSubmit((data) => startMutation.mutate({ ...data, planSlug }))}
           className="space-y-4"
           noValidate
         >
-          <Field label="Seu nome *" error={form.formState.errors.ownerName?.message}>
-            <Input {...form.register("ownerName")} placeholder="Nome completo" />
+          <Field id="ownerName" label="Seu nome *" error={form.formState.errors.ownerName?.message}>
+            <Input
+              id="ownerName"
+              {...form.register("ownerName")}
+              placeholder="Nome completo"
+              aria-invalid={!!form.formState.errors.ownerName}
+              aria-describedby={form.formState.errors.ownerName ? "ownerName-error" : undefined}
+            />
           </Field>
-          <Field label="Nome da loja (opcional)" error={form.formState.errors.tradeName?.message}>
-            <Input {...form.register("tradeName")} placeholder="Como sua loja se chama" />
+          <Field id="tradeName" label="Nome da loja (opcional)" error={form.formState.errors.tradeName?.message}>
+            <Input id="tradeName" {...form.register("tradeName")} placeholder="Como sua loja se chama" />
           </Field>
-          <Field label="E-mail *" error={form.formState.errors.email?.message}>
-            <Input {...form.register("email")} type="email" autoComplete="email" placeholder="voce@exemplo.com" />
+          <Field id="email" label="E-mail *" error={form.formState.errors.email?.message}>
+            <Input
+              id="email"
+              {...form.register("email")}
+              type="email"
+              autoComplete="email"
+              placeholder="voce@exemplo.com"
+              aria-invalid={!!form.formState.errors.email}
+              aria-describedby={form.formState.errors.email ? "email-error" : undefined}
+            />
           </Field>
-          <Field label="WhatsApp *" error={form.formState.errors.phone?.message}>
-            <Input {...form.register("phone")} type="tel" autoComplete="tel" placeholder="(00) 00000-0000" />
+          <Field id="phone" label="WhatsApp *" error={form.formState.errors.phone?.message}>
+            <Input
+              id="phone"
+              {...form.register("phone")}
+              type="tel"
+              autoComplete="tel"
+              placeholder="(00) 00000-0000"
+              aria-invalid={!!form.formState.errors.phone}
+              aria-describedby={form.formState.errors.phone ? "phone-error" : undefined}
+            />
           </Field>
-          <Field label="Senha *" error={form.formState.errors.password?.message}>
-            <Input {...form.register("password")} type="password" autoComplete="new-password" placeholder="Mínimo 8 caracteres" />
+          <Field id="password" label="Senha *" error={form.formState.errors.password?.message}>
+            <Input
+              id="password"
+              {...form.register("password")}
+              type="password"
+              autoComplete="new-password"
+              placeholder="Mínimo 8 caracteres"
+              aria-invalid={!!form.formState.errors.password}
+              aria-describedby={form.formState.errors.password ? "password-error" : undefined}
+            />
           </Field>
-          <Field label="Confirmar senha *" error={form.formState.errors.confirmPassword?.message}>
-            <Input {...form.register("confirmPassword")} type="password" autoComplete="new-password" />
+          <Field id="confirmPassword" label="Confirmar senha *" error={form.formState.errors.confirmPassword?.message}>
+            <Input
+              id="confirmPassword"
+              {...form.register("confirmPassword")}
+              type="password"
+              autoComplete="new-password"
+              aria-invalid={!!form.formState.errors.confirmPassword}
+              aria-describedby={
+                form.formState.errors.confirmPassword ? "confirmPassword-error" : undefined
+              }
+            />
           </Field>
 
           <Alert className="py-3">
@@ -196,20 +239,34 @@ export function RegisterForm() {
   );
 }
 
+/**
+ * `htmlFor`/`id` e `aria-describedby` explícitos: sem eles o `<Label>` era só
+ * texto solto acima do input — leitor de tela não anunciava o rótulo ao focar o
+ * campo, clicar no rótulo não focava nada, e a mensagem de erro não era
+ * associada (WCAG 1.3.1 e 3.3.2). É a porta de entrada de quem chega de fora e
+ * ainda não tem conta; se tem um formulário que precisa ser acessível, é este.
+ */
 function Field({
+  id,
   label,
   error,
   children,
 }: {
+  id: string;
   label: string;
   error?: string;
   children: React.ReactNode;
 }) {
+  const errorId = `${id}-error`;
   return (
     <div className="space-y-1.5">
-      <Label>{label}</Label>
+      <Label htmlFor={id}>{label}</Label>
       {children}
-      {error && <p className="text-xs text-destructive">{error}</p>}
+      {error && (
+        <p id={errorId} className="text-xs text-destructive">
+          {error}
+        </p>
+      )}
     </div>
   );
 }

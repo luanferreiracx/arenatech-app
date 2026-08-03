@@ -176,6 +176,17 @@ export default function LoginPage() {
               Esqueci minha senha
             </a>
           </div>
+
+          {/* Entrada do funil (ADR 0061). Fora da etapa do 2FA: quem já provou a
+              senha está entrando, não comprando. */}
+          {!showTwoFactor && (
+            <p className="border-t pt-4 text-center text-sm text-muted-foreground">
+              Ainda não tem conta?{" "}
+              <a href="/planos" className="text-primary hover:underline">
+                Ver planos e começar grátis
+              </a>
+            </p>
+          )}
         </form>
       </CardContent>
     </>

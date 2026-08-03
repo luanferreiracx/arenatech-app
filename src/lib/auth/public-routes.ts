@@ -14,6 +14,10 @@ const PUBLIC_ROUTES = new Set([
   "/forgot-password",
   "/reset-password",
   "/register",
+  // Vitrine de planos — a entrada do funil self-service (ADR 0061). É o que o
+  // visitante vê ANTES de ter conta; exigir sessão aqui fecharia a porta de
+  // entrada da venda.
+  "/planos",
 ]);
 
 /**

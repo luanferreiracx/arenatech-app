@@ -220,6 +220,16 @@ export const PLAN_SELECTABLE_MODULES: ModuleKey[] = MODULE_KEYS.filter(
     !isRetiredModule(m),
 );
 
+/**
+ * Este módulo é vendido por plano? Aceita `string` porque o chamador típico lê
+ * `features.modules` do banco, que é JSON — pode conter chave desconhecida
+ * (módulo removido do código, plano legado). Chave desconhecida não é
+ * selecionável, então a resposta é `false` e o caminho é o seguro.
+ */
+export function isPlanSelectableModule(module: string): boolean {
+  return (PLAN_SELECTABLE_MODULES as readonly string[]).includes(module);
+}
+
 /** Slug do tenant com acesso total (bypass do gating). */
 export const TOTAL_ACCESS_TENANT_SLUG = "arena-tech";
 

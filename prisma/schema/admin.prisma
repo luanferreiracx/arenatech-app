@@ -17,7 +17,8 @@ model Plan {
   createdAt       DateTime   @default(now()) @map("created_at")
   updatedAt       DateTime   @updatedAt @map("updated_at")
 
-  subscriptions Subscription[]
+  subscriptions    Subscription[]
+  preRegistrations PreRegistration[]
 
   @@map("plans")
 }
@@ -40,7 +41,17 @@ model PreRegistration {
   ownerCpf      String?               @map("owner_cpf")
   ownerEmail    String                @map("owner_email")
   ownerPhone    String                @map("owner_phone")
+  /// Plano escolhido pelo cliente na página de preços (funil self-service, ADR
+  /// 0061). Vira o plano do teste grátis na aprovação. Nulo = entrou sem
+  /// escolher; o superadmin decide na aprovação.
+  ///
+  /// FK com `SetNull`: antes disto a coluna era um uuid solto, e um plano
+  /// removido deixava pré-cadastros apontando para o nada — a aprovação
+  /// falharia com "plano não existe" sem dizer por quê. `SetNull` (e não
+  /// `Restrict`) porque um cadastro pendente não pode travar a gestão de planos:
+  /// ele volta a ser "sem plano", que é um estado que a aprovação já trata.
   planId        String?               @map("plan_id") @db.Uuid
+  plan          Plan?                 @relation(fields: [planId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   status        PreRegistrationStatus @default(PENDING)
   notes         String?
   reviewedAt    DateTime?             @map("reviewed_at")
