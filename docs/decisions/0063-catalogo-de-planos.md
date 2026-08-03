@@ -1,9 +1,12 @@
-# ADR 0062 — Catálogo comercial: quatro planos e a divisão do PDV
+# ADR 0063 — Catálogo comercial: quatro planos e a divisão do PDV
 
 ## Status
 
-Aceito — 2026-08-02. Complementa o [ADR 0061](./0061-comercializacao-self-service.md),
-que montou a máquina de cobrança; este define o que se vende nela.
+Aceito — 2026-08-03. Complementa o [ADR 0061](./0061-comercializacao-self-service.md),
+que montou a máquina de cobrança; este define o que se vende nela. Convive com o
+[ADR 0062](./0062-depix-multicarteira-e-saque-por-autorizacao.md), que tornou o
+piso da carteira condicional a `Tenant.depixEnabled` — os dois mexem no gating de
+módulo e foram escritos em paralelo.
 
 ## Contexto
 
