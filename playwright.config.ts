@@ -28,10 +28,17 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"] },
     },
   ],
-  webServer: {
-    command: "pnpm dev",
-    url: process.env.PLAYWRIGHT_BASE_URL || "http://localhost:3000",
-    reuseExistingServer: true,
-    timeout: 60000,
-  },
+  // `PW_NO_WEBSERVER=1` desliga o servidor automático. Serve para rodar a suíte
+  // contra um build específico já no ar (diagnóstico, comparação entre commits):
+  // com `reuseExistingServer` o Playwright adota o que estiver na porta, e sem
+  // essa saída ele sobe um `pnpm dev` por conta própria — o teste passa a medir
+  // um binário diferente do que se quer medir.
+  webServer: process.env.PW_NO_WEBSERVER
+    ? undefined
+    : {
+        command: "pnpm dev",
+        url: process.env.PLAYWRIGHT_BASE_URL || "http://localhost:3000",
+        reuseExistingServer: true,
+        timeout: 60000,
+      },
 });
