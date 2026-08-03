@@ -19,6 +19,48 @@
 
 ---
 
+### 2026-08-03 — Onboarding deixa de terminar em silêncio (ADR 0064/0065)
+
+Duas lacunas que só aparecem quando existe cliente de verdade do outro lado.
+
+**Ninguém era avisado de nada.** Do lado de quem vende, o cadastro entrava na
+fila e nada avisava — o superadmin só descobria abrindo
+`/admin/pre-registrations` por conta própria. Do lado de quem compra, a aprovação
+mostrava um toast na tela **do superadmin** e acabava; a tela `/register/pending`
+prometia "você recebe uma mensagem no WhatsApp" que ninguém mandava.
+
+Agora o superadmin recebe e-mail quando o cadastro **completa** (não no início —
+senão a caixa enche de tentativa abandonada), com o plano escolhido e link para a
+ficha; e quem se cadastrou recebe e-mail + WhatsApp na aprovação, com a data de
+fim do teste. O serviço **nunca lança** e envia **fora da transação**: o custo de
+errar é assimétrico — perder um aviso é recuperável, perder a aprovação não é (o
+pré-cadastro já foi consumido). Senha temporária nunca sai por WhatsApp.
+
+**O aceite dos Termos não existia no servidor.** O checkbox "Li e concordo" era
+um `useState`: desabilitava o botão e morria com a aba. O schema do
+`startRegistration` sequer tinha o campo, então quem chamasse o endpoint direto
+criava conta sem concordar com nada. E sem **versão**, um booleano responderia à
+pergunta errada — quando o texto mudar, ninguém distingue quem concordou com a
+redação nova de quem concordou com a de meses atrás.
+
+Agora `z.literal(true)` (não `z.boolean()` — `false` tem que ser recusado pelo
+servidor), com data e versão carimbadas pelo servidor, `CURRENT_TERMS_VERSION`
+como fonte única (as 4 páginas de `/legal` tinham a data copiada 4×), e o aceite
+copiado para o `Tenant` na aprovação — o pré-cadastro é registro de passagem.
+Colunas nullable e **sem backfill**: inventar consentimento retroativo seria pior
+do que admitir a lacuna.
+
+**Medido no navegador:** os 7 inputs do cadastro não tinham rótulo associado
+(`<Label>` sem `htmlFor`). Rótulo não anunciado, clique no rótulo sem efeito,
+erro não associado ao campo. Corrigido e re-medido: 0 sem rótulo, a 320px e a
+200% de zoom.
+
+**Verificado em produção** depois do deploy: `/planos` responde 200 sem cookie
+com os 4 planos e "7 dias grátis"; `?plano=completo` confirma o plano no
+cadastro; `?plano=free` (legado) não vira escolha; zero vazamento de gating.
+
+---
+
 ### 2026-08-03 — Funil self-service: da vitrine ao teste grátis (ADR 0064)
 
 O que faltava para comercializar não era mais funcionalidade — era o caminho. Um
