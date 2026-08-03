@@ -28,6 +28,36 @@ services:
     image: postgres:16-alpine
     container_name: arenatech-postgres-prod
     restart: unless-stopped
+    # `pg_stat_statements` mede QUAL query custa caro em produção, com dados e
+    # concorrência reais. Sem ele, otimizar é adivinhação: `EXPLAIN` responde
+    # sobre a query que você já suspeita, e o gargalo real costuma ser uma que
+    # ninguém olhou — barata sozinha, executada dez mil vezes.
+    #
+    # Precisa de `shared_preload_libraries` (carrega no start do servidor, não dá
+    # para ligar com `CREATE EXTENSION` sozinho) — daí exigir restart. `command`
+    # aqui SOBRESCREVE o CMD da imagem, mas o entrypoint oficial continua sendo
+    # executado: ele recebe estes argumentos e os repassa ao postgres. Por isso o
+    # primeiro item TEM que ser `postgres` — sem ele o entrypoint não reconhece o
+    # comando como "subir o servidor" e o container vira um no-op.
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      # `top` (padrão): agrega comandos aninhados de função/trigger no comando de
+      # topo, em vez de registrar cada statement interno. Mantém a lista legível.
+      - -c
+      - pg_stat_statements.track=top
+      # 5000 queries distintas guardadas. O padrão também é 5000; explícito aqui
+      # para o número ser uma decisão visível e não um efeito colateral do
+      # default. Cada entrada custa ~1KB de memória compartilhada.
+      - -c
+      - pg_stat_statements.max=5000
+      # Persiste as estatísticas no shutdown e recarrega no start. Sem isto, todo
+      # restart zera o histórico — e a pergunta que este módulo existe para
+      # responder ("o que custou caro nas últimas semanas") não sobreviveria a um
+      # deploy.
+      - -c
+      - pg_stat_statements.save=on
     env_file:
       - .env.production
     ports:

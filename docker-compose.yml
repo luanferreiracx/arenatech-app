@@ -5,6 +5,19 @@ services:
     image: postgres:16-alpine
     container_name: arenatech-postgres
     restart: unless-stopped
+    # Espelha produção (ver docker-compose.prod.yml): sem isto, `EXPLAIN` local
+    # roda contra um servidor com capacidades diferentes do que se está
+    # diagnosticando, e o ensaio de um procedimento de produção não vale nada.
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - pg_stat_statements.track=top
+      - -c
+      - pg_stat_statements.max=5000
+      - -c
+      - pg_stat_statements.save=on
     environment:
       POSTGRES_USER: arenatech
       POSTGRES_PASSWORD: arenatech_local
