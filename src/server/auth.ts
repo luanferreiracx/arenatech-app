@@ -455,6 +455,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
               name: t.name,
               role: t.role,
               isTechnician: t.isTechnician,
+              // Sem isto o refresh do token APAGA a flag: o login trazia o modo
+              // bancada e, no primeiro refresh, a tela voltava a mostrar tudo.
+              benchModeOnly: t.benchModeOnly,
               blocked: isBlockedStatus(t.status),
               modules: modulesByTenantId.get(t.id) ?? [],
             }));
@@ -509,6 +512,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           name: string;
           role: string;
           isTechnician?: boolean;
+          benchModeOnly?: boolean;
           blocked?: boolean;
           modules: string[];
         }>) ?? [];
