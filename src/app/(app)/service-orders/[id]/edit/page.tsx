@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/select";
 import { PageHeader } from "@/components/domain/page-header";
 import { LoadingState } from "@/components/domain/loading-state";
+import { QueryErrorState } from "@/components/domain/query-error-state";
 import { toast } from "@/lib/toast";
 import { ArrowLeft, Save, Lock, Trash2 } from "lucide-react";
 import { useIsTenantAdmin } from "@/lib/auth/use-tenant-admin";
@@ -85,8 +86,21 @@ export default function EditServiceOrderPage({
     }),
   );
 
-  if (isLoading || !order) {
+  if (isLoading) {
     return <LoadingState />;
+  }
+
+  // Mesmo esqueleto eterno da tela de detalhe: sem separar erro de "carregando",
+  // uma query que falha deixa o operador olhando um placeholder para sempre.
+  // Auditoria de frontend 2026-08-04, P0-3.
+  if (orderQuery.isError || !order) {
+    return (
+      <QueryErrorState
+        error={orderQuery.error ?? null}
+        notFoundTitle="Ordem de servico nao encontrada"
+        notFoundDescription="Ela pode ter sido excluida ou o link esta errado."
+      />
+    );
   }
 
   return (

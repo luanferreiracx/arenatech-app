@@ -45,7 +45,7 @@ export function MovementsTable() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
 
-  const { data, isLoading } = useQuery(
+  const { data, isLoading, error } = useQuery(
     trpc.stock.listMovements.queryOptions({
       type: type as "ENTRY" | "EXIT" | "ADJUSTMENT" | "RESERVE" | "RELEASE" | undefined,
       dateFrom: dateFrom || undefined,
@@ -164,6 +164,7 @@ export function MovementsTable() {
           setPage(0);
         }}
         isLoading={isLoading}
+        error={error}
         emptyMessage="Nenhuma movimentacao encontrada."
       />
     </>

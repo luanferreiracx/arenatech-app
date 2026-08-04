@@ -86,7 +86,7 @@ export function ProductsTable() {
     "asc" | "desc",
   ];
 
-  const { data, isLoading } = useQuery(
+  const { data, isLoading, error } = useQuery(
     trpc.stock.list.queryOptions({
       search: debouncedSearch || undefined,
       active: statusFilter === "all" ? undefined : statusFilter === "active",
@@ -328,6 +328,7 @@ export function ProductsTable() {
           setPage(0);
         }}
         isLoading={isLoading}
+        error={error}
         emptyMessage="Nenhum produto encontrado."
         emptyState={emptyState}
         enableRowSelection

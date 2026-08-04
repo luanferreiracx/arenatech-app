@@ -75,7 +75,17 @@ export function DepixQrDialog({
 
   // Cancela o QR: limpa a entry pendente do rascunho (server) e fecha. Fire-
   // and-forget — nao bloqueia o fechamento (cancelPixPayment expira sozinho).
+  //
+  // NUNCA cancela depois que o pagamento confirmou. O `onOpenChange` do Dialog
+  // chama isto em Escape e clique-fora, e antes disso rodava em QUALQUER
+  // estado: o cliente pagava, o finalize demorava (o servidor faz HTTP externo
+  // antes da transação), o operador impaciente apertava Escape e cancelava um
+  // pagamento que JÁ tinha entrado — depois cobrava de novo.
+  //
+  // O `paidFiredRef` protegia contra confirmar duas vezes; não protegia contra
+  // cancelar depois de confirmar. Auditoria de frontend 2026-08-04, P0-2.
   const handleCancel = () => {
+    if (status === "paid") return;
     if (transactionId) {
       cancelMutation.mutate({ saleId, transactionId });
     }
@@ -180,7 +190,18 @@ export function DepixQrDialog({
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && handleCancel()}>
-      <DialogContent className="max-w-md">
+      {/* Depois de pago, o diálogo não pode ser dispensado: o finalize está em
+          curso e fechar aqui descartaria o pagamento. Bloqueia Escape e
+          clique-fora na origem, além do guard no `handleCancel`. */}
+      <DialogContent
+        className="max-w-md"
+        onEscapeKeyDown={(e) => {
+          if (status === "paid") e.preventDefault();
+        }}
+        onPointerDownOutside={(e) => {
+          if (status === "paid") e.preventDefault();
+        }}
+      >
         <DialogHeader>
           <DialogTitle>Pagamento via DePix</DialogTitle>
           <DialogDescription>
