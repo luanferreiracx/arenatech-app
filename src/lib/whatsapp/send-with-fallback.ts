@@ -22,6 +22,7 @@ import {
   type WhatsAppTemplate,
 } from "@/lib/whatsapp/templates-catalog";
 import { isWithin24hWindow } from "@/lib/whatsapp/conversation-window";
+import { tenantHasTemplate } from "@/lib/services/whatsapp-template-sync";
 import { logger } from "@/lib/logger";
 import { withTenant } from "@/server/db";
 
@@ -91,6 +92,41 @@ export interface SendResult {
   templateUsed?: string;
   messageId?: string;
   error?: string;
+}
+
+/** Resultado mínimo de um envio — o que a cadeia de fallback precisa saber. */
+type WhatsAppSendOutcome = { success: boolean; messageId?: string; error?: string };
+
+/**
+ * Templates aprovados na WABA deste tenant, ou `null` quando não sabemos
+ * (tenant sem credencial própria, ou credencial nunca sincronizada).
+ *
+ * Nunca lança: falha de leitura devolve `null`, que o `tenantHasTemplate`
+ * interpreta como "pode tentar" — o comportamento anterior.
+ */
+async function approvedTemplatesFor(tenantId: string): Promise<string[] | null> {
+  try {
+    const [{ withAdmin }, { readCloudCredential }] = await Promise.all([
+      import("@/server/db"),
+      import("@/lib/services/whatsapp-tenant-config"),
+    ]);
+    const row = await withAdmin((tx) =>
+      tx.tenantIntegration.findUnique({
+        where: { tenantId_provider: { tenantId, provider: "WHATSAPP_CLOUD" } },
+        select: { enabled: true, config: true },
+      }),
+    );
+    // Integração desligada = envio sai pela conta da Arena Tech, cujos templates
+    // são os do catálogo. A lista do tenant não se aplica.
+    if (!row?.enabled) return null;
+    return readCloudCredential(row.config)?.approvedTemplates ?? null;
+  } catch (error) {
+    logger.warn("WhatsApp: falha ao ler templates aprovados do tenant", {
+      tenantId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
 }
 
 /** Monta o array `components` esperado pela Meta Cloud API. */
@@ -206,14 +242,34 @@ async function sendTemplateByContext(
     return { success: false, via: "template", error: `Template '${templateKey}' nao cadastrado` };
   }
 
-  // Tentativa primaria
-  const primary = await sendCloudTemplate(
-    phone,
-    template.name,
-    template.language,
-    buildComponents(template, params, header, urlButtonParam),
-    tenantId,
-  );
+  // Tenant com WABA própria só tem os templates que ELE aprovou.
+  // `APPROVED_TEMPLATES` descreve a conta da Arena Tech — tentar um template que
+  // este tenant não tem gastaria uma chamada para receber recusa garantida, e a
+  // cadeia de fallback abaixo já cobre o caso.
+  //
+  // Lista ausente (`null`, nunca sincronizada) NÃO bloqueia: significa "não
+  // sabemos", e barrar por falta de informação desligaria quem acabou de
+  // conectar. Ver `tenantHasTemplate`.
+  const approvedNames = tenantId ? await approvedTemplatesFor(tenantId) : null;
+  const podeUsarPrimario = tenantHasTemplate(approvedNames, template.name);
+
+  // Tentativa primaria (pulada quando se sabe que o tenant não tem o template).
+  const primary: WhatsAppSendOutcome = podeUsarPrimario
+    ? await sendCloudTemplate(
+        phone,
+        template.name,
+        template.language,
+        buildComponents(template, params, header, urlButtonParam),
+        tenantId,
+      )
+    : { success: false, error: `Template '${template.name}' não aprovado nesta conta` };
+
+  if (!podeUsarPrimario) {
+    logger.info("WhatsApp: template não aprovado nesta WABA — indo direto ao fallback", {
+      tenantId,
+      template: template.name,
+    });
+  }
   if (primary.success) {
     return { success: true, via: "template", templateUsed: template.name, messageId: primary.messageId };
   }

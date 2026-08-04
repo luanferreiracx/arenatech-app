@@ -11,6 +11,7 @@ Todos como **systemd timer** (`/etc/systemd/system/arenatech-<job>.{service,time
 | `expire-rewards` | idem | 03:00 | Expira recompensas de fidelidade vencidas |
 | `mark-overdue` | idem | 03:00 | Marca contas/parcelas vencidas |
 | `expire-subscriptions` | idem | 04:00 | ACTIVE→PAST_DUE→SUSPENDED (pós-carência) |
+| `check-whatsapp-credentials` | idem | 04:15 | Verifica na Meta se a credencial WhatsApp de cada tenant ainda vale; avisa o lojista antes de o cliente dele descobrir |
 | `purge-webhook-events` | idem | 04:30 | Apaga eventos de webhook com +90 dias (retenção) — `-m 300` no curl |
 | `generate-recurring-expenses` | idem | 05:00 | Gera as contas do mês dos templates recorrentes |
 | `process-deposit-repayments` | idem | a cada 5min | Quitação de adiantamentos DePix |
