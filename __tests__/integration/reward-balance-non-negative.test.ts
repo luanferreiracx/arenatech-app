@@ -81,11 +81,21 @@ describe("saldo de cashback nunca fica negativo", () => {
     expect(r.filter((x) => x.status === "fulfilled")).toHaveLength(1);
     expect(await saldo()).toEqual({ disponivel: 0, reservado: 100 });
 
-    // O perdedor tem que cair no CAS da aplicação, com mensagem de negócio —
-    // e NÃO na CHECK do banco (que existe como rede final, mas vaza
-    // "violates check constraint" pro usuário). É isto que distingue as duas
-    // camadas: sem o CAS o teste ainda passaria, protegido só pelo banco.
-    expect(motivo(r)[0]).toMatch(/saldo de cashback mudou/i);
+    // O perdedor tem que cair numa mensagem de NEGÓCIO — e NÃO na CHECK do
+    // banco (que existe como rede final, mas vaza "violates check constraint"
+    // pro usuário). É isto que distingue as duas camadas: sem os guards da
+    // aplicação o teste ainda passaria, protegido só pelo banco.
+    //
+    // As DUAS mensagens abaixo são resultados corretos, e qual delas sai
+    // depende de onde o perdedor perdeu a corrida:
+    //   - o `findFirst` rodou DEPOIS do commit do vencedor → lê 0 e cai no gate
+    //     de saldo ("Saldo insuficiente");
+    //   - rodou ANTES → passa o gate com snapshot velho e cai no CAS
+    //     ("saldo de cashback mudou").
+    // Exigir só a segunda tornava o teste flaky (falhou no CI em 2026-08-04) e
+    // testava IMPLEMENTAÇÃO — qual guarda disparou — em vez do comportamento,
+    // que é "recusou com erro de negócio, sem vazar erro de banco".
+    expect(motivo(r)[0]).toMatch(/saldo de cashback mudou|saldo insuficiente/i);
     expect(motivo(r)[0]).not.toMatch(/check constraint/i);
   });
 
@@ -98,10 +108,26 @@ describe("saldo de cashback nunca fica negativo", () => {
       caller().reward.unlockBalance({ customerId, amountCents: 10000 }),
     ]);
 
-    expect(r.filter((x) => x.status === "fulfilled")).toHaveLength(1);
+    // O INVARIANTE é o saldo: R$100 reservados liberam R$100, uma vez só —
+    // nunca R$200, nunca reservado negativo. É isto que precisa valer sempre.
     expect(await saldo()).toEqual({ disponivel: 100, reservado: 0 });
-    expect(motivo(r)[0]).toMatch(/reserva de cashback mudou/i);
-    expect(motivo(r)[0]).not.toMatch(/check constraint/i);
+
+    // O perdedor pode terminar de DUAS formas corretas, conforme onde perdeu:
+    //   - leu a reserva ANTES do commit do vencedor → passa o clamp e cai no
+    //     CAS ("reserva de cashback mudou");
+    //   - leu DEPOIS → vê `locked = 0`, o clamp zera e o procedure devolve
+    //     `{ unlocked: 0 }` sem erro (não há o que liberar).
+    // Exigir sempre a rejeição testava IMPLEMENTAÇÃO. O que importa é que
+    // ninguém liberou duas vezes e que, se houve erro, foi de NEGÓCIO — não a
+    // CHECK do banco vazando "violates check constraint" para o usuário.
+    const liberados = r
+      .filter((x): x is PromiseFulfilledResult<{ unlocked: number }> => x.status === "fulfilled")
+      .reduce((sum, x) => sum + x.value.unlocked, 0);
+    expect(liberados).toBe(10000);
+    for (const err of motivo(r)) {
+      expect(err).toMatch(/reserva de cashback mudou/i);
+      expect(err).not.toMatch(/check constraint/i);
+    }
   });
 
   it("lock acima do disponível continua sendo recusado (caso simples)", async () => {

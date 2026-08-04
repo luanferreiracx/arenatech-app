@@ -98,6 +98,8 @@ type MembershipTenant = {
   status: string;
   role: string;
   isTechnician: boolean;
+  /** Modo bancada: enxuga a tela de OS (ADR/auditoria frontend 2026-08-04). */
+  benchModeOnly: boolean;
 };
 const membershipCache = new Map<string, { tenants: MembershipTenant[]; expiresAt: number }>();
 
@@ -126,6 +128,7 @@ async function resolveMembership(userId: string): Promise<MembershipTenant[]> {
     status: ut.tenant.status,
     role: ut.role,
     isTechnician: ut.isTechnician,
+    benchModeOnly: ut.benchModeOnly,
   }));
   membershipCache.set(userId, { tenants, expiresAt: now + MEMBERSHIP_CACHE_TTL_MS });
   return tenants;
@@ -396,6 +399,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             name: ut.tenant.name,
             role: ut.role,
             isTechnician: ut.isTechnician,
+            benchModeOnly: ut.benchModeOnly,
             blocked: isBlockedStatus(ut.tenant.status),
             modules: modulesByTenantId.get(ut.tenant.id) ?? [],
           }));
@@ -411,6 +415,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
               status: ut.tenant.status,
               role: ut.role,
               isTechnician: ut.isTechnician,
+              benchModeOnly: ut.benchModeOnly,
             })),
           );
 
@@ -450,6 +455,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
               name: t.name,
               role: t.role,
               isTechnician: t.isTechnician,
+              // Sem isto o refresh do token APAGA a flag: o login trazia o modo
+              // bancada e, no primeiro refresh, a tela voltava a mostrar tudo.
+              benchModeOnly: t.benchModeOnly,
               blocked: isBlockedStatus(t.status),
               modules: modulesByTenantId.get(t.id) ?? [],
             }));
@@ -504,6 +512,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           name: string;
           role: string;
           isTechnician?: boolean;
+          benchModeOnly?: boolean;
           blocked?: boolean;
           modules: string[];
         }>) ?? [];

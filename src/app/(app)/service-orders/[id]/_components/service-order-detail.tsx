@@ -87,6 +87,7 @@ import {
   OrderDeviceInfoCard,
 } from "./detail-sections";
 import { QueryErrorState } from "@/components/domain/query-error-state";
+import { useIsBenchMode } from "@/lib/auth/use-tenant-admin";
 import { DeviceHistoryPanel } from "./device-history-panel";
 import { ServiceOrderPhotoManager } from "./service-order-photo-manager";
 
@@ -101,6 +102,10 @@ function formatMoney(centavos: number): string {
 
 export function ServiceOrderDetail({ id }: { id: string }) {
   const trpc = useTRPC();
+  // Modo bancada: enxuga a tela para quem só faz reparo. Configurável por
+  // usuário em Configurações › Usuários. NÃO é permissão — o servidor continua
+  // barrando quem não pode; aqui é carga cognitiva.
+  const benchMode = useIsBenchMode();
   const queryClient = useQueryClient();
 
   const orderQuery = useQuery(
@@ -442,7 +447,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                 </Link>
               </Button>
             )}
-            {isCancellableOsStatus(status) && (
+            {isCancellableOsStatus(status) && !benchMode && (
               <Button variant="destructive" size="sm" onClick={() => dialog.open("cancel")}>
                 <Ban className="mr-2 h-4 w-4" />Cancelar
               </Button>
@@ -458,7 +463,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                 <Trash2 className="mr-2 h-4 w-4" />Excluir
               </Button>
             )}
-            {isRefundableOsStatus(status) && !isRefunded && (
+            {isRefundableOsStatus(status) && !isRefunded && !benchMode && (
               <Button variant="destructive" size="sm" onClick={() => dialog.open("refund")}>
                 <Undo2 className="mr-2 h-4 w-4" />Estornar
               </Button>
@@ -538,7 +543,9 @@ export function ServiceOrderDetail({ id }: { id: string }) {
       {/* Communication — para avisar o cliente a retirar o aparelho. Some após
           ENTREGUE (aparelho já entregue → nada a comunicar). Aparece mesmo sem
           telefone cadastrado: o operador pode digitar um no envio. */}
-      {!isCancelled && !isRefunded && ["COMPLETED", "PAID", "READY_FOR_PICKUP"].includes(status) && (
+      {/* Comunicação com o CLIENTE (recibo, rastreamento, termos): trabalho de
+          balcão, não de bancada. Escondido no modo bancada. */}
+      {!benchMode && !isCancelled && !isRefunded && ["COMPLETED", "PAID", "READY_FOR_PICKUP"].includes(status) && (
         <div className="rounded-lg border-2 border-info bg-info/10 p-4 mb-6">
           <h3 className="font-semibold text-info flex items-center gap-2">
             <MessageCircle className="h-5 w-5" />Comunicacao
@@ -1011,6 +1018,10 @@ export function ServiceOrderDetail({ id }: { id: string }) {
             {nextOptions.length > 0 && !order.budgetPending && !isCancelled && !isRefunded && isSigned && (
               <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-border">
                 {nextOptions.map((s) => {
+                  // Modo bancada esconde só o passo de PAGAMENTO — as demais
+                  // transições (diagnosticar, concluir) são justamente o
+                  // trabalho de quem está na bancada e continuam visíveis.
+                  if (s === "PAID" && benchMode) return null;
                   if (s === "PAID") {
                     // OS sem valor: cortesia direta (R$0).
                     if (Number(order.totalAmount) <= 0) {
