@@ -33,6 +33,14 @@ export const productPhotoInputSchema = z.object({
 export type ProductPhotoInput = z.infer<typeof productPhotoInputSchema>;
 
 export const productVariationInputSchema = z.object({
+  /**
+   * Id da variação EXISTENTE, quando o form está editando em vez de criar.
+   *
+   * Sem isto o `update` não tinha como dizer "esta é a mesma variação": ele
+   * apagava todas e recriava, e como `currentStock` não vem do form, toda
+   * variação renascia com saldo ZERO. Auditoria de estoque 2026-08-04, P0-1.
+   */
+  id: z.string().uuid().optional(),
   sku: z.string().max(50).optional().nullable(),
   barcode: z.string().max(50).optional().nullable(),
   costPrice: z.number().int().min(0).max(MAX_PRICE_CENTS, "Valor acima do limite").optional().nullable(), // centavos
@@ -177,18 +185,49 @@ export const createDevicePurchaseSchema = z.object({
   purchasePrice: z.number().int().min(100, "Informe o preco de compra (minimo R$ 1,00)").max(MAX_PRICE_CENTS, "Valor acima do limite"), // centavos
   salePrice: z.number().int().min(0).max(MAX_PRICE_CENTS, "Valor acima do limite").optional().nullable(), // centavos
   notes: z.string().max(500).optional().nullable(),
-  // Pagamento da compra. Dois modos:
+  // Pagamento da compra. Dois modos, e agora OBRIGATÓRIO:
   //  - "now": paga imediatamente com 1 forma (CASH/PIX/DEPIX/CARD/etc).
   //           Gera FinancialTransaction PAID e CashMovement OUTCOME quando
   //           dinheiro/PIX/DePix e existir caixa aberto.
   //  - "payable": gera PAYABLE pendente (compra a prazo). Aceita parcelamento.
-  //  - undefined: nao registra nada no financeiro (paridade legada).
-  paymentMode: z.enum(["now", "payable"]).optional(),
+  //
+  // Era opcional, e o formulário nascia em branco: enviar sem escolher criava o
+  // aparelho no estoque, avaliado e vendável, com ZERO lançamento financeiro. O
+  // DRE lê despesa do ledger, então o custo sumia da despesa e voltava no CMV da
+  // revenda — lucro superestimado. É a mesma classe do incidente dos R$342k
+  // (ver `installment-ledger.service.ts`), que consertou o caminho "now" e
+  // deixou o caminho "em branco" como forma legal de reproduzir a corrupção.
+  // Auditoria de estoque 2026-08-04, P0-3.
+  paymentMode: z.enum(["now", "payable"], {
+    message: "Informe como a compra foi paga",
+  }),
   // Quando paymentMode = "now"
   paymentMethodId: z.string().uuid().optional().nullable(),
   // Quando paymentMode = "payable"
   payableInstallments: z.number().int().min(1).max(36).optional(),
-  payableFirstDueDate: z.string().max(MAX_DATA).optional(),
+  // `YYYY-MM-DD`. Antes era string livre: `"2026-02-30"` virava 02/03 em
+  // silêncio e lixo abortava a transação com erro opaco do Prisma depois de já
+  // ter criado compra + item. Auditoria 2026-08-04, P2.
+  payableFirstDueDate: z
+    .string()
+    .max(MAX_DATA)
+    .refine((v) => /^\d{4}-\d{2}-\d{2}$/.test(v), {
+      message: "Data de vencimento deve estar no formato AAAA-MM-DD",
+    })
+    .refine(
+      (v) => {
+        const [y, m, d] = v.split("-").map(Number);
+        const parsed = new Date(Date.UTC(y!, m! - 1, d!));
+        // Rejeita rollover silencioso: 2026-02-30 vira 02/03 e não "volta" igual.
+        return (
+          parsed.getUTCFullYear() === y &&
+          parsed.getUTCMonth() === m! - 1 &&
+          parsed.getUTCDate() === d
+        );
+      },
+      { message: "Data de vencimento inexistente" },
+    )
+    .optional(),
 }).superRefine((data, ctx) => {
   // Paridade Laravel: cliente_id required_if tipo_vendedor=cliente, idem fornecedor.
   if (data.sellerType === "customer" && !data.customerId) {
@@ -204,6 +243,33 @@ export const createDevicePurchaseSchema = z.object({
       path: ["supplierId"],
       message: "Selecione o fornecedor",
     });
+  }
+
+  // Forma de pagamento obrigatória quando paga na hora — sem ela não dá pra
+  // saber se o dinheiro saiu da gaveta, do PIX ou do cartão.
+  if (data.paymentMode === "now" && !data.paymentMethodId) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["paymentMethodId"],
+      message: "Selecione a forma de pagamento",
+    });
+  }
+
+  // Parcela não pode nascer NEGATIVA. `Math.round(total/n)` pode arredondar
+  // PARA CIMA a ponto do resto ficar negativo e estourar a última parcela:
+  // R$1,00 em 36x → cada 3 centavos, 3×36=108 > 100 → última = -5 centavos.
+  // Parcela negativa corrompe os agregados de pendente/vencido e não pode ser
+  // quitada. Alcançável pela UI (mínimo R$1,00, máximo 36x).
+  // Auditoria de estoque 2026-08-04, P2.
+  if (data.paymentMode === "payable") {
+    const installments = data.payableInstallments ?? 1;
+    if (data.purchasePrice < installments) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["payableInstallments"],
+        message: "Valor baixo demais para esse número de parcelas (cada parcela precisa ter ao menos R$ 0,01)",
+      });
+    }
   }
 
   // IMEI obrigatorio para celulares (todas as condicoes envolvem aparelho

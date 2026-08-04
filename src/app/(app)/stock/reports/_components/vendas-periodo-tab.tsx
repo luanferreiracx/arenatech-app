@@ -31,6 +31,10 @@ export function VendasPeriodoTab({ dateFrom, dateTo }: Props) {
   if (isLoading) return <LoadingState variant="table" />;
   if (!data) return null;
 
+  // O servidor decide quem vê margem (A3): `lucroBruto` vem null para operador.
+  // A UI apenas obedece — não é ela que faz o gate.
+  const showProfit = data.totals.lucroBruto !== null;
+
   return (
     <div className="space-y-4">
       <Card>
@@ -72,12 +76,16 @@ export function VendasPeriodoTab({ dateFrom, dateTo }: Props) {
             <p className="text-sm opacity-80">Descontos</p>
           </CardContent>
         </Card>
-        <Card className="bg-blue-600 text-white">
-          <CardContent className="text-center py-4">
-            <div className="text-2xl font-bold">{formatCurrency(data.totals.lucroBruto)}</div>
-            <p className="text-sm opacity-80">Lucro Bruto</p>
-          </CardContent>
-        </Card>
+        {/* Lucro é dado gerencial: o backend devolve null para quem não é admin
+            (A3), então o card some em vez de exibir "R$ 0,00" — zero mentiria. */}
+        {data.totals.lucroBruto !== null && (
+          <Card className="bg-blue-600 text-white">
+            <CardContent className="text-center py-4">
+              <div className="text-2xl font-bold">{formatCurrency(data.totals.lucroBruto)}</div>
+              <p className="text-sm opacity-80">Lucro Bruto</p>
+            </CardContent>
+          </Card>
+        )}
         <Card className="bg-muted">
           <CardContent className="text-center py-4">
             <div className="text-2xl font-bold">{formatCurrency(data.totals.ticketMedio)}</div>
@@ -94,7 +102,7 @@ export function VendasPeriodoTab({ dateFrom, dateTo }: Props) {
                 <TableHead>Venda</TableHead>
                 <TableHead>Data</TableHead>
                 <TableHead className="text-right">Total</TableHead>
-                <TableHead className="text-right">Lucro</TableHead>
+                {showProfit && <TableHead className="text-right">Lucro</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -103,14 +111,16 @@ export function VendasPeriodoTab({ dateFrom, dateTo }: Props) {
                   <TableCell className="font-medium">#{s.number}</TableCell>
                   <TableCell>{formatDateTime(s.saleDate)}</TableCell>
                   <TableCell className="text-right font-mono">{formatCurrency(s.totalAmount)}</TableCell>
-                  <TableCell className={`text-right font-mono ${s.profit >= 0 ? "text-emerald-500" : "text-destructive"}`}>
-                    {formatCurrency(s.profit)}
-                  </TableCell>
+                  {showProfit && (
+                    <TableCell className={`text-right font-mono ${(s.profit ?? 0) >= 0 ? "text-emerald-500" : "text-destructive"}`}>
+                      {formatCurrency(s.profit ?? 0)}
+                    </TableCell>
+                  )}
                 </TableRow>
               ))}
               {data.sales.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
+                  <TableCell colSpan={showProfit ? 4 : 3} className="text-center text-muted-foreground py-8">
                     Nenhuma venda encontrada no periodo
                   </TableCell>
                 </TableRow>

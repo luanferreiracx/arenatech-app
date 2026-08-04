@@ -84,8 +84,13 @@ import {
   disposeStockItem,
   resolveCurrentStockByProduct,
 } from "@/server/services/stock-item.service";
-import { recordCashPaidTransaction } from "@/server/services/installment-ledger.service";
+import {
+  recordCashPaidTransaction,
+  reverseCashPaidTransaction,
+} from "@/server/services/installment-ledger.service";
 import { writeCashMovement } from "@/server/services/cash-session.service";
+import { resolveCategoryId } from "@/server/services/financial-category.service";
+import { affectsCashDrawer, canonicalMethodToken } from "@/lib/payments/cash-method";
 import {
   resolveBrandId,
   findOrCreateBrandByName,
@@ -105,6 +110,13 @@ import { Prisma } from "@prisma/client";
 import { startOfDayBrt, endOfDayBrt } from "@/lib/utils/date-range";
 import { getAppBaseUrl } from "@/lib/utils/app-url";
 import { saleGoodsRevenueCents } from "@/lib/sales/sale-revenue";
+
+/**
+ * Categoria financeira das compras de aparelho. Nome único e estável — o
+ * `resolveCategoryId` cria na primeira compra do tenant e reusa depois, então
+ * mudar esta string passa a criar uma categoria nova e parte o histórico.
+ */
+const DEVICE_PURCHASE_CATEGORY = "Compra de aparelho";
 
 /**
  * Libera o StockItem criado por essa compra: BLOCKED -> AVAILABLE.
@@ -595,43 +607,82 @@ export const stockRouter = createTRPCRouter({
         // se tem stock vinculado — proteção desejada).
         if (input.variations !== undefined) {
           const existingVars = await tx.productVariation.findMany({
-            where: { productId: input.id },
-            select: { id: true, stockItems: { select: { id: true }, take: 1 } },
+            where: { productId: input.id, deletedAt: null },
+            // `currentStock` é indispensável: é ONDE mora o saldo de um produto
+            // com variações. A consulta antiga só trazia `stockItems` e por isso
+            // a guarda de remoção enxergava 0 onde havia dezenas de unidades.
+            select: { id: true, currentStock: true, stockItems: { select: { id: true }, take: 1 } },
           });
-          const varsWithStock = existingVars.filter((v) => v.stockItems.length > 0);
-          if (varsWithStock.length > 0 && input.variations.length === 0) {
+          // RECONCILIA por identidade em vez de apagar-e-recriar.
+          //
+          // Antes: as variações "sem StockItem" eram HARD DELETADAS
+          // (`deleteMany`, apesar do comentário dizer "soft delete") e recriadas
+          // do zero. Como `currentStock` não vem do formulário, toda variação
+          // renascia com saldo 0 — e a guarda olhava `stockItems`, que é a fonte
+          // de verdade dos SERIALIZADOS, não o `currentStock` onde mora o saldo
+          // de variação. Resultado: adicionar uma variação a um produto com
+          // saldo apagava o estoque das outras, sem NENHUM StockMovement.
+          // Auditoria de estoque 2026-08-04, P0-1.
+          const keptIds = new Set(
+            input.variations.map((v) => v.id).filter((id): id is string => !!id),
+          );
+          // Uma variação só pode sair de cena se não tiver NADA preso a ela:
+          // nem item serializado, nem saldo. Caso contrário o estoque sumiria.
+          const removable = existingVars.filter(
+            (v) => !keptIds.has(v.id) && v.stockItems.length === 0 && v.currentStock === 0,
+          );
+          const blocked = existingVars.filter(
+            (v) => !keptIds.has(v.id) && (v.stockItems.length > 0 || v.currentStock > 0),
+          );
+          if (blocked.length > 0) {
             throw new TRPCError({
               code: "BAD_REQUEST",
-              message: "Nao e possivel remover variacoes que ja tem itens no estoque.",
+              message:
+                "Nao e possivel remover variacoes que ainda tem estoque. Zere o saldo (ou de baixa) antes de remover.",
             });
           }
-          // Soft delete das variacoes sem stock
-          const safeIds = existingVars.filter((v) => v.stockItems.length === 0).map((v) => v.id);
-          if (safeIds.length > 0) {
-            await tx.productVariation.deleteMany({ where: { id: { in: safeIds } } });
+          if (removable.length > 0) {
+            // Soft delete DE VERDADE: preserva histórico e as FKs dos movimentos.
+            await tx.productVariation.updateMany({
+              where: { id: { in: removable.map((v) => v.id) } },
+              data: { deletedAt: new Date(), active: false },
+            });
           }
           for (const v of input.variations) {
-            const variation = await tx.productVariation.create({
-              data: {
-                tenantId: ctx.tenantId,
-                productId: input.id,
-                sku: v.sku || null,
-                barcode: v.barcode || null,
-                costPrice: v.costPrice != null ? new Prisma.Decimal(v.costPrice).div(100) : null,
-                salePrice: v.salePrice != null ? new Prisma.Decimal(v.salePrice).div(100) : null,
-                promotionalPrice: v.promotionalPrice != null
-                  ? new Prisma.Decimal(v.promotionalPrice).div(100)
-                  : null,
-                minStock: v.minStock ?? 0,
-                imageUrl: v.imageUrl ?? null,
-                imageProvider: v.imageProvider ?? null,
-                imageProviderPublicId: v.imageProviderPublicId ?? null,
-                active: v.active ?? true,
-              },
-            });
+            const data = {
+              sku: v.sku || null,
+              barcode: v.barcode || null,
+              costPrice: v.costPrice != null ? new Prisma.Decimal(v.costPrice).div(100) : null,
+              salePrice: v.salePrice != null ? new Prisma.Decimal(v.salePrice).div(100) : null,
+              promotionalPrice: v.promotionalPrice != null
+                ? new Prisma.Decimal(v.promotionalPrice).div(100)
+                : null,
+              minStock: v.minStock ?? 0,
+              imageUrl: v.imageUrl ?? null,
+              imageProvider: v.imageProvider ?? null,
+              imageProviderPublicId: v.imageProviderPublicId ?? null,
+              active: v.active ?? true,
+            };
+            // `currentStock` NUNCA é tocado aqui — saldo se move por
+            // entrada/saída/ajuste, que emitem StockMovement. Editar o cadastro
+            // do produto não é um caminho legítimo para mexer em saldo.
+            const existingId = v.id && existingVars.some((e) => e.id === v.id) ? v.id : null;
+            const variationId = existingId
+              ? (await tx.productVariation.update({
+                  where: { id: existingId },
+                  data: { ...data, deletedAt: null },
+                  select: { id: true },
+                })).id
+              : (await tx.productVariation.create({
+                  data: { ...data, tenantId: ctx.tenantId, productId: input.id },
+                  select: { id: true },
+                })).id;
+            // Atributos são a identidade da variação (cor+capacidade): reescreve
+            // só se mudou, para não perder a linha e recriar à toa.
+            await tx.productVariationAttribute.deleteMany({ where: { variationId } });
             await tx.productVariationAttribute.createMany({
               data: v.attributeValueIds.map((avId) => ({
-                variationId: variation.id,
+                variationId,
                 attributeValueId: avId,
               })),
             });
@@ -1172,7 +1223,10 @@ export const stockRouter = createTRPCRouter({
         });
 
         // ── Pagamento da compra ───────────────────────────────────────
-        if (input.paymentMode && input.purchasePrice > 0) {
+        // `paymentMode` é obrigatório no schema (auditoria 2026-08-04, P0-3):
+        // compra sem lançamento financeiro punha aparelho avaliado no estoque
+        // com o custo invisível para a despesa do DRE.
+        if (input.purchasePrice > 0) {
           let sellerName = "Fornecedor não identificado";
           if (input.supplierId) {
             const sup = await tx.supplier.findUnique({ where: { id: input.supplierId }, select: { name: true } });
@@ -1203,17 +1257,60 @@ export const stockRouter = createTRPCRouter({
               });
             }
 
+            // Token canônico da forma (mesma fonte que o PDV e a conferência
+            // de caixa usam). Antes era `method.code ?? method.type.toLowerCase()`,
+            // que gravava o `code` do tenant SEM normalizar — `" Dinheiro "`
+            // entrava cru e divergia de todo o resto. Auditoria 2026-08-04.
+            const methodToken = canonicalMethodToken(method);
+
+            // Dinheiro em espécie exige caixa aberto DO PRÓPRIO USUÁRIO, igual
+            // à venda (`sale.ts`). Antes o movimento de caixa era gravado só
+            // `if (openSession)`, sem `else`: pagar em dinheiro com o caixa
+            // fechado dava "sucesso" e o dinheiro sumia do ledger da gaveta —
+            // no fechamento virava falta fantasma, atribuída ao operador.
+            // A sessão é por usuário (índice único parcial
+            // `cash_sessions_one_open_per_user`); buscar sem `userId` debitava
+            // a gaveta de um colega. Auditoria 2026-08-04, P1-1 e P1-2.
+            const movesDrawer = affectsCashDrawer(methodToken);
+            const openSession = movesDrawer
+              ? await tx.cashSession.findFirst({
+                  where: { userId: ctx.session.user.id, closedAt: null },
+                  select: { id: true },
+                })
+              : null;
+            if (movesDrawer && !openSession) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: "Caixa nao esta aberto. Abra um caixa antes de pagar a compra em dinheiro.",
+              });
+            }
+
             const purchasePaidAt = new Date();
+            // Categoria do lançamento: sem ela a maior classe de despesa do
+            // negócio (compra de aparelho) ficava fora de qualquer relatório
+            // por categoria, e a FK `category_id` nascia nula. A venda já
+            // categoriza. Auditoria 2026-08-04, P1-3.
+            const purchaseCategoryId = await resolveCategoryId(
+              tx,
+              ctx.tenantId,
+              DEVICE_PURCHASE_CATEGORY,
+              "PAYABLE",
+            );
             const purchaseFt = await tx.financialTransaction.create({
               data: {
                 tenantId: ctx.tenantId,
                 type: "PAYABLE",
                 status: "PAID",
                 description,
+                category: DEVICE_PURCHASE_CATEGORY,
+                categoryId: purchaseCategoryId,
                 supplierId: input.supplierId ?? undefined,
                 supplier: sellerName,
                 customerId: input.customerId ?? undefined,
                 paymentMethodId: method.id,
+                // Espelha a venda: o discriminador de cartão do financeiro lê
+                // `paymentMethod` (string), que aqui nascia nulo.
+                paymentMethod: methodToken,
                 totalAmount: new Prisma.Decimal(totalCents).div(100),
                 paidAmount: new Prisma.Decimal(totalCents).div(100),
                 installmentsTotal: 1,
@@ -1234,46 +1331,64 @@ export const stockRouter = createTRPCRouter({
               transactionId: purchaseFt.id,
               amountCents: totalCents,
               paidAt: purchasePaidAt,
-              paymentMethod: method.code ?? method.type.toLowerCase(),
+              paymentMethod: methodToken,
               createdByUserId: ctx.session.user.id,
             });
 
-            // Cash OUTCOME quando dinheiro ou PIX (saida fisica do caixa).
-            // Cartao/transferencia/boleto nao mexem em caixa fisico.
-            const cashLikeTypes: ReadonlyArray<typeof method.type> = ["CASH", "PIX"];
-            if (cashLikeTypes.includes(method.type)) {
-              const openSession = await tx.cashSession.findFirst({
-                where: { closedAt: null },
-                select: { id: true },
+            // Saída física da gaveta. Só DINHEIRO em espécie move a gaveta —
+            // PIX/cartão/transferência não passam por ela, e a conferência de
+            // caixa (`computeCashDrawerCents`) já os ignora na soma. Antes o
+            // código incluía PIX aqui via `cashLikeTypes`, gravando um
+            // movimento que a conferência descartava: ruído no extrato do
+            // caixa. `affectsCashDrawer` é a fonte única dessa pergunta.
+            if (openSession) {
+              await writeCashMovement(tx, {
+                tenantId: ctx.tenantId,
+                cashSessionId: openSession.id,
+                type: "WITHDRAWAL",
+                nature: "OUTCOME",
+                amountCents: totalCents,
+                paymentMethod: methodToken,
+                description: `Compra ${product.name}${cleanImei ? ` — IMEI ${cleanImei}` : ""}`,
+                referenceId: purchase.id,
+                referenceType: "device_purchase",
+                createdByUserId: ctx.session.user.id,
               });
-              if (openSession) {
-                await writeCashMovement(tx, {
-                  tenantId: ctx.tenantId,
-                  cashSessionId: openSession.id,
-                  type: "WITHDRAWAL",
-                  nature: "OUTCOME",
-                  amountCents: totalCents,
-                  paymentMethod: method.code ?? method.type.toLowerCase(),
-                  description: `Compra ${product.name}${input.imei ? ` — IMEI ${input.imei}` : ""}`,
-                  referenceId: purchase.id,
-                  referenceType: "device_purchase",
-                  createdByUserId: ctx.session.user.id,
-                });
-              }
             }
           } else if (input.paymentMode === "payable") {
             // A prazo: gera PAYABLE pendente com parcelas
             const installmentsCount = input.payableInstallments ?? 1;
-            const firstDate = input.payableFirstDueDate ? new Date(input.payableFirstDueDate) : new Date();
-            const installmentAmount = Math.round(totalCents / installmentsCount);
+            // `YYYY-MM-DD` já validado no schema. Interpretado ao MEIO-DIA local
+            // para não escorregar de dia por fuso (BRT = UTC-3: `new Date("...")`
+            // de uma data pura vira meia-noite UTC = 21h do dia anterior aqui).
+            const firstDate = input.payableFirstDueDate
+              ? (() => {
+                  const [y, m, d] = input.payableFirstDueDate.split("-").map(Number);
+                  return new Date(y!, m! - 1, d!, 12, 0, 0, 0);
+                })()
+              : new Date();
+            // Piso do centavo: `Math.round` podia arredondar para cima a ponto
+            // do resto ficar negativo e a ÚLTIMA parcela nascer negativa
+            // (R$1,00 em 36x → -5 centavos). `floor` garante resto >= 0, então
+            // a última parcela é sempre a MAIOR. O schema já barra o caso
+            // degenerado (valor < nº de parcelas). Auditoria 2026-08-04, P2.
+            const installmentAmount = Math.floor(totalCents / installmentsCount);
             const remainder = totalCents - installmentAmount * installmentsCount;
 
+            const payableCategoryId = await resolveCategoryId(
+              tx,
+              ctx.tenantId,
+              DEVICE_PURCHASE_CATEGORY,
+              "PAYABLE",
+            );
             const transaction = await tx.financialTransaction.create({
               data: {
                 tenantId: ctx.tenantId,
                 type: "PAYABLE",
                 status: "PENDING",
                 description,
+                category: DEVICE_PURCHASE_CATEGORY,
+                categoryId: payableCategoryId,
                 supplierId: input.supplierId ?? undefined,
                 supplier: sellerName,
                 customerId: input.customerId ?? undefined,
@@ -1540,6 +1655,20 @@ export const stockRouter = createTRPCRouter({
             where: { transactionId: { in: ids }, status: { in: ["PENDING", "PARTIALLY_PAID", "OVERDUE"] } },
             data: { status: "CANCELLED" },
           });
+          // Uma compra a prazo PARCIALMENTE paga já tem linhas no ledger (o
+          // `payInstallment` grava uma por pagamento). Cancelar a transação não
+          // as remove — e os relatórios somam o ledger sem olhar status. Sem
+          // isto, o que já foi pago de uma compra cancelada seguia como despesa.
+          // `reverseCashPaidTransaction` estorna o LÍQUIDO, então é no-op quando
+          // não houve pagamento nenhum. Auditoria 2026-08-04, P0-4.
+          for (const pendente of relatedPayables) {
+            await reverseCashPaidTransaction(tx, {
+              tenantId: ctx.tenantId,
+              transactionId: pendente.id,
+              reversedAt: new Date(),
+              createdByUserId: ctx.session.user.id,
+            });
+          }
         }
 
         // I5 (auditoria estoque 2026-07-10): compra paga À VISTA (paymentMode
@@ -1568,19 +1697,50 @@ export const stockRouter = createTRPCRouter({
               cancelReason: `Compra cancelada — ${input.reason}`,
             },
           });
+          // Tira a despesa do LEDGER. O DRE e o "pago no mês" somam
+          // `installment_payments` sem olhar o status da FT — sem a linha
+          // negativa, a despesa da compra cancelada ficava nos relatórios para
+          // sempre, mesmo com o dinheiro já devolvido à gaveta.
+          // Auditoria 2026-08-04, P0-4.
+          for (const paid of paidPayables) {
+            await reverseCashPaidTransaction(tx, {
+              tenantId: ctx.tenantId,
+              transactionId: paid.id,
+              reversedAt: new Date(),
+              createdByUserId: ctx.session.user.id,
+            });
+          }
+
           // Reverte a saída de caixa: devolve o valor à gaveta (DEPOSIT/INCOME)
           // quando há caixa aberto. Espelha o WITHDRAWAL do createPurchase; o
           // método original preserva a conferência da gaveta (só 'dinheiro' conta).
-          const cancelOpenSession = await tx.cashSession.findFirst({
-            where: { closedAt: null },
-            select: { id: true },
+          // Sessão do PRÓPRIO usuário — devolver na gaveta de um colega criava
+          // sobra fantasma no fechamento dele (auditoria 2026-08-04, P1-2).
+          const originalWithdrawals = await tx.cashMovement.findMany({
+            where: { referenceType: "device_purchase", referenceId: purchase.id, type: "WITHDRAWAL", nature: "OUTCOME" },
+            select: { amount: true, paymentMethod: true },
           });
-          if (cancelOpenSession) {
-            const originalWithdrawals = await tx.cashMovement.findMany({
-              where: { referenceType: "device_purchase", referenceId: purchase.id, type: "WITHDRAWAL", nature: "OUTCOME" },
-              select: { amount: true, paymentMethod: true },
+          // Só exige caixa aberto se houver DINHEIRO em espécie a devolver —
+          // PIX/cartão não passam pela gaveta. Antes o bloco inteiro era
+          // `if (cancelOpenSession)`: cancelar com o caixa fechado pulava a
+          // devolução em silêncio e a gaveta ficava com falta permanente.
+          const drawerWithdrawals = originalWithdrawals.filter((w) =>
+            affectsCashDrawer(w.paymentMethod),
+          );
+          const cancelOpenSession = drawerWithdrawals.length > 0
+            ? await tx.cashSession.findFirst({
+                where: { userId: ctx.session.user.id, closedAt: null },
+                select: { id: true },
+              })
+            : null;
+          if (drawerWithdrawals.length > 0 && !cancelOpenSession) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Caixa nao esta aberto. Abra um caixa antes de cancelar uma compra paga em dinheiro.",
             });
-            for (const w of originalWithdrawals) {
+          }
+          if (cancelOpenSession) {
+            for (const w of drawerWithdrawals) {
               await writeCashMovement(tx, {
                 tenantId: ctx.tenantId,
                 cashSessionId: cancelOpenSession.id,
@@ -3077,6 +3237,7 @@ export const stockRouter = createTRPCRouter({
   reportVendasPeriodo: tenantProcedure
     .input(vendasPeriodoSchema)
     .query(async ({ ctx, input }) => {
+      const isAdmin = isTenantAdmin(ctx.session, ctx.tenantId);
       return ctx.withTenant(async (tx) => {
         const dateFrom = input.dateFrom
           ? startOfDayBrt(input.dateFrom)
@@ -3137,8 +3298,13 @@ export const stockRouter = createTRPCRouter({
             saleDate: s.saleDate,
             totalAmount: valorCents,
             discountAmount: descontoCents,
-            costTotal: custoCents,
-            profit: valorCents - custoCents,
+            // A3: custo e margem são dado gerencial — não vazam para o operador
+            // de balcão (o gating de rota é por MÓDULO, não por papel, então o
+            // operador alcança esta tela). Os cinco relatórios irmãos já
+            // gateiam; este era o único que devolvia custo e lucro a qualquer
+            // membro do tenant. Auditoria de estoque 2026-08-04.
+            costTotal: isAdmin ? custoCents : null,
+            profit: isAdmin ? valorCents - custoCents : null,
             sellerId: s.sellerId,
             customerId: s.customerId,
           };
@@ -3151,7 +3317,7 @@ export const stockRouter = createTRPCRouter({
             quantity: qtd,
             totalVendido: totalVendidoCents,
             totalDesconto: totalDescontoCents,
-            lucroBruto: totalVendidoCents - totalCustoCents,
+            lucroBruto: isAdmin ? totalVendidoCents - totalCustoCents : null,
             ticketMedio: qtd > 0 ? Math.round(totalVendidoCents / qtd) : 0,
           },
         };

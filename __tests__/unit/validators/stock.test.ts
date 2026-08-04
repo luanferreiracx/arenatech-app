@@ -236,7 +236,7 @@ describe("listMovementsSchema", () => {
 // ── Device Purchase ──
 
 describe("createDevicePurchaseSchema", () => {
-  it("aceita compra minima (productId + sellerType + customerId + IMEI valido + preco)", () => {
+  it("aceita compra minima (productId + sellerType + customerId + IMEI valido + preco + pagamento)", () => {
     const result = createDevicePurchaseSchema.safeParse({
       productId: "550e8400-e29b-41d4-a716-446655440000",
       sellerType: "customer",
@@ -244,6 +244,7 @@ describe("createDevicePurchaseSchema", () => {
       condition: "USED",
       imei: "356938035643809", // IMEI valido Luhn
       purchasePrice: 50000,
+      paymentMode: "payable",
     });
     expect(result.success).toBe(true);
   });
@@ -256,8 +257,64 @@ describe("createDevicePurchaseSchema", () => {
       condition: "USED",
       serial: "C39XXXXXYZ",
       purchasePrice: 50000,
+      paymentMode: "payable",
     });
     expect(result.success).toBe(true);
+  });
+
+  // ── Pagamento obrigatório (auditoria de estoque 2026-08-04) ──
+
+  it("rejeita compra SEM paymentMode — aparelho nao entra sem rastro financeiro", () => {
+    const result = createDevicePurchaseSchema.safeParse({
+      productId: "550e8400-e29b-41d4-a716-446655440000",
+      sellerType: "customer",
+      customerId: "550e8400-e29b-41d4-a716-446655440001",
+      condition: "USED",
+      imei: "356938035643809",
+      purchasePrice: 50000,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejeita paymentMode=now sem forma de pagamento", () => {
+    const result = createDevicePurchaseSchema.safeParse({
+      productId: "550e8400-e29b-41d4-a716-446655440000",
+      sellerType: "customer",
+      customerId: "550e8400-e29b-41d4-a716-446655440001",
+      condition: "USED",
+      imei: "356938035643809",
+      purchasePrice: 50000,
+      paymentMode: "now",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejeita data de vencimento inexistente (2026-02-30 nao vira 02/03 em silencio)", () => {
+    const result = createDevicePurchaseSchema.safeParse({
+      productId: "550e8400-e29b-41d4-a716-446655440000",
+      sellerType: "customer",
+      customerId: "550e8400-e29b-41d4-a716-446655440001",
+      condition: "USED",
+      imei: "356938035643809",
+      purchasePrice: 50000,
+      paymentMode: "payable",
+      payableFirstDueDate: "2026-02-30",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejeita parcelamento que geraria parcela de zero centavo", () => {
+    const result = createDevicePurchaseSchema.safeParse({
+      productId: "550e8400-e29b-41d4-a716-446655440000",
+      sellerType: "customer",
+      customerId: "550e8400-e29b-41d4-a716-446655440001",
+      condition: "USED",
+      imei: "356938035643809",
+      purchasePrice: 30, // R$0,30 em 36x → 0 centavo por parcela
+      paymentMode: "payable",
+      payableInstallments: 36,
+    });
+    expect(result.success).toBe(false);
   });
 
   it("rejeita compra sem IMEI nem serial", () => {
@@ -346,6 +403,8 @@ describe("createDevicePurchaseSchema", () => {
       purchasePrice: 350000,
       salePrice: 450000,
       notes: "Aparelho em bom estado",
+      paymentMode: "now",
+      paymentMethodId: "550e8400-e29b-41d4-a716-446655440002",
     });
     expect(result.success).toBe(true);
   });

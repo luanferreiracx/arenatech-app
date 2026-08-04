@@ -2463,15 +2463,26 @@ export const saleRouter = createTRPCRouter({
         // Devolve estoque (paridade Laravel PdvService::estornarEstoque)
         if (input.returnStock !== false) {
           for (const item of itemsToRefund) {
+            // Um item NÃO-serializado devolvido COM DEFEITO não volta ao saldo
+            // vendável e não tem StockItem para marcar DEFECTIVE — ou seja, a
+            // mercadoria simplesmente sai do estoque. Gravar isso como ENTRY
+            // era uma mentira no kardex: o relatório de movimentação mostrava
+            // +N entrando enquanto o saldo não subia nada e nenhuma baixa era
+            // registrada, tornando impossível conciliar kardex com saldo.
+            // Registramos o que de fato acontece: uma baixa (ADJUSTMENT).
+            // Auditoria de estoque 2026-08-04, P0-5.
+            const isNonSerializedDefect = !item.stockItemId && input.returnAsDefect === true;
             await tx.stockMovement.create({
               data: {
                 tenantId: ctx.tenantId,
                 productId: item.productId,
                 variationId: item.variationId ?? null,
                 stockItemId: item.stockItemId ?? null,
-                type: "ENTRY",
+                type: isNonSerializedDefect ? "ADJUSTMENT" : "ENTRY",
                 quantity: item.quantity,
-                reason: `Estorno venda ${sale.number}${input.returnAsDefect ? " (defeito)" : ""}`,
+                reason: isNonSerializedDefect
+                  ? `Estorno venda ${sale.number} (defeito) — baixa: mercadoria nao retorna ao estoque vendavel`
+                  : `Estorno venda ${sale.number}${input.returnAsDefect ? " (defeito)" : ""}`,
                 referenceId: sale.id,
                 referenceType: input.returnAsDefect ? "SALE_REFUND_DEFECT" : "SALE_REFUND",
                 userId: ctx.session.user.id,
@@ -2482,7 +2493,7 @@ export const saleRouter = createTRPCRouter({
             // Itens serializados NAO mexem em currentStock (status do
             // StockItem e a fonte de verdade). Itens com defeito tampouco
             // entram no estoque vendavel — vao para DEFECTIVE no StockItem
-            // ou descontam baixa permanente.
+            // (serializado) ou ficam como baixa registrada acima.
             if (item.stockItemId || input.returnAsDefect) continue;
             if (item.variationId) {
               await tx.productVariation.update({

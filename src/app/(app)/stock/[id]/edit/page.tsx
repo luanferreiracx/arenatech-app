@@ -7,6 +7,18 @@ import { PageHeader } from "@/components/domain/page-header";
 import { LoadingState } from "@/components/domain/loading-state";
 import { ProductForm } from "../../_components/product-form";
 
+/** Provedores de imagem que o schema aceita. A coluna é texto livre no banco. */
+const IMAGE_PROVIDERS = ["cloudinary", "minio", "external"] as const;
+type ImageProvider = (typeof IMAGE_PROVIDERS)[number];
+
+/**
+ * Estreita o texto do banco para o union do schema. Valor desconhecido (dado
+ * legado) vira `null` em vez de quebrar o form inteiro na validação.
+ */
+function toImageProvider(value: string | null): ImageProvider | null {
+  return IMAGE_PROVIDERS.includes(value as ImageProvider) ? (value as ImageProvider) : null;
+}
+
 export default function EditProductPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const trpc = useTRPC();
@@ -88,6 +100,29 @@ export default function EditProductPage({ params }: { params: Promise<{ id: stri
           active: product.active,
           categoryId: product.categoryId,
           categoryIds: product.categories.map((item) => item.categoryId),
+          attributeConfigIds: product.attributeConfigs.map((cfg) => cfg.attributeId),
+          // As variações precisam vir preenchidas, COM o `id` de cada uma.
+          // Antes o form abria com a lista vazia e o editor de variações
+          // aparecia zerado: salvar mandava `variations: []` (ou só as novas) e
+          // o backend apagava as existentes — junto com o saldo delas.
+          // Auditoria de estoque 2026-08-04, P0-1.
+          variations: product.variations.map((variation) => ({
+            id: variation.id,
+            sku: variation.sku ?? "",
+            barcode: variation.barcode ?? "",
+            costPrice: variation.costPrice == null ? null : Math.round(Number(variation.costPrice) * 100),
+            salePrice: variation.salePrice == null ? null : Math.round(Number(variation.salePrice) * 100),
+            promotionalPrice:
+              variation.promotionalPrice == null
+                ? null
+                : Math.round(Number(variation.promotionalPrice) * 100),
+            minStock: variation.minStock,
+            imageUrl: variation.imageUrl ?? null,
+            imageProvider: toImageProvider(variation.imageProvider),
+            imageProviderPublicId: variation.imageProviderPublicId ?? null,
+            active: variation.active,
+            attributeValueIds: variation.attributeValues.map((av) => av.attributeValueId),
+          })),
         }}
       />
     </div>
