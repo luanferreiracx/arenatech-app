@@ -33,6 +33,7 @@ const purchaseIds: string[] = [];
 const customerIds: string[] = [];
 const cashSessionIds: string[] = [];
 const orderIds: string[] = [];
+const saleIds: string[] = [];
 
 const call = () => createCallerFactory(appRouter)(adminCtx);
 
@@ -101,6 +102,24 @@ afterAll(async () => {
     await prisma.serviceOrderItem.deleteMany({ where: { orderId: id } });
   }
   await prisma.serviceOrder.deleteMany({ where: { id: { in: orderIds } } });
+  for (const sid of saleIds) {
+    const fts = await prisma.financialTransaction.findMany({
+      where: { saleId: sid },
+      select: { id: true },
+    });
+    const ftIds = fts.map((f) => f.id);
+    if (ftIds.length > 0) {
+      await prisma.installmentPayment.deleteMany({ where: { transactionId: { in: ftIds } } });
+      await prisma.installment.deleteMany({ where: { transactionId: { in: ftIds } } });
+      await prisma.financialTransaction.deleteMany({ where: { id: { in: ftIds } } });
+    }
+    await prisma.cashMovement.deleteMany({ where: { referenceId: sid } });
+    await prisma.stockMovement.deleteMany({ where: { referenceId: sid } });
+    await prisma.cardReceivable.deleteMany({ where: { saleId: sid } });
+    await prisma.saleUpgrade.deleteMany({ where: { saleId: sid } });
+    await prisma.saleItem.deleteMany({ where: { saleId: sid } });
+  }
+  await prisma.sale.deleteMany({ where: { id: { in: saleIds } } });
   for (const p of productIds) {
     await prisma.stockMovement.deleteMany({ where: { productId: p } });
     await prisma.stockItem.deleteMany({ where: { productId: p } });
@@ -589,6 +608,76 @@ describe("Auditoria estoque 2026-08-04 — estorno de OS devolve peças", () => 
       select: { currentStock: true },
     });
     expect(afterRefund.currentStock).toBe(10);
+  });
+});
+
+describe("Auditoria estoque 2026-08-04 — trade-in", () => {
+  it("P1-5/P1-6: estorno total devolve o aparelho de entrada e tira do estoque", async () => {
+    const sellProduct = await prisma.product.create({
+      data: {
+        tenantId,
+        name: `${MARK}-vendido-${Date.now()}`,
+        salePrice: 100,
+        costPrice: 50,
+        currentStock: 50,
+        isSerialized: false,
+        hasVariations: false,
+        active: true,
+      },
+    });
+    productIds.push(sellProduct.id);
+    const customerId = await makeCustomer();
+    const tradeInImei = makeImei();
+    await openCashSession();
+
+    const draft = await call().sale.createDraft();
+    saleIds.push(draft.id);
+    await call().sale.setCustomer({ saleId: draft.id, customerId } as any);
+    await call().sale.addItem({
+      saleId: draft.id,
+      productId: sellProduct.id,
+      quantity: 1,
+      unitPrice: 10000,
+    } as any);
+    await call().sale.addUpgrade({
+      saleId: draft.id,
+      brand: "Apple",
+      model: `${MARK} iPhone`,
+      imei: tradeInImei,
+      condition: "USED",
+      appraisedValue: 3000,
+      abatedValue: 3000,
+    } as any);
+    await call().sale.finalize({
+      saleId: draft.id,
+      payments: [{ method: "dinheiro", amount: 7000 }],
+    } as any);
+
+    // O aparelho de entrada virou StockItem vendável e uma DevicePurchase.
+    const tradeInItem = await prisma.stockItem.findFirstOrThrow({
+      where: { tenantId, imei: tradeInImei, deletedAt: null },
+      select: { id: true, status: true, productId: true },
+    });
+    expect(tradeInItem.status).toBe("AVAILABLE");
+    productIds.push(tradeInItem.productId);
+
+    const tradeInPurchase = await prisma.devicePurchase.findFirstOrThrow({
+      where: { tenantId, imei: tradeInImei },
+      select: { id: true, productId: true },
+    });
+    purchaseIds.push(tradeInPurchase.id);
+    // P1-5: sem productId, `cancelPurchase` nunca removeria o StockItem.
+    expect(tradeInPurchase.productId).toBe(tradeInItem.productId);
+
+    await call().sale.refund({ saleId: draft.id, reason: "cliente desistiu da troca" } as any);
+
+    // P1-6: a loja devolveu o aparelho ao cliente — ele não pode continuar
+    // vendável no estoque.
+    const afterRefund = await prisma.stockItem.findUniqueOrThrow({
+      where: { id: tradeInItem.id },
+      select: { deletedAt: true },
+    });
+    expect(afterRefund.deletedAt).not.toBeNull();
   });
 });
 
