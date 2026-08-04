@@ -13,6 +13,11 @@ const FIXED_CATEGORIES = [
   { code: "ALUGUEL", name: "Aluguel", type: "DESPESA" as const },
   { code: "FOLHA_PAGAMENTO", name: "Folha de Pagamento", type: "DESPESA" as const },
   { code: "FORNECEDORES", name: "Fornecedores", type: "DESPESA" as const },
+  // Compra de aparelho seminovo. Categoria própria (não "Fornecedores") porque
+  // é a maior classe de despesa do varejo de celular — 24% da despesa do ano na
+  // medição de 2026-07 — e o dono precisa vê-la isolada no DRE por categoria.
+  // Auditoria de estoque 2026-08-04, P1-3.
+  { code: "COMPRA_APARELHO", name: "Compra de aparelho", type: "DESPESA" as const },
   { code: "MANUTENCAO", name: "Manutenção", type: "DESPESA" as const },
   { code: "OUTRAS_DESPESAS", name: "Outras Despesas", type: "DESPESA" as const },
 ] as const

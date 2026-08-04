@@ -519,7 +519,7 @@ export default function NewPurchasePage() {
               name="paymentMode"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Como vai pagar?</FormLabel>
+                  <FormLabel>Como vai pagar? *</FormLabel>
                   <Select
                     onValueChange={(v) => field.onChange(v || undefined)}
                     value={field.value ?? ""}
@@ -535,9 +535,9 @@ export default function NewPurchasePage() {
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-muted-foreground">
-                    A vista: registra como pago no financeiro. Em dinheiro/PIX,
-                    gera saida no caixa aberto. A prazo: cria conta a pagar
-                    parcelada para quitar depois.
+                    A vista: registra como pago no financeiro. Em dinheiro, gera
+                    saida no seu caixa aberto (e exige caixa aberto). A prazo:
+                    cria conta a pagar parcelada para quitar depois.
                   </p>
                   <FormMessage />
                 </FormItem>

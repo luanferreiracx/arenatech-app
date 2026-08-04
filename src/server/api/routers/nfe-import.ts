@@ -401,9 +401,25 @@ export const nfeImportRouter = createTRPCRouter({
           )
           const products = await tx.product.findMany({
             where: { id: { in: productIds } },
-            select: { id: true, isSerialized: true, currentStock: true },
+            select: { id: true, isSerialized: true, hasVariations: true, currentStock: true },
           })
           const productMap = new Map(products.map((p) => [p.id, p]))
+
+          // Saldo das variações vinculadas. Um produto `hasVariations` tem o
+          // saldo VENDÁVEL na soma das variações (`resolveCurrentStockByProduct`),
+          // não em `Product.currentStock` — creditar o pai deixava a mercadoria
+          // importada invisível no PDV e nos relatórios.
+          // Auditoria de estoque 2026-08-04, P1-7.
+          const variationIds = Array.from(
+            new Set(linkedItems.map((i) => i.variationId).filter((v): v is string => !!v)),
+          )
+          const variations = variationIds.length > 0
+            ? await tx.productVariation.findMany({
+                where: { id: { in: variationIds } },
+                select: { id: true, currentStock: true },
+              })
+            : []
+          const variationMap = new Map(variations.map((v) => [v.id, v]))
 
           let importedCount = 0
           // Acumulamos updates em memoria para emitir poucos comandos SQL.
@@ -417,6 +433,7 @@ export const nfeImportRouter = createTRPCRouter({
             quantityAfter: number
           }> = []
           const stockIncrements = new Map<string, number>()
+          const variationIncrements = new Map<string, number>()
           const costUpdates = new Map<string, Prisma.Decimal>()
           const importedItemIds: string[] = []
 
@@ -428,19 +445,40 @@ export const nfeImportRouter = createTRPCRouter({
             if (!product) continue
 
             if (!product.isSerialized) {
-              const before = product.currentStock + (stockIncrements.get(item.productId) ?? 0)
-              const after = before + quantity
-              stockIncrements.set(
-                item.productId,
-                (stockIncrements.get(item.productId) ?? 0) + quantity,
-              )
-              stockMovements.push({
-                productId: item.productId,
-                variationId: item.variationId ?? null,
-                quantity,
-                quantityBefore: before,
-                quantityAfter: after,
-              })
+              // Quem recebe o saldo: a VARIAÇÃO quando o item foi vinculado a
+              // uma, senão o produto. Antes o increment ia sempre para o
+              // produto — numa NF-e de produto com variações, o kardex dizia
+              // que entraram N unidades e o saldo vendável continuava zero.
+              const variation = item.variationId ? variationMap.get(item.variationId) : undefined
+              if (variation) {
+                const before = variation.currentStock + (variationIncrements.get(variation.id) ?? 0)
+                const after = before + quantity
+                variationIncrements.set(
+                  variation.id,
+                  (variationIncrements.get(variation.id) ?? 0) + quantity,
+                )
+                stockMovements.push({
+                  productId: item.productId,
+                  variationId: variation.id,
+                  quantity,
+                  quantityBefore: before,
+                  quantityAfter: after,
+                })
+              } else {
+                const before = product.currentStock + (stockIncrements.get(item.productId) ?? 0)
+                const after = before + quantity
+                stockIncrements.set(
+                  item.productId,
+                  (stockIncrements.get(item.productId) ?? 0) + quantity,
+                )
+                stockMovements.push({
+                  productId: item.productId,
+                  variationId: null,
+                  quantity,
+                  quantityBefore: before,
+                  quantityAfter: after,
+                })
+              }
             }
 
             if (item.totalUnitCost) {
@@ -455,6 +493,15 @@ export const nfeImportRouter = createTRPCRouter({
           for (const [productId, qty] of stockIncrements) {
             await tx.product.update({
               where: { id: productId },
+              data: { currentStock: { increment: qty } },
+            })
+          }
+
+          // Idem para as variações — é aqui que mora o saldo vendável quando o
+          // produto tem variações.
+          for (const [variationId, qty] of variationIncrements) {
+            await tx.productVariation.update({
+              where: { id: variationId },
               data: { currentStock: { increment: qty } },
             })
           }

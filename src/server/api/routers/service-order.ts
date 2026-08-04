@@ -1211,6 +1211,12 @@ export const serviceOrderRouter = createTRPCRouter({
           if (qty <= 0) continue;
           await reserveStockForOsItem(tx, ctx.tenantId, ctx.session.user.id, {
             productId: item.productId,
+            // `variationId` faltava aqui, enquanto a liberação (`releaseAllOsItems`)
+            // sempre passou: cancelar creditava a VARIAÇÃO e descancelar debitava o
+            // PRODUTO PAI. Como o saldo vendável de um produto com variações é a
+            // soma das variações, o ciclo cancelar→descancelar inflava o saldo
+            // permanentemente. Auditoria de estoque 2026-08-04, P2.
+            variationId: item.variationId ?? null,
             quantity: qty,
             orderId: input.id,
             itemDescription: item.description,
@@ -1592,6 +1598,21 @@ export const serviceOrderRouter = createTRPCRouter({
           registeredById: ctx.session.user.id,
         });
 
+        // Devolve as PEÇAS ao estoque. O estorno revertia dinheiro, recebível e
+        // comissão, mas as peças consumidas continuavam consumidas: o cliente
+        // recebia o dinheiro de volta e o inventário seguia registrando a peça
+        // como vendida, sem remédio pela UI (o `delete` bloqueia OS REFUNDED
+        // dizendo — falsamente — que "o estoque já foi liberado pelo
+        // cancel/refund"). Mesma função que o cancelamento usa, para os dois
+        // caminhos não divergirem de novo.
+        // Auditoria de estoque 2026-08-04, P0-2.
+        const releasedItems = await releaseAllOsItems(
+          tx,
+          ctx.tenantId,
+          ctx.session.user.id,
+          input.id,
+        );
+
         await tx.serviceOrderHistory.create({
           data: {
             tenantId: ctx.tenantId,
@@ -1604,6 +1625,7 @@ export const serviceOrderRouter = createTRPCRouter({
               (commissionPayables.length > 0
                 ? ` (${commissionPayables.length} comissao(oes) cancelada(s))`
                 : "") +
+              (releasedItems > 0 ? ` (${releasedItems} item(ns) de estoque devolvido(s))` : "") +
               (saleRefunded ? ` (venda ${linkedSale!.number} estornada)` : ""),
           },
         });

@@ -306,15 +306,18 @@ describe("Financial Integration — Stubs @public-api", () => {
 })
 
 describe("Financial Integration — Tenant init", () => {
-  it("FIXED_CATEGORIES has exactly 8 entries", () => {
-    expect(FIXED_CATEGORIES).toHaveLength(8)
+  // 9 desde a auditoria de estoque 2026-08-04: entrou COMPRA_APARELHO, para a
+  // compra de aparelho seminovo (maior classe de despesa do varejo de celular)
+  // deixar de cair em "sem categoria" no DRE.
+  it("FIXED_CATEGORIES has exactly 9 entries", () => {
+    expect(FIXED_CATEGORIES).toHaveLength(9)
   })
 
-  it("FIXED_CATEGORIES has 3 RECEITA and 5 DESPESA", () => {
+  it("FIXED_CATEGORIES has 3 RECEITA and 6 DESPESA", () => {
     const receitas = FIXED_CATEGORIES.filter((c) => c.type === "RECEITA")
     const despesas = FIXED_CATEGORIES.filter((c) => c.type === "DESPESA")
     expect(receitas).toHaveLength(3)
-    expect(despesas).toHaveLength(5)
+    expect(despesas).toHaveLength(6)
   })
 
   it("FIXED_CATEGORIES codes are all uppercase with underscores", () => {

@@ -104,3 +104,57 @@ export async function recordCashPaidTransaction(
 
   return { installmentId: installment.id }
 }
+
+/**
+ * ESTORNA no ledger tudo o que uma transação já registrou como pago, lançando o
+ * líquido com sinal negativo na data do estorno.
+ *
+ * Os dois leitores do ledger (DRE e "pago/recebido no mês") somam
+ * `amount_cents` filtrando por tipo e `deleted_at` — **nunca por `status`**. Ou
+ * seja, marcar a `FinancialTransaction` como CANCELLED NÃO tira o valor dos
+ * relatórios: a linha de pagamento continua lá.
+ *
+ * Sem isto, cancelar uma compra paga à vista devolvia o dinheiro à gaveta E
+ * mantinha a despesa no DRE para sempre — vazamento duplo, na direção que
+ * subestima o lucro do mês do cancelamento e superestimou o do mês da compra.
+ * Auditoria de estoque 2026-08-04, P0-4.
+ *
+ * Idempotente por construção: estorna o LÍQUIDO atual (soma de tudo, incluindo
+ * estornos anteriores). Chamar duas vezes na mesma transação: a segunda vê
+ * líquido 0 e não escreve nada.
+ *
+ * @returns centavos estornados (0 se não havia nada a estornar)
+ */
+export async function reverseCashPaidTransaction(
+  tx: Prisma.TransactionClient,
+  args: {
+    tenantId: string
+    transactionId: string
+    reversedAt: Date
+    createdByUserId?: string | null
+  },
+): Promise<number> {
+  const rows = await tx.installmentPayment.findMany({
+    where: { transactionId: args.transactionId },
+    select: { installmentId: true, amountCents: true, paymentMethod: true },
+  })
+  const netCents = rows.reduce((sum, r) => sum + r.amountCents, 0)
+  if (netCents === 0) return 0
+
+  // Ancora no mesmo installment que recebeu o pagamento (o ledger só se relaciona
+  // com a transação ATRAVÉS da parcela, então precisa de uma válida).
+  const anchor = rows.find((r) => r.amountCents > 0) ?? rows[0]!
+
+  await recordInstallmentPayment(tx, {
+    tenantId: args.tenantId,
+    installmentId: anchor.installmentId,
+    transactionId: args.transactionId,
+    amountCents: -netCents,
+    paymentMethod: anchor.paymentMethod,
+    paidAt: args.reversedAt,
+    kind: "reversal",
+    createdByUserId: args.createdByUserId,
+  })
+
+  return netCents
+}

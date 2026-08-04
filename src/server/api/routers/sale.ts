@@ -2133,41 +2133,12 @@ export const saleRouter = createTRPCRouter({
             }
           }
 
-          const purchase = await tx.devicePurchase.create({
-            data: {
-              tenantId: ctx.tenantId,
-              customerId: sale.customerId,
-              sellerType: "customer",
-              // Snapshot em caixa alta, igual ao catálogo — este par alimenta a
-              // lista de Compra de Aparelhos.
-              brand: normalizeCatalogNameOrNull(upg.brand),
-              model: normalizeCatalogNameOrNull(upg.model),
-              imei: upg.imei,
-              serial: upg.serialNumber,
-              condition,
-              batteryHealth: upg.batteryHealth,
-              // BUGFIX: usa valor abatido (o que a loja efetivamente pagou),
-              // nao o valor avaliado (que o cliente quis dar pelo aparelho).
-              purchasePrice: upg.abatedValue,
-              notes:
-                `Aparelho de entrada (upgrade) — venda ${saleNumber}.` +
-                (upg.notes ? ` ${upg.notes}` : ""),
-            },
-          });
-
-          await tx.saleUpgrade.update({
-            where: { id: upg.id },
-            data: { devicePurchaseId: purchase.id },
-          });
-
-          // Cria StockItem AVAILABLE — aparelho entra no estoque vendavel.
-          // Precisa de um Product (cria generico "Aparelho seminovo / usado"
-          // por brand+model se nao existe — paridade Laravel
-          // buscarOuCriarProdutoUpgrade).
-          // Nome canônico do trade-in: colapsa a marca repetida ("Apple Apple
-          // iPhone 16" → "iPhone 16") e NÃO reprepende brand — antes o
-          // `[brand, model].join(" ")` acumulava "Apple" e o findFirst nunca
-          // casava o produto do catálogo, criando uma duplicata a cada troca.
+          // O Product do trade-in é resolvido/criado logo abaixo, mas a
+          // DevicePurchase precisa dele: `cancelPurchase` só reverte estoque
+          // dentro de `if (purchase.productId)`, então uma compra de trade-in
+          // sem productId nunca removia o StockItem ao ser cancelada — o
+          // aparelho ficava vendável com a compra cancelada.
+          // Auditoria de estoque 2026-08-04, P1-5.
           const productName = resolveTradeInProductName(upg.brand, upg.model);
           let product = await tx.product.findFirst({
             where: {
@@ -2204,6 +2175,41 @@ export const saleRouter = createTRPCRouter({
             });
           }
 
+          const purchase = await tx.devicePurchase.create({
+            data: {
+              tenantId: ctx.tenantId,
+              productId: product.id,
+              customerId: sale.customerId,
+              sellerType: "customer",
+              // Snapshot em caixa alta, igual ao catálogo — este par alimenta a
+              // lista de Compra de Aparelhos.
+              brand: normalizeCatalogNameOrNull(upg.brand),
+              model: normalizeCatalogNameOrNull(upg.model),
+              imei: upg.imei,
+              serial: upg.serialNumber,
+              condition,
+              batteryHealth: upg.batteryHealth,
+              // BUGFIX: usa valor abatido (o que a loja efetivamente pagou),
+              // nao o valor avaliado (que o cliente quis dar pelo aparelho).
+              purchasePrice: upg.abatedValue,
+              notes:
+                `Aparelho de entrada (upgrade) — venda ${saleNumber}.` +
+                (upg.notes ? ` ${upg.notes}` : ""),
+            },
+          });
+
+          await tx.saleUpgrade.update({
+            where: { id: upg.id },
+            data: { devicePurchaseId: purchase.id },
+          });
+
+          // StockItem AVAILABLE — o aparelho de entrada fica vendável na hora.
+          // Diferente da compra de aparelho pelo balcão (`stock.createPurchase`),
+          // que entra BLOCKED até o termo de responsabilidade ser assinado.
+          // A diferença é deliberada: no trade-in o cliente assina o contrato da
+          // VENDA, que já descreve o aparelho dado como entrada, então o termo
+          // avulso não se aplica. Registrado aqui porque a auditoria de
+          // 2026-08-04 levantou a divergência entre os dois fluxos (P1-5).
           await tx.stockItem.create({
             data: {
               tenantId: ctx.tenantId,
@@ -2463,15 +2469,26 @@ export const saleRouter = createTRPCRouter({
         // Devolve estoque (paridade Laravel PdvService::estornarEstoque)
         if (input.returnStock !== false) {
           for (const item of itemsToRefund) {
+            // Um item NÃO-serializado devolvido COM DEFEITO não volta ao saldo
+            // vendável e não tem StockItem para marcar DEFECTIVE — ou seja, a
+            // mercadoria simplesmente sai do estoque. Gravar isso como ENTRY
+            // era uma mentira no kardex: o relatório de movimentação mostrava
+            // +N entrando enquanto o saldo não subia nada e nenhuma baixa era
+            // registrada, tornando impossível conciliar kardex com saldo.
+            // Registramos o que de fato acontece: uma baixa (ADJUSTMENT).
+            // Auditoria de estoque 2026-08-04, P0-5.
+            const isNonSerializedDefect = !item.stockItemId && input.returnAsDefect === true;
             await tx.stockMovement.create({
               data: {
                 tenantId: ctx.tenantId,
                 productId: item.productId,
                 variationId: item.variationId ?? null,
                 stockItemId: item.stockItemId ?? null,
-                type: "ENTRY",
+                type: isNonSerializedDefect ? "ADJUSTMENT" : "ENTRY",
                 quantity: item.quantity,
-                reason: `Estorno venda ${sale.number}${input.returnAsDefect ? " (defeito)" : ""}`,
+                reason: isNonSerializedDefect
+                  ? `Estorno venda ${sale.number} (defeito) — baixa: mercadoria nao retorna ao estoque vendavel`
+                  : `Estorno venda ${sale.number}${input.returnAsDefect ? " (defeito)" : ""}`,
                 referenceId: sale.id,
                 referenceType: input.returnAsDefect ? "SALE_REFUND_DEFECT" : "SALE_REFUND",
                 userId: ctx.session.user.id,
@@ -2482,7 +2499,7 @@ export const saleRouter = createTRPCRouter({
             // Itens serializados NAO mexem em currentStock (status do
             // StockItem e a fonte de verdade). Itens com defeito tampouco
             // entram no estoque vendavel — vao para DEFECTIVE no StockItem
-            // ou descontam baixa permanente.
+            // (serializado) ou ficam como baixa registrada acima.
             if (item.stockItemId || input.returnAsDefect) continue;
             if (item.variationId) {
               await tx.productVariation.update({
@@ -2539,6 +2556,10 @@ export const saleRouter = createTRPCRouter({
             const purchaseIds = upgrades
               .map((u) => u.devicePurchaseId)
               .filter((id): id is string => !!id);
+            const cancelledPurchases = await tx.devicePurchase.findMany({
+              where: { id: { in: purchaseIds } },
+              select: { id: true, productId: true, imei: true, serial: true },
+            });
             await tx.devicePurchase.updateMany({
               where: { id: { in: purchaseIds } },
               data: {
@@ -2546,6 +2567,52 @@ export const saleRouter = createTRPCRouter({
                 cancellationReason: `Estorno venda ${sale.number}: ${input.reason}`,
               },
             });
+
+            // Tira o aparelho de entrada do estoque. O estorno total desfaz a
+            // troca: a loja devolve ao cliente o aparelho que ele deu de
+            // entrada. Antes só a DevicePurchase era cancelada e o StockItem
+            // continuava AVAILABLE — a loja podia vender um aparelho que já
+            // tinha devolvido. Auditoria de estoque 2026-08-04, P1-6.
+            for (const cancelled of cancelledPurchases) {
+              if (!cancelled.productId) continue;
+              const identifier = cancelled.imei
+                ? { imei: cancelled.imei }
+                : cancelled.serial
+                  ? { serialNumber: cancelled.serial }
+                  : null;
+              // Sem identificador não dá para saber QUAL unidade era desta
+              // troca — não arrisca soft-deletar a de outra compra.
+              if (!identifier) continue;
+              const tradeInItem = await tx.stockItem.findFirst({
+                where: {
+                  productId: cancelled.productId,
+                  ...identifier,
+                  // SOLD/RESERVED têm fluxo próprio: se a loja já revendeu o
+                  // aparelho, quem resolve é o estorno daquela venda.
+                  status: { in: ["AVAILABLE", "BLOCKED"] },
+                  deletedAt: null,
+                },
+                select: { id: true },
+              });
+              if (!tradeInItem) continue;
+              await tx.stockItem.update({
+                where: { id: tradeInItem.id },
+                data: { deletedAt: new Date(), status: "BLOCKED" },
+              });
+              await tx.stockMovement.create({
+                data: {
+                  tenantId: ctx.tenantId,
+                  productId: cancelled.productId,
+                  stockItemId: tradeInItem.id,
+                  type: "EXIT",
+                  quantity: 1,
+                  reason: `Aparelho de entrada devolvido — estorno venda ${sale.number}`,
+                  referenceId: sale.id,
+                  referenceType: "sale_upgrade_cancel",
+                  userId: ctx.session.user.id,
+                },
+              });
+            }
           }
         }
 

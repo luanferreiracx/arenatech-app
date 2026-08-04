@@ -14,6 +14,50 @@ import type { Prisma } from "@prisma/client";
  *
  * `tx` já scoped ao tenant (withTenant).
  */
+/**
+ * Garante que a categoria FIXA de compra de aparelho exista no tenant e devolve
+ * o id.
+ *
+ * Diferente de `resolveCategoryId`, esta função CRIA quando falta — e isso é
+ * seguro justamente porque o nome/código são fixos e definidos no código, não
+ * texto livre do usuário (o gate de admin do `createCategory` continua valendo
+ * para categorias customizadas).
+ *
+ * Existe porque depender do seed/migration não basta: a migration faz backfill
+ * dos tenants existentes, mas um tenant criado depois — ou um banco montado do
+ * zero pelo `prisma/seed.ts`, que não chama `tenantFinancialInit` — ficaria sem
+ * a categoria, e a compra voltaria a nascer sem `category_id`. Auditoria de
+ * estoque 2026-08-04, P1-3.
+ */
+export async function ensureDevicePurchaseCategoryId(
+  tx: Prisma.TransactionClient,
+  tenantId: string,
+): Promise<string> {
+  const existing = await resolveCategoryId(tx, tenantId, DEVICE_PURCHASE_CATEGORY_NAME, "PAYABLE")
+  if (existing) return existing
+
+  // `upsert` pela unique (tenant_id, code): duas compras concorrentes no
+  // primeiro uso do tenant não estouram a constraint.
+  const created = await tx.financialCategory.upsert({
+    where: { tenantId_code: { tenantId, code: DEVICE_PURCHASE_CATEGORY_CODE } },
+    create: {
+      tenantId,
+      name: DEVICE_PURCHASE_CATEGORY_NAME,
+      code: DEVICE_PURCHASE_CATEGORY_CODE,
+      type: "DESPESA",
+      kind: "FIXED",
+      active: true,
+    },
+    update: {},
+    select: { id: true },
+  })
+  return created.id
+}
+
+/** Categoria fixa da compra de aparelho — espelha `FIXED_CATEGORIES`. */
+export const DEVICE_PURCHASE_CATEGORY_NAME = "Compra de aparelho"
+export const DEVICE_PURCHASE_CATEGORY_CODE = "COMPRA_APARELHO"
+
 export async function resolveCategoryId(
   tx: Prisma.TransactionClient,
   tenantId: string,
