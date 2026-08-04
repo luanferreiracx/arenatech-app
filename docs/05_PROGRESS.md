@@ -2038,6 +2038,42 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-08-04 — Conta do dinheiro no ledger + kardex valorizado (ADR 0069)
+
+Fecha as duas pendencias estruturais que a auditoria de estoque deixou para decisao do dono.
+
+**Conta bancaria.** A queixa original era "nao se escolhe conta". O sistema sabia COMO o dinheiro se
+moveu (`paymentMethod`) e nunca DE ONDE. Existiam tres ledgers paralelos e so `CardReceivable`
+conhecia conta.
+
+- Decisao (ADR 0069): a conta vive em `InstallmentPayment` — o EVENTO de caixa —, nao na
+  `FinancialTransaction` (a obrigacao). Conta a pagar em 3x pode ser quitada de tres contas
+  diferentes. Como o ledger ja e o funil por onde venda, OS, compra e despesa passam, UMA coluna
+  cobriu todos os modulos.
+- Resolucao em cascata, num unico servico: input explicito → conta padrao da FORMA ("PIX Nubank" →
+  conta Nubank) → conta `isDefault` do tenant → null. **Nunca inventa conta**: conta errada e pior
+  que ausente, porque da falso negativo silencioso na conciliacao.
+- `payInstallment`/`reverseInstallment` escreviam o ledger DIRETO, fora do servico — migrados, senao
+  o caminho manual (o de maior volume) ficaria sem conta para sempre. Foi a parte mais arriscada.
+- `isDefault` virou indice UNICO PARCIAL: era garantido so por dois `updateMany` imperativos, e dois
+  admins concorrentes deixavam duas contas padrao, tornando a resolucao nao-deterministica.
+- Estorno devolve para a MESMA conta de onde saiu — senao o total do tenant fecha mas as contas
+  ficam desequilibradas entre si.
+- Tela: campo "Conta de saida" na compra, movimentado por conta (30 dias) nos cards de Contas, e um
+  aviso com o total **sem conta** — visivel de proposito, porque esconder daria ilusao de conciliado.
+- Migration zero-downtime: coluna nullable + backfill conservador (so cartao, que ja sabia a conta,
+  e tenant com UMA unica conta ativa — o resto fica nulo em vez de chutar).
+
+**Kardex valorizado.** `unitCostCents` era escrito por um caminho e lido por nenhum — meio
+preenchido, a pior opcao. Decidido: virou REAL. Custo passa a ser gravado nas tres entradas com
+custo verdadeiro (entrada manual, NF-e ja rateada, compra de aparelho). Saida e ajuste seguem nulos
+de proposito — a saida e valorizada pelo custo medio derivado das entradas.
+
+- Validacao: 8 testes de integracao novos + 8 unitarios do resolver. 2305 unit + 422 integracao
+  verdes. Migration aplicada em banco limpo do zero.
+- Proximo (decisao do dono): tornar a conta obrigatoria depois de medir quanto fica sem conta na
+  pratica; unificar (ou nao) trade-in e compra de aparelho.
+
 ### 2026-08-04 — Auditoria profunda do modulo de Estoque: 5 P0 + 6 P1 fechados
 
 Gatilho: o dono reportou que ao finalizar uma compra de aparelhos "informamos apenas que e PIX e ja

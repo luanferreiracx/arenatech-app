@@ -431,6 +431,17 @@ export const nfeImportRouter = createTRPCRouter({
             quantity: number
             quantityBefore: number
             quantityAfter: number
+            /**
+             * Kardex VALORIZADO: custo unitário em centavos, já rateado
+             * (frete/desconto/IPI) pelo `totalUnitCost` da NF-e.
+             *
+             * A NF-e é a melhor fonte de custo que existe no sistema — é o que
+             * o fornecedor de fato cobrou. Antes o valor era usado só para
+             * sobrescrever `Product.costPrice` (a foto de HOJE) e descartado no
+             * movimento, então o custo histórico se perdia e não dava para
+             * reconstruir o CMV de um período passado.
+             */
+            unitCostCents: number | null
           }> = []
           const stockIncrements = new Map<string, number>()
           const variationIncrements = new Map<string, number>()
@@ -443,6 +454,12 @@ export const nfeImportRouter = createTRPCRouter({
 
             const product = productMap.get(item.productId)
             if (!product) continue
+
+            // Custo unitário da nota, em centavos — já rateado. É o custo REAL
+            // desta entrada e vai para o movimento, não só para o produto.
+            const unitCostCents = item.totalUnitCost
+              ? Math.round(Number(item.totalUnitCost) * 100)
+              : null
 
             if (!product.isSerialized) {
               // Quem recebe o saldo: a VARIAÇÃO quando o item foi vinculado a
@@ -463,6 +480,7 @@ export const nfeImportRouter = createTRPCRouter({
                   quantity,
                   quantityBefore: before,
                   quantityAfter: after,
+                  unitCostCents,
                 })
               } else {
                 const before = product.currentStock + (stockIncrements.get(item.productId) ?? 0)
@@ -477,6 +495,7 @@ export const nfeImportRouter = createTRPCRouter({
                   quantity,
                   quantityBefore: before,
                   quantityAfter: after,
+                  unitCostCents,
                 })
               }
             }
@@ -525,6 +544,11 @@ export const nfeImportRouter = createTRPCRouter({
                 quantity: m.quantity,
                 quantityBefore: m.quantityBefore,
                 quantityAfter: m.quantityAfter,
+                // Kardex valorizado: preserva o custo DESTA entrada, para o CMV
+                // de um período passado poder ser reconstruído do ledger em vez
+                // de usar o `costPrice` de hoje.
+                unitCostCents: m.unitCostCents,
+                totalCostCents: m.unitCostCents != null ? m.unitCostCents * m.quantity : null,
                 reason: `Entrada NF-e ${nf.nfNumber ?? nf.accessKey.slice(0, 12)}`,
                 referenceType: "nfe_import",
                 referenceId: nf.id,

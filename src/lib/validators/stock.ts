@@ -209,6 +209,12 @@ export const createDevicePurchaseSchema = z.object({
   }),
   // Quando paymentMode = "now"
   paymentMethodId: z.string().uuid().optional().nullable(),
+  /**
+   * Conta de onde saiu o dinheiro da compra (ADR 0069). Opcional: quando não
+   * informada, o backend resolve pela conta padrão da forma de pagamento e,
+   * em último caso, pela conta padrão do tenant.
+   */
+  receivingAccountId: z.string().uuid().optional().nullable(),
   // Quando paymentMode = "payable"
   payableInstallments: z.number().int().min(1).max(36).optional(),
   // `YYYY-MM-DD`. Antes era string livre: `"2026-02-30"` virava 02/03 em

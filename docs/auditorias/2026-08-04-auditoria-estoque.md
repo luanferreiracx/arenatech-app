@@ -297,18 +297,28 @@ compra↔financeiro↔caixa não tem cobertura.
 12. `CHECK (current_stock >= 0) NOT VALID` nas duas tabelas.
 13. Teste de integração cobrindo compra→financeiro→caixa→cancelamento.
 
-**Perigosas (exigem decisão do dono) — NÃO feitas, aguardando você**
-14. **Conta bancária (ReceivingAccount) no financeiro.** Coluna nova em
-    `FinancialTransaction` + backfill + UI em toda entrada/saída. É a correção de
-    raiz da queixa original ("não se escolhe conta"), mas atravessa venda, OS,
-    despesa e compra — é uma mudança de modelo, não um ajuste. **Pendente.**
+**Estruturais grandes — FEITAS (ADR 0069)**
+14. ~~**Conta bancária no financeiro.**~~ **FEITO.** A conta ficou no LEDGER de
+    pagamentos (`installment_payments`), não na `FinancialTransaction`: conta é
+    propriedade do EVENTO de caixa, não da obrigação — uma conta a pagar em 3x
+    pode ser quitada de três contas diferentes. Como o ledger já é o funil por
+    onde venda, OS, compra e despesa passam, uma coluna cobriu todos os módulos.
+    Resolução em cascata (input → conta da forma → conta padrão do tenant →
+    null) e saldo por conta na tela de Contas. Ver `docs/decisions/0069-*`.
+16. ~~**Decidir se o kardex valorizado é real.**~~ **FEITO: virou real.** Custo
+    passou a ser gravado nas três entradas que têm custo REAL conhecido —
+    entrada manual, NF-e (já rateada com frete/desconto/IPI) e compra de
+    aparelho. Saída e ajuste seguem nulos de propósito: a saída é valorizada
+    pelo custo médio derivado das entradas, e gravar custo ali seria inventar
+    dado.
+
+**Ainda pendente (decisão do dono)**
 15. **Unificar trade-in e compra de aparelho.** A divergência de status
     (BLOCKED × AVAILABLE) foi documentada no código como deliberada: no trade-in
     o cliente assina o contrato da VENDA, que já descreve o aparelho de entrada.
-    Se você quiser o termo avulso também no trade-in, é decisão sua. **Pendente.**
-16. **Decidir se o kardex valorizado é real.** `unitCostCents` é preenchido por
-    um caminho só e lido por nenhum relatório. Ou preenche custo em todos os
-    movimentos, ou remove as colunas. **Pendente.**
+    Se você quiser o termo avulso também no trade-in, é decisão sua.
+17. **Tornar a conta obrigatória**, depois de rodar um tempo com ela nula e ver
+    quanto de fato fica sem conta (a tela mostra o total "sem conta").
 
 ## O que ficou de fora (backlog consciente)
 

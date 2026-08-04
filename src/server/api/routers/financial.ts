@@ -14,6 +14,7 @@ import { startOfMonthBrt, endOfMonthBrt, startOfDayBrt, endOfDayBrt, brtDayKey }
 import { instantRange, pureDateRange } from "@/lib/utils/date-filter";
 import { resolveSupplierId } from "@/server/services/financial-supplier.service";
 import { resolveCategoryId } from "@/server/services/financial-category.service";
+import { recordInstallmentPayment } from "@/server/services/installment-ledger.service";
 import { generateInstallments } from "@/server/services/installment-generator.service";
 
 // RBAC helper: operador só vê/cria RECEIVABLE (F8, ADR 0032). Admin do tenant
@@ -641,18 +642,23 @@ export const financialRouter = createTRPCRouter({
         // no ledger. `installment.paidAt` guarda só a última data (regime de
         // caixa errado em pagamento multi-mês); o ledger tem uma linha por
         // pagamento com sua própria data → fonte correta de "entrou no mês".
+        //
+        // Passou a escrever pelo SERVIÇO em vez de direto na tabela: a conta do
+        // dinheiro (ADR 0069) é resolvida no ponto único de escrita, e este é o
+        // caminho manual de MAIOR volume — deixá-lo fora deixaria a conta nula
+        // justamente onde ela mais importa.
         const paymentPaidAt = new Date();
-        await tx.installmentPayment.create({
-          data: {
-            tenantId: ctx.tenantId,
-            installmentId: installment.id,
-            transactionId: installment.transactionId,
-            amountCents: input.amountPaid,
-            paymentMethod: input.paymentMethod ?? null,
-            paidAt: paymentPaidAt,
-            kind: "payment",
-            createdByUserId: ctx.session.user.id,
-          },
+        await recordInstallmentPayment(tx, {
+          tenantId: ctx.tenantId,
+          installmentId: installment.id,
+          transactionId: installment.transactionId,
+          amountCents: input.amountPaid,
+          paymentMethod: input.paymentMethod ?? null,
+          receivingAccountId: input.receivingAccountId ?? null,
+          paymentMethodId: input.paymentMethodId ?? null,
+          paidAt: paymentPaidAt,
+          kind: "payment",
+          createdByUserId: ctx.session.user.id,
         });
 
         // Recalculate transaction status (faithful to Laravel recalcularStatus)
@@ -758,6 +764,14 @@ export const financialRouter = createTRPCRouter({
         const newPaidCents = currentPaidCents - reversedAmount;
         const isFullReversal = newPaidCents === 0;
         const originalPaymentMethod = installment.paymentMethod;
+        // Conta de onde o dinheiro saiu, para devolver ao mesmo lugar (ADR 0069).
+        // Vem do ledger (o evento), não da parcela — é lá que a conta mora.
+        const originalPayment = await tx.installmentPayment.findFirst({
+          where: { installmentId: installment.id, amountCents: { gt: 0 } },
+          orderBy: { paidAt: "desc" },
+          select: { receivingAccountId: true },
+        });
+        const originalAccountId = originalPayment?.receivingAccountId ?? null;
 
         // P3 (auditoria fin 2026-07-10): o estorno gera uma saída/entrada de
         // caixa; exige caixa aberto quando há valor a estornar — paridade com o
@@ -801,17 +815,18 @@ export const financialRouter = createTRPCRouter({
 
         // FIN-B2: registra o estorno no ledger como valor NEGATIVO na data do
         // evento — assim o "recebido/pago no mês" reflete a saída no mês certo.
-        await tx.installmentPayment.create({
-          data: {
-            tenantId: ctx.tenantId,
-            installmentId: installment.id,
-            transactionId: installment.transactionId,
-            amountCents: -reversedAmount,
-            paymentMethod: originalPaymentMethod ?? null,
-            paidAt: new Date(),
-            kind: "reversal",
-            createdByUserId: ctx.session.user.id,
-          },
+        // Pelo serviço, mesmo motivo do payInstallment: a conta do estorno tem
+        // que sair do mesmo lugar onde o pagamento entrou (ADR 0069).
+        await recordInstallmentPayment(tx, {
+          tenantId: ctx.tenantId,
+          installmentId: installment.id,
+          transactionId: installment.transactionId,
+          amountCents: -reversedAmount,
+          paymentMethod: originalPaymentMethod ?? null,
+          receivingAccountId: originalAccountId,
+          paidAt: new Date(),
+          kind: "reversal",
+          createdByUserId: ctx.session.user.id,
         });
 
         await recalculateTransactionStatus(tx as never, installment.transactionId);

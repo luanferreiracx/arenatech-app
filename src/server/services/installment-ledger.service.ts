@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client"
+import { resolveAccountId } from "./receiving-account-resolver.service"
 
 /**
  * Ledger de pagamentos (`installment_payments`) — ponto ÚNICO de escrita.
@@ -37,11 +38,26 @@ export async function recordInstallmentPayment(
     transactionId: string
     amountCents: number
     paymentMethod?: string | null
+    /**
+     * Conta escolhida na tela (ADR 0069). Quando ausente, o serviço resolve
+     * pela forma de pagamento e pela conta padrão do tenant.
+     */
+    receivingAccountId?: string | null
+    /** Id da FORMA (não o token) — é o que resolve a conta padrão dela. */
+    paymentMethodId?: string | null
     paidAt: Date
     kind?: "payment" | "reversal"
     createdByUserId?: string | null
   },
 ): Promise<void> {
+  // Conta resolvida AQUI, no ponto único de escrita, para que nenhum chamador
+  // possa esquecer. Ver `receiving-account-resolver.service.ts` (ADR 0069).
+  const receivingAccountId = await resolveAccountId(tx, {
+    tenantId: args.tenantId,
+    explicitAccountId: args.receivingAccountId,
+    paymentMethodId: args.paymentMethodId,
+  })
+
   await tx.installmentPayment.create({
     data: {
       tenantId: args.tenantId,
@@ -49,6 +65,7 @@ export async function recordInstallmentPayment(
       transactionId: args.transactionId,
       amountCents: args.amountCents,
       paymentMethod: args.paymentMethod ?? null,
+      receivingAccountId,
       paidAt: args.paidAt,
       kind: args.kind ?? "payment",
       createdByUserId: args.createdByUserId ?? null,
@@ -72,6 +89,10 @@ export async function recordCashPaidTransaction(
     paidAt: Date
     dueDate?: Date
     paymentMethod?: string | null
+    /** Conta escolhida na tela (ADR 0069). */
+    receivingAccountId?: string | null
+    /** Id da FORMA — resolve a conta padrão dela quando não há escolha. */
+    paymentMethodId?: string | null
     createdByUserId?: string | null
   },
 ): Promise<{ installmentId: string }> {
@@ -97,6 +118,8 @@ export async function recordCashPaidTransaction(
     transactionId: args.transactionId,
     amountCents: args.amountCents,
     paymentMethod: args.paymentMethod,
+    receivingAccountId: args.receivingAccountId,
+    paymentMethodId: args.paymentMethodId,
     paidAt: args.paidAt,
     kind: "payment",
     createdByUserId: args.createdByUserId,
@@ -136,7 +159,12 @@ export async function reverseCashPaidTransaction(
 ): Promise<number> {
   const rows = await tx.installmentPayment.findMany({
     where: { transactionId: args.transactionId },
-    select: { installmentId: true, amountCents: true, paymentMethod: true },
+    select: {
+      installmentId: true,
+      amountCents: true,
+      paymentMethod: true,
+      receivingAccountId: true,
+    },
   })
   const netCents = rows.reduce((sum, r) => sum + r.amountCents, 0)
   if (netCents === 0) return 0
@@ -151,6 +179,9 @@ export async function reverseCashPaidTransaction(
     transactionId: args.transactionId,
     amountCents: -netCents,
     paymentMethod: anchor.paymentMethod,
+    // O dinheiro volta para a MESMA conta de onde saiu — senão o estorno zera o
+    // total do tenant mas desequilibra as contas entre si (ADR 0069).
+    receivingAccountId: anchor.receivingAccountId,
     paidAt: args.reversedAt,
     kind: "reversal",
     createdByUserId: args.createdByUserId,

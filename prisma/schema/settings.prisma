@@ -183,11 +183,18 @@ model PaymentMethod {
   // @deprecated "Quem paga a taxa" e DECIDIDO NA VENDA (pelo valor informado no
   // PDV), nao configurado. O calculo nao le mais este campo. Mantido ate o drop.
   feePolicy       PaymentFeePolicy  @default(LOJA_ABSORVE) @map("fee_policy")
+  /// Conta padrão desta forma (ADR 0069). "PIX Nubank" → conta Nubank.
+  ///
+  /// É o degrau de maior alavancagem da resolução de conta: cadastrado uma vez,
+  /// o operador não escolhe nada no dia a dia. Ordem completa:
+  /// input explícito → esta conta → conta `isDefault` do tenant → null.
+  defaultReceivingAccountId String? @map("default_receiving_account_id") @db.Uuid
   createdAt       DateTime          @default(now()) @map("created_at")
   updatedAt       DateTime          @updatedAt @map("updated_at")
 
   installmentRules InstallmentRule[]
   rates            PaymentMethodRate[]
+  defaultReceivingAccount ReceivingAccount? @relation(fields: [defaultReceivingAccountId], references: [id])
 
   @@unique([tenantId, code])
   @@index([tenantId, active])
