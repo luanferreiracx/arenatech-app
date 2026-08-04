@@ -159,7 +159,13 @@ export const createDevicePurchaseSchema = z.object({
   // (combobox) ou cria pela tela de Produtos antes. Paridade Laravel:
   // sem digitar marca/modelo livre — evita duplicatas e garante que o
   // aparelho aparece no PDV.
-  productId: z.string().uuid("Selecione o produto"),
+  // A mensagem precisa estar no `error` do próprio tipo, não só no `uuid()`:
+  // quando o campo vem `undefined` (operador não escolheu nada), quem dispara é
+  // a checagem de TIPO, e o form exibia o texto cru do Zod em inglês
+  // ("Invalid input: expected string, received undefined").
+  productId: z
+    .string({ error: "Selecione o produto" })
+    .uuid("Selecione o produto"),
   // Variacao especifica (storage + cor). Obrigatorio se o Product tem
   // variacoes ativas — validado no backend pra paridade Laravel
   // (compra_aparelhos.variacao_id).
