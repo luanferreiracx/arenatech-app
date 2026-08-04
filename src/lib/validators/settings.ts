@@ -32,6 +32,12 @@ export const updatePaymentMethodSchema = z.object({
   id: z.string().uuid(),
   active: z.boolean(),
   feePercent: z.number().min(0).max(99.99).optional(),
+  /**
+   * Conta padrão desta forma (ADR 0069): "PIX Nubank" → conta Nubank. `null`
+   * limpa o vínculo. Cadastrado uma vez, o operador não escolhe conta no dia a
+   * dia — é o degrau de maior alavancagem da resolução automática.
+   */
+  defaultReceivingAccountId: z.string().uuid().nullable().optional(),
 });
 
 export type UpdatePaymentMethodInput = z.infer<typeof updatePaymentMethodSchema>;

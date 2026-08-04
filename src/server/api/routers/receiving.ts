@@ -16,6 +16,7 @@ import {
   availableInstallmentsSchema,
   availableBrandsSchema,
   listCardReceivablesSchema,
+  accountBalancesSchema,
   settleCardReceivablesSchema,
   unsettleCardReceivablesSchema,
 } from "@/lib/validators/receiving";
@@ -115,6 +116,71 @@ export const receivingRouter = createTRPCRouter({
             data: { active: input.active },
           });
           return serializeAccount(account);
+        });
+      }),
+
+    /**
+     * Saldo movimentado por conta num período (ADR 0069) — a consulta que a
+     * conciliação bancária faz: "quanto entrou e saiu da conta X em agosto?".
+     *
+     * Lê do ledger `installment_payments`, que é a fonte de verdade do regime
+     * de CAIXA (o mesmo que o DRE e o "pago/recebido no mês" usam). Estorno já
+     * está lá com sinal negativo, então a soma é o líquido.
+     *
+     * NÃO soma `cash_movements`: a gaveta física é a MESMA cédula que o ledger
+     * já contou (ADR 0069) — somar os dois contaria o dinheiro duas vezes.
+     * A conferência da gaveta continua sendo `computeCashDrawerCents`, que é
+     * outra pergunta (quanto tem NA GAVETA agora), não esta.
+     */
+    balances: tenantProcedure
+      .input(accountBalancesSchema)
+      .query(async ({ ctx, input }) => {
+        // Já vem no formato de filtro do Prisma ({gte,lte}), com corte de dia
+        // em BRT — o mesmo que os outros relatórios usam.
+        const paidAtRange = instantRange(input.dateFrom, input.dateTo);
+        const hasRange = Object.keys(paidAtRange).length > 0;
+        return ctx.withTenant(async (tx) => {
+          const accounts = await tx.receivingAccount.findMany({
+            where: { tenantId: ctx.tenantId },
+            orderBy: [{ active: "desc" }, { name: "asc" }],
+            select: { id: true, name: true, type: true, active: true, isDefault: true },
+          });
+
+          const grouped = await tx.installmentPayment.groupBy({
+            by: ["receivingAccountId"],
+            where: {
+              tenantId: ctx.tenantId,
+              ...(hasRange ? { paidAt: paidAtRange } : {}),
+              installment: { transaction: { deletedAt: null } },
+            },
+            _sum: { amountCents: true },
+            _count: { _all: true },
+          });
+
+          const byAccount = new Map(
+            grouped.map((g) => [
+              g.receivingAccountId,
+              { netCents: g._sum.amountCents ?? 0, movements: g._count._all },
+            ]),
+          );
+
+          const rows = accounts.map((a) => ({
+            ...a,
+            netCents: byAccount.get(a.id)?.netCents ?? 0,
+            movements: byAccount.get(a.id)?.movements ?? 0,
+          }));
+
+          // Lançamentos SEM conta viram uma linha própria em vez de sumir. É o
+          // que torna a lacuna visível e corrigível — esconder daria a ilusão
+          // de que tudo está conciliado.
+          const orphan = byAccount.get(null);
+          return {
+            accounts: rows,
+            unassigned: {
+              netCents: orphan?.netCents ?? 0,
+              movements: orphan?.movements ?? 0,
+            },
+          };
         });
       }),
   }),

@@ -439,11 +439,29 @@ export const settingsRouter = createTRPCRouter({
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para alterar formas de pagamento" });
       }
       return ctx.withTenant(async (tx) => {
+        // Conta padrão da forma (ADR 0069): valida que a conta é DESTE tenant
+        // antes de vincular. A RLS já filtraria, mas aqui o erro é explícito em
+        // vez de "sumiu silenciosamente".
+        if (input.defaultReceivingAccountId) {
+          const account = await tx.receivingAccount.findFirst({
+            where: { id: input.defaultReceivingAccountId, tenantId: ctx.tenantId },
+            select: { id: true },
+          });
+          if (!account) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Conta de recebimento nao encontrada.",
+            });
+          }
+        }
         return tx.paymentMethod.update({
           where: { id: input.id },
           data: {
             active: input.active,
             feePercent: input.feePercent,
+            ...(input.defaultReceivingAccountId !== undefined
+              ? { defaultReceivingAccountId: input.defaultReceivingAccountId }
+              : {}),
           },
         });
       });

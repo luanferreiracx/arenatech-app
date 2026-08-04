@@ -112,6 +112,13 @@ export const availableBrandsSchema = z.object({
 export const cardReceivableStatusEnum = z.enum(["PENDING", "SETTLED", "CANCELLED"]);
 export type CardReceivableStatus = z.infer<typeof cardReceivableStatusEnum>;
 
+/** Saldo movimentado por conta num período (ADR 0069). */
+export const accountBalancesSchema = z.object({
+  dateFrom: z.string().max(40).optional(),
+  dateTo: z.string().max(40).optional(),
+});
+export type AccountBalancesInput = z.infer<typeof accountBalancesSchema>;
+
 export const CARD_RECEIVABLE_STATUS_LABELS: Record<CardReceivableStatus, string> = {
   PENDING: "A receber",
   SETTLED: "Liquidado",

@@ -1244,6 +1244,11 @@ export const stockRouter = createTRPCRouter({
             variationId: variation?.id ?? null,
             type: "ENTRY",
             quantity: 1,
+            // Kardex valorizado: o preço de compra é o custo REAL desta unidade.
+            // Registrado no movimento para o CMV de um período passado sair do
+            // ledger, e não do `costPrice` de hoje.
+            unitCostCents: input.purchasePrice,
+            totalCostCents: input.purchasePrice,
             reason: `Compra de aparelho${cleanImei ? ` — IMEI: ${cleanImei}` : ""}`,
             referenceId: purchase.id,
             referenceType: "device_purchase",
@@ -1386,6 +1391,10 @@ export const stockRouter = createTRPCRouter({
               amountCents: totalCents,
               paidAt: purchasePaidAt,
               paymentMethod: methodToken,
+              // De qual conta saiu o dinheiro da compra (ADR 0069) — era
+              // exatamente o "não se escolhe conta" que o dono reportou.
+              receivingAccountId: input.receivingAccountId ?? null,
+              paymentMethodId: method.id,
               createdByUserId: ctx.session.user.id,
             });
 

@@ -136,6 +136,19 @@ model InstallmentPayment {
   /// Centavos. Positivo = pagamento; negativo = estorno.
   amountCents     Int      @map("amount_cents")
   paymentMethod   String?  @map("payment_method")
+  /// DE ONDE saiu / PARA ONDE entrou o dinheiro (ADR 0069).
+  ///
+  /// Mora aqui, no EVENTO de caixa, e não na `FinancialTransaction` (a
+  /// obrigação): uma conta a pagar em 3x pode ser quitada de três contas
+  /// diferentes, e o estorno pode voltar para outra. Como este ledger é o funil
+  /// por onde venda, OS, compra e despesa já passam, uma coluna aqui cobre
+  /// todos os módulos.
+  ///
+  /// Nullable de propósito: conta ERRADA é pior que conta ausente — dado errado
+  /// dá falso negativo silencioso na conciliação. Caminhos que legitimamente
+  /// não sabem a conta (estorno sem método original, cron cross-tenant) gravam
+  /// null e aparecem como "sem conta" no relatório.
+  receivingAccountId String? @map("receiving_account_id") @db.Uuid
   /// Data-caixa do evento (quando o dinheiro entrou/saiu).
   paidAt          DateTime @map("paid_at")
   /// "payment" | "reversal" — origem do lançamento.
@@ -144,9 +157,13 @@ model InstallmentPayment {
   createdAt       DateTime @default(now()) @map("created_at")
 
   installment Installment @relation(fields: [installmentId], references: [id], onDelete: Cascade)
+  receivingAccount ReceivingAccount? @relation(fields: [receivingAccountId], references: [id])
 
   @@index([tenantId, paidAt])
   @@index([tenantId, transactionId])
   @@index([installmentId])
+  /// Saldo/extrato por conta num período — a consulta que a conciliação
+  /// bancária faz. `paidAt` por último porque é filtro de RANGE.
+  @@index([tenantId, receivingAccountId, paidAt])
   @@map("installment_payments")
 }

@@ -307,8 +307,18 @@ model StockMovement {
   quantity       Int
   quantityBefore Int?              @map("quantity_before")
   quantityAfter  Int?              @map("quantity_after")
-  // Custo do movimento em CENTAVOS (kardex valorizado). Preenchido nas entradas
-  // com custo informado; permite reconstruir o valor do estoque numa data e o CMV.
+  // Custo do movimento em CENTAVOS (kardex valorizado). Preenchido nas ENTRADAS
+  // que têm custo real conhecido; permite reconstruir o valor do estoque numa
+  // data e o CMV de um período passado — que `Product.costPrice` (a foto de
+  // HOJE) não consegue responder.
+  //
+  // Fontes de custo real, todas gravando aqui desde 2026-08-04:
+  //   - entrada manual com custo informado (`applyNonSerializedEntry`)
+  //   - importação de NF-e (`totalUnitCost`, já rateado com frete/desconto/IPI)
+  //   - compra de aparelho (o preço pago ao vendedor)
+  //
+  // Nulo em SAÍDA e em ajuste: a saída é valorizada pelo custo médio vigente,
+  // que se deriva das entradas — gravar um custo na saída seria inventar dado.
   unitCostCents  Int?              @map("unit_cost_cents")
   totalCostCents Int?              @map("total_cost_cents")
   reason         String?

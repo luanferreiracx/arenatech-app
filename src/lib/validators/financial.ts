@@ -117,6 +117,14 @@ export const payInstallmentSchema = z.object({
   /** Amount paid in centavos */
   amountPaid: z.number().int().min(1, "Valor pago deve ser maior que zero").max(MAX_CENTS, "Valor acima do limite permitido"),
   paymentMethod: z.string().max(50).optional().nullable(),
+  /**
+   * Id da FORMA de pagamento cadastrada. Diferente de `paymentMethod`, que é
+   * texto/token: só o id resolve a conta padrão da forma (ADR 0069), porque
+   * `code` é NULL em boa parte dos tenants.
+   */
+  paymentMethodId: z.string().uuid().optional().nullable(),
+  /** Conta de onde saiu / para onde entrou o dinheiro (ADR 0069). */
+  receivingAccountId: z.string().uuid().optional().nullable(),
   notes: z.string().max(500).optional().nullable(),
 });
 

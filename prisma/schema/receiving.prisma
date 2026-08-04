@@ -43,9 +43,22 @@ model ReceivingAccount {
 
   acquirers    Acquirer[]
   receivables  CardReceivable[]
+  /// Lançamentos do ledger de caixa que entraram/saíram desta conta (ADR 0069).
+  payments     InstallmentPayment[]
+  /// Formas de pagamento que usam esta conta por padrão (ADR 0069).
+  paymentMethods PaymentMethod[]
 
   @@unique([tenantId, name])
   @@index([tenantId, active])
+  /// NOTA: existe também um índice ÚNICO PARCIAL criado por SQL puro
+  /// (migration 20260804160000_conta_no_ledger_de_pagamentos):
+  ///   (tenant_id) WHERE is_default
+  ///
+  /// `isDefault` passou a ser LIDO na resolução de conta (antes era só enfeite
+  /// de UI). A exclusividade era garantida por dois `updateMany` imperativos no
+  /// router — racy: dois admins concorrentes deixavam duas contas padrão e o
+  /// `findFirst` virava não-determinístico. O Prisma não expressa índice
+  /// parcial; não remova a migration achando que é resíduo.
   @@map("receiving_accounts")
 }
 

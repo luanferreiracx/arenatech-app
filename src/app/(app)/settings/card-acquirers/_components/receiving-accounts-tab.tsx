@@ -29,7 +29,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Landmark, Loader2, Pencil, Star } from "lucide-react";
+import { Plus, Landmark, Loader2, Pencil, Star, TriangleAlert } from "lucide-react";
+import { Money } from "@/components/domain/money";
+
+/** Início da janela de 30 dias, em `YYYY-MM-DD` (o filtro corta o dia em BRT). */
+function last30DaysIso(): string {
+  const d = new Date();
+  d.setDate(d.getDate() - 30);
+  return d.toISOString().slice(0, 10);
+}
 
 interface AccountDraft {
   id: string | null;
@@ -59,6 +67,16 @@ export function ReceivingAccountsTab() {
   const [draft, setDraft] = useState<AccountDraft | null>(null);
 
   const { data: accounts, isLoading } = useQuery(trpc.receiving.accounts.list.queryOptions());
+
+  // Movimentação por conta nos últimos 30 dias (ADR 0069). A janela é fixa de
+  // propósito: aqui a pergunta é "esta conta está viva e bate com o extrato?",
+  // não análise financeira — essa mora no Financeiro.
+  const { data: balances } = useQuery(
+    trpc.receiving.accounts.balances.queryOptions({ dateFrom: last30DaysIso() }),
+  );
+  const movementByAccount = new Map(
+    (balances?.accounts ?? []).map((a) => [a.id, { netCents: a.netCents }]),
+  );
 
   const invalidate = () =>
     queryClient.invalidateQueries({ queryKey: [["receiving", "accounts"]] });
@@ -125,6 +143,25 @@ export function ReceivingAccountsTab() {
         </Button>
       </div>
 
+      {/* Dinheiro que se moveu sem conta atribuída. Fica VISÍVEL de propósito:
+          esconder daria a ilusão de que tudo está conciliado. O caminho da
+          correção é cadastrar a conta padrão da forma de pagamento. */}
+      {(balances?.unassigned.movements ?? 0) > 0 && (
+        <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2">
+          <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+          <div className="min-w-0 text-sm">
+            <p className="font-medium">
+              <Money cents={balances!.unassigned.netCents} /> sem conta nos ultimos 30 dias
+            </p>
+            <p className="text-muted-foreground">
+              {balances!.unassigned.movements} lancamento(s) nao dizem de qual conta o
+              dinheiro saiu ou entrou. Defina a conta padrao de cada forma de pagamento
+              para os proximos ja nascerem certos.
+            </p>
+          </div>
+        </div>
+      )}
+
       {!accounts || accounts.length === 0 ? (
         <EmptyState
           icon={Landmark}
@@ -167,6 +204,16 @@ export function ReceivingAccountsTab() {
                       : account.pixKey}
                   </p>
                 )}
+                {/* Movimentado no período (ADR 0069) — é o que torna a conta
+                    conferível contra o extrato. Sem isto a conta seria só um
+                    rótulo que ninguém verifica. */}
+                <div className="border-t pt-2">
+                  <p className="text-xs text-muted-foreground">Movimentado (30 dias)</p>
+                  <Money
+                    cents={movementByAccount.get(account.id)?.netCents ?? 0}
+                    className="text-base font-semibold"
+                  />
+                </div>
                 <Button
                   variant="outline"
                   size="sm"

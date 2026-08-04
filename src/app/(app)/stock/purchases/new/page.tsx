@@ -48,6 +48,13 @@ import {
 } from "@/components/ui/dialog";
 import { CustomerQuickCreate } from "@/components/domain/customer-quick-create";
 
+/**
+ * Valor-sentinela do "deixar o backend decidir a conta". O Radix Select não
+ * aceita `value=""` (string vazia limpa a seleção), então precisa de um token.
+ * Vira `null` no submit — é o que dispara a resolução automática (ADR 0069).
+ */
+const AUTO_ACCOUNT = "__auto__";
+
 export default function NewPurchasePage() {
   const router = useRouter();
   const trpc = useTRPC();
@@ -72,6 +79,7 @@ export default function NewPurchasePage() {
       notes: "",
       paymentMode: undefined,
       paymentMethodId: null,
+      receivingAccountId: null,
       payableInstallments: 1,
       payableFirstDueDate: new Date().toISOString().slice(0, 10),
     },
@@ -89,6 +97,13 @@ export default function NewPurchasePage() {
   // PaymentMethods do tenant para o select quando paymentMode === "now"
   const { data: paymentMethods } = useQuery(
     trpc.settings.listPaymentMethods.queryOptions(undefined, {
+      enabled: paymentMode === "now",
+    }),
+  );
+
+  // Contas de recebimento para o select de "conta de saída" (ADR 0069).
+  const { data: receivingAccounts } = useQuery(
+    trpc.receiving.accounts.list.queryOptions(undefined, {
       enabled: paymentMode === "now",
     }),
   );
@@ -575,6 +590,54 @@ export default function NewPurchasePage() {
                     </FormItem>
                   )}
                 />
+
+                {/* De qual conta saiu o dinheiro (ADR 0069). Opcional: em
+                    branco, o backend usa a conta padrão da forma e depois a do
+                    tenant, então o operador só mexe aqui na exceção. O campo
+                    some quando o tenant não cadastrou conta nenhuma — não faz
+                    sentido pedir escolha entre zero opções. */}
+                {(receivingAccounts?.length ?? 0) > 0 && (
+                  <div className="mt-4">
+                    <FormField
+                      control={form.control}
+                      name="receivingAccountId"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Conta de saida</FormLabel>
+                          <Select
+                            onValueChange={(v) =>
+                              field.onChange(v === AUTO_ACCOUNT ? null : v)
+                            }
+                            value={field.value ?? AUTO_ACCOUNT}
+                          >
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value={AUTO_ACCOUNT}>
+                                Usar a conta padrao da forma
+                              </SelectItem>
+                              {(receivingAccounts ?? [])
+                                .filter((a) => a.active)
+                                .map((a) => (
+                                  <SelectItem key={a.id} value={a.id}>
+                                    {a.name}
+                                  </SelectItem>
+                                ))}
+                            </SelectContent>
+                          </Select>
+                          <p className="text-xs text-muted-foreground">
+                            De onde o dinheiro sai. E o que permite conferir o
+                            extrato da conta depois.
+                          </p>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                )}
               </div>
             )}
 
