@@ -737,6 +737,10 @@ export const stockRouter = createTRPCRouter({
 
         const isExit = input.quantity < 0;
         const qty = Math.abs(input.quantity);
+        // Saldo antes/depois do ajuste, lido do resultado da escrita (não de um
+        // read anterior, que seria stale sob concorrência).
+        let quantityBefore = 0;
+        let quantityAfter = 0;
 
         // Produto com variacoes: o saldo real vive em ProductVariation.currentStock
         // (o currentStock do pai eh derivado). Exige a variacao e ajusta ela —
@@ -770,12 +774,24 @@ export const stockRouter = createTRPCRouter({
                 message: `Estoque insuficiente: ${variation.currentStock} unidades disponiveis nesta variacao.`,
               });
             }
+            // Relê o saldo APÓS a escrita: o `updateMany` do CAS não devolve a
+            // linha, e o valor lido antes pode estar velho se outro ajuste
+            // commitou no meio. Derivar do estado real mantém o encadeamento
+            // (before do próximo == after deste) honesto.
+            const after = await tx.productVariation.findUniqueOrThrow({
+              where: { id: input.variationId },
+              select: { currentStock: true },
+            });
+            quantityAfter = after.currentStock;
           } else {
-            await tx.productVariation.update({
+            const updated = await tx.productVariation.update({
               where: { id: input.variationId },
               data: { currentStock: { increment: qty } },
+              select: { currentStock: true },
             });
+            quantityAfter = updated.currentStock;
           }
+          quantityBefore = quantityAfter + (isExit ? qty : -qty);
         } else if (isExit) {
           // Produto simples — ajusta o proprio currentStock.
           // where currentStock >= qty evita negativo.
@@ -789,11 +805,21 @@ export const stockRouter = createTRPCRouter({
               message: `Estoque insuficiente: ${product.currentStock} unidades disponiveis.`,
             });
           }
+          // Idem: relê depois da escrita em vez de confiar no read anterior.
+          const after = await tx.product.findUniqueOrThrow({
+            where: { id: input.productId },
+            select: { currentStock: true },
+          });
+          quantityAfter = after.currentStock;
+          quantityBefore = quantityAfter + qty;
         } else {
-          await tx.product.update({
+          const updated = await tx.product.update({
             where: { id: input.productId },
             data: { currentStock: { increment: qty } },
+            select: { currentStock: true },
           });
+          quantityAfter = updated.currentStock;
+          quantityBefore = updated.currentStock - qty;
         }
 
         await tx.stockMovement.create({
@@ -803,6 +829,12 @@ export const stockRouter = createTRPCRouter({
             variationId: input.variationId || null,
             type: isExit ? "EXIT" : "ENTRY",
             quantity: qty,
+            // Encadeamento do kardex: sem before/after o extrato tem um furo a
+            // cada ajuste e não dá para reconstruir o saldo numa data. Todos os
+            // outros escritores já preenchiam; este era o único que não.
+            // Auditoria de estoque 2026-08-04, P1-10.
+            quantityBefore,
+            quantityAfter,
             reason: input.reason,
             userId: ctx.session.user.id,
           },

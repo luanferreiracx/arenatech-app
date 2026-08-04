@@ -444,6 +444,84 @@ describe("Auditoria estoque 2026-08-04 — compra de aparelho x financeiro", () 
   });
 });
 
+describe("Auditoria estoque 2026-08-04 — kardex e duplo-submit", () => {
+  it("P1-10: ajuste de estoque grava saldo antes/depois (kardex reconstruível)", async () => {
+    const product = await prisma.product.create({
+      data: {
+        tenantId,
+        name: `${MARK}-kardex-${Date.now()}`,
+        salePrice: 100,
+        costPrice: 50,
+        currentStock: 20,
+        isSerialized: false,
+        hasVariations: false,
+        active: true,
+      },
+    });
+    productIds.push(product.id);
+
+    await call().stock.adjustStock({
+      productId: product.id,
+      quantity: 5,
+      reason: "entrada de teste",
+    } as any);
+    await call().stock.adjustStock({
+      productId: product.id,
+      quantity: -3,
+      reason: "saida de teste",
+    } as any);
+
+    const movements = await prisma.stockMovement.findMany({
+      where: { productId: product.id },
+      orderBy: { createdAt: "asc" },
+      select: { type: true, quantity: true, quantityBefore: true, quantityAfter: true },
+    });
+
+    expect(movements).toHaveLength(2);
+    // Antes, before/after eram NULL nesta procedure: o extrato tinha um furo a
+    // cada ajuste e não dava para reconstruir o saldo numa data.
+    expect(movements[0]).toMatchObject({ quantityBefore: 20, quantityAfter: 25 });
+    expect(movements[1]).toMatchObject({ quantityBefore: 25, quantityAfter: 22 });
+    // A cadeia fecha: o "depois" de um é o "antes" do próximo.
+    expect(movements[0]!.quantityAfter).toBe(movements[1]!.quantityBefore);
+  });
+
+  it("P1-8: duplo-submit da MESMA compra não cria duas — o IMEI barra o retry", async () => {
+    const productId = await makeDeviceProduct();
+    const customerId = await makeCustomer();
+    await openCashSession();
+
+    const input = {
+      productId,
+      sellerType: "customer" as const,
+      customerId,
+      imei: makeImei(),
+      condition: "USED" as const,
+      purchasePrice: 80000,
+      paymentMode: "payable" as const,
+    };
+
+    const first = await call().stock.createPurchase(input as any);
+    purchaseIds.push(first.id);
+
+    // A auditoria levantou a hipótese de duplo-pagamento em aparelho SEM
+    // identificador (AirPods/iPad WiFi). Ela NÃO se confirma: o validador exige
+    // IMEI ou serial (`Informe IMEI ou numero de serie do aparelho`), então o
+    // caminho sem identificador é inalcançável pela API e o índice único
+    // parcial de IMEI cobre o retry. Este teste fixa esse invariante — se
+    // alguém afrouxar a exigência, o duplo-pagamento volta a ser possível e
+    // aqui é o lugar de perceber.
+    await expect(call().stock.createPurchase(input as any)).rejects.toMatchObject({
+      code: "CONFLICT",
+    });
+
+    const count = await prisma.devicePurchase.count({
+      where: { tenantId, productId, cancelledAt: null },
+    });
+    expect(count).toBe(1);
+  });
+});
+
 describe("Auditoria estoque 2026-08-04 — estorno de OS devolve peças", () => {
   it("P0-2: estornar OS paga devolve a peça consumida ao estoque", async () => {
     const product = await prisma.product.create({
