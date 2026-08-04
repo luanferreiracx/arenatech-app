@@ -83,8 +83,14 @@ describe("Auditoria Financeira — FIN-B2 ledger (ao vivo)", () => {
     // injeta um pagamento com data no MÊS PASSADO (simula multi-mês)
     const lastMonth = new Date();
     lastMonth.setMonth(lastMonth.getMonth() - 1, 15);
+    // A conta é obrigatória no ledger (ADR 0069 fase 2). Usa a conta padrão do
+    // tenant — a mesma que a cascata daria para um lançamento real.
+    const contaPadrao = await prisma.receivingAccount.findFirstOrThrow({
+      where: { tenantId, active: true },
+      select: { id: true },
+    });
     await prisma.installmentPayment.create({
-      data: { tenantId, installmentId: instId, transactionId: ftId, amountCents: 99999, paymentMethod: "pix", paidAt: lastMonth, kind: "payment", createdByUserId: adminId },
+      data: { tenantId, installmentId: instId, transactionId: ftId, amountCents: 99999, paymentMethod: "pix", receivingAccountId: contaPadrao.id, paidAt: lastMonth, kind: "payment", createdByUserId: adminId },
     });
 
     const stats = await call(adminCtx).financial.stats({ type: "RECEIVABLE" });

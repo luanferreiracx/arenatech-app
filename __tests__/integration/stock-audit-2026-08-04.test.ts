@@ -697,12 +697,14 @@ describe("Auditoria estoque 2026-08-04 — trade-in", () => {
       payments: [{ method: "dinheiro", amount: 7000 }],
     } as any);
 
-    // O aparelho de entrada virou StockItem vendável e uma DevicePurchase.
+    // O aparelho de entrada virou StockItem e uma DevicePurchase. Entra
+    // BLOQUEADO até o termo da venda ser assinado (decisão do dono 2026-08-04)
+    // — aqui o termo não é assinado, então segue bloqueado.
     const tradeInItem = await prisma.stockItem.findFirstOrThrow({
       where: { tenantId, imei: tradeInImei, deletedAt: null },
       select: { id: true, status: true, productId: true },
     });
-    expect(tradeInItem.status).toBe("AVAILABLE");
+    expect(tradeInItem.status).toBe("BLOCKED");
     productIds.push(tradeInItem.productId);
 
     const tradeInPurchase = await prisma.devicePurchase.findFirstOrThrow({
@@ -722,6 +724,78 @@ describe("Auditoria estoque 2026-08-04 — trade-in", () => {
       select: { deletedAt: true },
     });
     expect(afterRefund.deletedAt).not.toBeNull();
+  });
+});
+
+describe("Trade-in: termo obrigatório antes de revender (decisão do dono 2026-08-04)", () => {
+  it("aparelho de troca entra BLOQUEADO e só libera quando o termo é assinado", async () => {
+    const sellProduct = await prisma.product.create({
+      data: {
+        tenantId,
+        name: `${MARK}-termo-${Date.now()}`,
+        salePrice: 100,
+        costPrice: 50,
+        currentStock: 50,
+        isSerialized: false,
+        hasVariations: false,
+        active: true,
+      },
+    });
+    productIds.push(sellProduct.id);
+    const customerId = await makeCustomer();
+    const tradeInImei = makeImei();
+    await openCashSession();
+
+    const draft = await call().sale.createDraft();
+    saleIds.push(draft.id);
+    await call().sale.setCustomer({ saleId: draft.id, customerId } as any);
+    await call().sale.addItem({
+      saleId: draft.id,
+      productId: sellProduct.id,
+      quantity: 1,
+      unitPrice: 10000,
+    } as any);
+    await call().sale.addUpgrade({
+      saleId: draft.id,
+      brand: "Apple",
+      model: `${MARK} iPhone termo`,
+      imei: tradeInImei,
+      condition: "USED",
+      appraisedValue: 3000,
+      abatedValue: 3000,
+    } as any);
+    await call().sale.finalize({
+      saleId: draft.id,
+      payments: [{ method: "dinheiro", amount: 7000 }],
+    } as any);
+
+    // Antes ficava AVAILABLE na hora: a loja podia revender um aparelho sem ter
+    // prova de que ele era dela.
+    const bloqueado = await prisma.stockItem.findFirstOrThrow({
+      where: { tenantId, imei: tradeInImei, deletedAt: null },
+      select: { id: true, status: true, productId: true },
+    });
+    productIds.push(bloqueado.productId);
+    expect(bloqueado.status).toBe("BLOCKED");
+
+    // O cliente assina o termo de entrega da venda (aqui, no papel).
+    await call().sale.confirmPhysicalSignature({ saleId: draft.id } as any);
+
+    const liberado = await prisma.stockItem.findUniqueOrThrow({
+      where: { id: bloqueado.id },
+      select: { status: true },
+    });
+    expect(liberado.status).toBe("AVAILABLE");
+
+    // A compra correspondente também registra o termo assinado — é o que a
+    // tela de Compras mostra.
+    const purchase = await prisma.devicePurchase.findFirstOrThrow({
+      where: { tenantId, imei: tradeInImei },
+      select: { id: true, termSigned: true, termSignedVia: true },
+    });
+    purchaseIds.push(purchase.id);
+    expect(purchase.termSigned).toBe(true);
+    expect(purchase.termSignedVia).toBe("sale_delivery_term");
   });
 });
 

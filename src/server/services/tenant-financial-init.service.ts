@@ -80,6 +80,26 @@ export async function tenantFinancialInit(
     })
   }
 
+  // Conta de recebimento padrão (ADR 0069 fase 2). A conta do dinheiro é
+  // OBRIGATÓRIA no ledger, então todo tenant precisa nascer com pelo menos uma
+  // — senão a primeira venda da loja falharia por falta de conta.
+  //
+  // "Caixa da Loja" (CASH) é o default honesto: a loja que só opera no balcão
+  // não precisa fazer nada, e quem tem conta bancária cadastra depois e marca
+  // como padrão. Idempotente: só cria se o tenant ainda não tem nenhuma.
+  const existingAccounts = await tx.receivingAccount.count({ where: { tenantId } })
+  if (existingAccounts === 0) {
+    await tx.receivingAccount.create({
+      data: {
+        tenantId,
+        name: "Caixa da Loja",
+        type: "CASH",
+        active: true,
+        isDefault: true,
+      },
+    })
+  }
+
   // Seed catálogo padrão de bandeiras de cartão (fundação de recebíveis).
   // Idempotente: só cria se o tenant ainda não tiver nenhuma bandeira.
   const existingBrands = await tx.cardBrand.count({ where: { tenantId } })

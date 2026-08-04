@@ -88,6 +88,84 @@ function centsToPrisma(cents: number): Prisma.Decimal {
 }
 
 /**
+ * Libera para venda os aparelhos recebidos em TROCA nesta venda: BLOCKED →
+ * AVAILABLE.
+ *
+ * O aparelho de entrada fica bloqueado até o cliente assinar o termo de entrega
+ * da venda — que é o documento em que ele declara ter entregue o aparelho
+ * (decisão do dono, 2026-08-04). Antes disso a loja não tem prova de que o
+ * aparelho é dela, então revender é risco legal.
+ *
+ * Chamado dos três pontos que confirmam assinatura: física, retorno do
+ * Autentique e webhook. Idempotente — `updateMany` filtrando por BLOCKED, então
+ * chamar duas vezes não faz nada na segunda.
+ *
+ * Casa por (produto + IMEI/série) da `DevicePurchase` que a venda gerou, o mesmo
+ * critério do `releaseStockItemForPurchase` da compra de balcão.
+ *
+ * @returns quantos aparelhos foram liberados
+ */
+async function releaseTradeInStockForSale(
+  tx: Prisma.TransactionClient,
+  tenantId: string,
+  saleId: string,
+  userId: string,
+): Promise<number> {
+  const upgrades = await tx.saleUpgrade.findMany({
+    where: { saleId, devicePurchaseId: { not: null } },
+    select: { devicePurchaseId: true },
+  });
+  const purchaseIds = upgrades
+    .map((u) => u.devicePurchaseId)
+    .filter((id): id is string => !!id);
+  if (purchaseIds.length === 0) return 0;
+
+  const purchases = await tx.devicePurchase.findMany({
+    where: { id: { in: purchaseIds }, cancelledAt: null },
+    select: { id: true, productId: true, imei: true, serial: true },
+  });
+
+  let released = 0;
+  for (const purchase of purchases) {
+    if (!purchase.productId) continue;
+    // Sem identificador não dá para saber QUAL unidade é desta troca — não
+    // arrisca liberar a de outra compra.
+    const identifier = purchase.imei
+      ? { imei: purchase.imei }
+      : purchase.serial
+        ? { serialNumber: purchase.serial }
+        : null;
+    if (!identifier) continue;
+
+    const result = await tx.stockItem.updateMany({
+      where: {
+        tenantId,
+        productId: purchase.productId,
+        ...identifier,
+        status: "BLOCKED",
+        deletedAt: null,
+      },
+      data: { status: "AVAILABLE", notes: null },
+    });
+    if (result.count === 0) continue;
+    released += result.count;
+
+    // Marca a compra como assinada: é o mesmo fato que a compra de balcão
+    // registra, e é o que a tela de Compras mostra.
+    await tx.devicePurchase.updateMany({
+      where: { id: purchase.id, termSigned: false },
+      data: {
+        termSigned: true,
+        termSignedAt: new Date(),
+        termSignedVia: "sale_delivery_term",
+        termSignedByUserId: userId,
+      },
+    });
+  }
+  return released;
+}
+
+/**
  * Aplica o teto de desconto do PDV. Admin do tenant é irrestrito; operador fica
  * limitado ao maxDiscountPercentNonAdmin do TenantReceivingSettings (null = sem
  * teto). Fonte única usada por applyDiscount e updateItemPrice — assim o operador
@@ -2203,13 +2281,17 @@ export const saleRouter = createTRPCRouter({
             data: { devicePurchaseId: purchase.id },
           });
 
-          // StockItem AVAILABLE — o aparelho de entrada fica vendável na hora.
-          // Diferente da compra de aparelho pelo balcão (`stock.createPurchase`),
-          // que entra BLOCKED até o termo de responsabilidade ser assinado.
-          // A diferença é deliberada: no trade-in o cliente assina o contrato da
-          // VENDA, que já descreve o aparelho dado como entrada, então o termo
-          // avulso não se aplica. Registrado aqui porque a auditoria de
-          // 2026-08-04 levantou a divergência entre os dois fluxos (P1-5).
+          // StockItem BLOQUEADO até o termo da VENDA ser assinado.
+          //
+          // O termo existe nos dois fluxos (decisão do dono, 2026-08-04): na
+          // compra de balcão é o termo de responsabilidade avulso; no trade-in é
+          // o termo de entrega da venda, que já descreve o aparelho dado como
+          // entrada. Em ambos, a loja só pode revender depois que o cliente
+          // assina — antes disso não há prova de que o aparelho é dela.
+          //
+          // A liberação acontece nos três pontos que confirmam a assinatura da
+          // venda: `confirmPhysicalSignature`, `checkSignatureStatus` (retorno
+          // do Autentique) e o webhook. Ver `releaseTradeInStockForSale`.
           await tx.stockItem.create({
             data: {
               tenantId: ctx.tenantId,
@@ -2220,9 +2302,9 @@ export const saleRouter = createTRPCRouter({
               batteryHealth: upg.batteryHealth,
               costPrice: upg.abatedValue,
               suggestedSalePrice: upg.appraisedValue,
-              status: "AVAILABLE",
+              status: "BLOCKED",
               entryDate: new Date(),
-              notes: `Recebido em upgrade — venda ${saleNumber}.`,
+              notes: `Recebido em upgrade — venda ${saleNumber}. Aguardando assinatura do termo.`,
             },
           });
 
@@ -3898,6 +3980,13 @@ export const saleRouter = createTRPCRouter({
             where: { id: input.saleId },
             data: { signatureSignedAt: new Date() },
           });
+          // Assinou o termo → o aparelho de troca pode ser vendido.
+          await releaseTradeInStockForSale(
+            tx,
+            ctx.tenantId,
+            input.saleId,
+            ctx.session.user.id,
+          );
         });
       }
 
@@ -3922,7 +4011,15 @@ export const saleRouter = createTRPCRouter({
           },
         });
 
-        return { success: true };
+        // Assinou no papel → libera o aparelho de troca para venda.
+        const released = await releaseTradeInStockForSale(
+          tx,
+          ctx.tenantId,
+          input.saleId,
+          ctx.session.user.id,
+        );
+
+        return { success: true, releasedTradeIns: released };
       });
     }),
 

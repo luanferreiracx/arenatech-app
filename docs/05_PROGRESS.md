@@ -2038,6 +2038,38 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-08-04 — Conta OBRIGATORIA + termo obrigatorio no trade-in (ADR 0069 fase 2)
+
+Duas decisoes do dono, implementadas juntas.
+
+**1. "Melhor forcar a sempre ter uma conta".** O bloqueio era concreto: NENHUM tenant tinha conta
+cadastrada (0 de 6). Um `NOT NULL` seco pararia venda, OS e compra em producao ate cada loja
+cadastrar conta na mao. A migration resolve garantindo a conta ANTES de exigir:
+
+- todo tenant sem conta ganha "Caixa da Loja" (CASH, padrao); tenant com contas mas sem padrao
+  promove a mais antiga; backfill do que sobrou nulo; so entao `NOT NULL` pelo caminho seguro
+  (`CHECK NOT VALID` → `VALIDATE` → `SET NOT NULL`).
+- A cascata ganhou 4o degrau (qualquer conta ativa) antes de desistir, e
+  `requireReceivingAccountId` falha ALTO com instrucao quando nao ha conta nenhuma — travar e melhor
+  que gravar dinheiro sem origem e descobrir na conciliacao meses depois.
+- FK virou `ON DELETE RESTRICT`: com a coluna NOT NULL, `SET NULL` viraria violacao.
+- **`prisma/seed.ts` passou a chamar `tenantFinancialInit`** — nao chamava, e um banco montado do
+  zero (o do CI) nascia com tenants sem categoria e sem conta. Mesma armadilha que ja tinha
+  quebrado o CI no PR #806.
+
+**2. "O termo existe sim nos dois casos".** Corrige o que a auditoria havia registrado como
+divergencia deliberada — a leitura de que o trade-in dispensava termo estava ERRADA.
+
+- Aparelho recebido em troca entra `BLOCKED`, igual a compra de balcao.
+- Libera quando o termo de entrega da VENDA e assinado (fisica ou Autentique). A `DevicePurchase`
+  fica `termSigned` com `termSignedVia: "sale_delivery_term"`, distinguindo no historico o termo que
+  veio da venda do termo avulso.
+- Vale so para trocas NOVAS: as ja no estoque seguem vendaveis (bloquear retroativo sumiria com
+  mercadoria que a loja ja anuncia).
+
+- Validacao: 2306 unit + 423 integracao verdes. Migration + seed testados em banco limpo do zero,
+  incluindo idempotencia do seed rodado 2x.
+
 ### 2026-08-04 — Conta do dinheiro no ledger + kardex valorizado (ADR 0069)
 
 Fecha as duas pendencias estruturais que a auditoria de estoque deixou para decisao do dono.

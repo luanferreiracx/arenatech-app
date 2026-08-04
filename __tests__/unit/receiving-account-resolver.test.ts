@@ -98,10 +98,22 @@ describe("resolução da conta do dinheiro (ADR 0069)", () => {
     expect(got).toBe("padrao");
   });
 
-  it("NÃO inventa conta: sem nenhuma pista, devolve null", async () => {
-    // O invariante que protege a conciliação. Conta errada dá falso negativo
-    // silencioso; nulo aparece como "sem conta" e pede correção.
+  it("sem conta padrão, usa QUALQUER conta ativa do tenant", async () => {
+    // Último degrau, adicionado quando a conta virou obrigatória (ADR 0069
+    // fase 2). Só acontece se o admin desmarcou o padrão sem marcar outro: o
+    // dado segue honesto (é uma conta real do tenant) e a venda não trava por
+    // um detalhe de configuração.
     const tx = makeTx({ accounts: [conta("alguma")], methods: [] });
+    const got = await resolveReceivingAccountId(tx, { tenantId: TENANT });
+    expect(got).toBe("alguma");
+  });
+
+  it("devolve null só quando o tenant não tem NENHUMA conta ativa", async () => {
+    // Não deveria acontecer: a migration criou "Caixa da Loja" para todos e
+    // `tenantFinancialInit` cria para os novos. Quem chama pelo
+    // `requireReceivingAccountId` transforma isto em erro alto, com instrução
+    // — melhor travar que gravar dinheiro sem origem.
+    const tx = makeTx({ accounts: [conta("morta", { active: false })], methods: [] });
     const got = await resolveReceivingAccountId(tx, { tenantId: TENANT });
     expect(got).toBeNull();
   });

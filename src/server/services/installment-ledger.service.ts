@@ -1,5 +1,5 @@
 import { Prisma } from "@prisma/client"
-import { resolveAccountId } from "./receiving-account-resolver.service"
+import { requireReceivingAccountId } from "./receiving-account-resolver.service"
 
 /**
  * Ledger de pagamentos (`installment_payments`) — ponto ÚNICO de escrita.
@@ -51,8 +51,9 @@ export async function recordInstallmentPayment(
   },
 ): Promise<void> {
   // Conta resolvida AQUI, no ponto único de escrita, para que nenhum chamador
-  // possa esquecer. Ver `receiving-account-resolver.service.ts` (ADR 0069).
-  const receivingAccountId = await resolveAccountId(tx, {
+  // possa esquecer. Obrigatória desde a fase 2 do ADR 0069: falha alto se o
+  // tenant não tem conta ativa, em vez de gravar dinheiro sem origem.
+  const receivingAccountId = await requireReceivingAccountId(tx, {
     tenantId: args.tenantId,
     explicitAccountId: args.receivingAccountId,
     paymentMethodId: args.paymentMethodId,
