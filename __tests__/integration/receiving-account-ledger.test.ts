@@ -234,15 +234,16 @@ describe("ADR 0069 — conta do dinheiro no ledger", () => {
     expect(ledger.receivingAccountId).toBe(padrao);
   });
 
-  it("sem nenhuma pista, grava NULL em vez de inventar conta", async () => {
+  it("a conta é SEMPRE gravada — nunca fica nula (ADR 0069 fase 2)", async () => {
     await clearTenantDefault();
     const method = await makeCashMethod(null);
 
+    // Sem escolha explícita, sem conta na forma e sem conta padrão marcada: a
+    // cascata ainda assim resolve, porque todo tenant tem pelo menos uma conta
+    // ("Caixa da Loja", criada na migration e no cadastro de tenant novo).
     const { ledger } = await buyDevice({ methodId: method });
 
-    // Conta errada é pior que conta ausente: dado errado dá falso negativo
-    // silencioso na conciliação; nulo aparece como "sem conta" e pede correção.
-    expect(ledger.receivingAccountId).toBeNull();
+    expect(ledger.receivingAccountId).not.toBeNull();
   });
 
   it("cancelar a compra devolve o dinheiro para a MESMA conta", async () => {
@@ -266,25 +267,23 @@ describe("ADR 0069 — conta do dinheiro no ledger", () => {
     expect(linhas.reduce((s, l) => s + l.amountCents, 0)).toBe(0);
   });
 
-  it("saldo por conta soma o líquido e separa os lançamentos SEM conta", async () => {
+  it("saldo por conta soma o líquido de cada conta separadamente", async () => {
     await clearTenantDefault();
-    const conta = await makeAccount("saldo");
-    const comConta = await makeCashMethod(conta);
-    const semConta = await makeCashMethod(null);
+    const contaA = await makeAccount("saldo-a");
+    const contaB = await makeAccount("saldo-b");
+    const metodoA = await makeCashMethod(contaA);
+    const metodoB = await makeCashMethod(contaB);
 
-    await buyDevice({ methodId: comConta, priceCents: 120000 });
-    await buyDevice({ methodId: semConta, priceCents: 70000 });
+    await buyDevice({ methodId: metodoA, priceCents: 120000 });
+    await buyDevice({ methodId: metodoB, priceCents: 70000 });
 
     const res = await call().receiving.accounts.balances({});
-    const linha = res.accounts.find((a) => a.id === conta);
 
     // PAYABLE entra no ledger como valor positivo (é o evento de caixa; o sinal
-    // de despesa vem do `type` da transação), então o saldo movimentado da
-    // conta é 120000.
-    expect(linha?.netCents).toBe(120000);
-    expect(linha?.movements).toBe(1);
-    // A lacuna fica VISÍVEL em vez de sumir — é o que a torna corrigível.
-    expect(res.unassigned.netCents).toBeGreaterThanOrEqual(70000);
+    // de despesa vem do `type` da transação). O que importa aqui é que cada
+    // conta soma SÓ o que passou por ela — é o que a conciliação exige.
+    expect(res.accounts.find((a) => a.id === contaA)?.netCents).toBe(120000);
+    expect(res.accounts.find((a) => a.id === contaB)?.netCents).toBe(70000);
   });
 
   it("kardex valorizado: a compra grava o custo REAL no movimento", async () => {

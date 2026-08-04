@@ -1,4 +1,5 @@
 import type { Prisma } from "@prisma/client"
+import { TRPCError } from "@trpc/server"
 
 /**
  * De onde saiu / para onde entrou o dinheiro — ponto ÚNICO de resolução da
@@ -99,8 +100,40 @@ export async function resolveReceivingAccountId(
   })
   if (tenantDefault) return tenantDefault.id
 
-  // 4. Não dá para afirmar. Melhor nulo do que chute.
-  return null
+  // 4. Nenhuma conta padrão. Último recurso: QUALQUER conta ativa do tenant.
+  //    Só acontece se o admin desmarcou o padrão sem marcar outro — o dado
+  //    ainda é honesto (é uma conta real do tenant) e evita travar a venda por
+  //    um detalhe de configuração.
+  const anyActive = await tx.receivingAccount.findFirst({
+    where: { tenantId: args.tenantId, active: true },
+    select: { id: true },
+  })
+  return anyActive?.id ?? null
+}
+
+/**
+ * Igual a `resolveReceivingAccountId`, mas EXIGE resposta — a conta é
+ * obrigatória no ledger (ADR 0069 fase 2).
+ *
+ * Só devolve null se o tenant não tem NENHUMA conta ativa, o que não deveria
+ * acontecer: a migration criou "Caixa da Loja" para todos e `tenantFinancialInit`
+ * cria para os novos. Se acontecer, é configuração quebrada (admin desativou a
+ * última conta) e o erro precisa ser ALTO: falhar aqui é melhor que gravar
+ * dinheiro sem origem e descobrir na conciliação, meses depois.
+ *
+ * @throws TRPCError PRECONDITION_FAILED com instrução acionável.
+ */
+export async function requireReceivingAccountId(
+  tx: Prisma.TransactionClient,
+  args: ResolveReceivingAccountArgs,
+): Promise<string> {
+  const resolved = await resolveAccountId(tx, args)
+  if (resolved) return resolved
+  throw new TRPCError({
+    code: "PRECONDITION_FAILED",
+    message:
+      "Nenhuma conta de recebimento ativa. Cadastre uma conta em Configuracoes > Cartoes e Recebimento > Contas de Recebimento antes de registrar movimento de dinheiro.",
+  })
 }
 
 /** Versão tipada para uso com o client real dentro de `withTenant`. */

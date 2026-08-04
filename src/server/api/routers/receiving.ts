@@ -170,16 +170,14 @@ export const receivingRouter = createTRPCRouter({
             movements: byAccount.get(a.id)?.movements ?? 0,
           }));
 
-          // Lançamentos SEM conta viram uma linha própria em vez de sumir. É o
-          // que torna a lacuna visível e corrigível — esconder daria a ilusão
-          // de que tudo está conciliado.
-          const orphan = byAccount.get(null);
+          // `unassigned` sobrevive como ZERO fixo desde que a conta virou
+          // obrigatória (ADR 0069 fase 2): não existe mais lançamento sem
+          // conta. Mantido no retorno para não quebrar a UI que já o consome —
+          // e porque o banner "sem conta" continua sendo o lugar certo caso um
+          // dia alguém afrouxe a coluna de novo.
           return {
             accounts: rows,
-            unassigned: {
-              netCents: orphan?.netCents ?? 0,
-              movements: orphan?.movements ?? 0,
-            },
+            unassigned: { netCents: 0, movements: 0 },
           };
         });
       }),

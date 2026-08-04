@@ -76,12 +76,37 @@ resolve o dia a dia sem o operador escolher nada. O passo 4 é deliberado: **con
 errada é pior que conta ausente**, porque conciliação com dado errado dá falso
 negativo silencioso. Nulo aparece em relatório como "sem conta" e pede correção.
 
-**4. Não tornamos a conta obrigatória agora.**
+**4. A conta começou nullable e virou OBRIGATÓRIA na fase 2.**
 
-Zero-downtime (`docs/PATTERNS.md`): coluna nullable → backfill do que dá para
-inferir → endurecer depois, se e quando o dono quiser. Tornar obrigatório de
-imediato quebraria os caminhos que legitimamente não sabem a conta (estorno cujo
-método original é nulo, cron cross-tenant, ajuste manual de gaveta).
+Fase 1 (nullable) seguiu o padrão zero-downtime: coluna nullable → backfill do
+que dá para inferir → endurecer depois.
+
+**Fase 2 (2026-08-04, decisão do dono: "melhor forçar a sempre ter uma conta").**
+O bloqueio para exigir de imediato era concreto: **nenhum** tenant tinha conta
+cadastrada (0 de 6 na medição). Um `NOT NULL` seco pararia venda, OS e compra em
+produção até cada loja cadastrar uma conta na mão.
+
+A migration resolve isso garantindo a conta ANTES de exigi-la:
+
+1. todo tenant sem conta ganha um **"Caixa da Loja"** (tipo `CASH`, padrão);
+2. tenant com contas mas sem padrão promove a mais antiga;
+3. backfill do que sobrou nulo, agora que sempre existe conta;
+4. só então `NOT NULL`, pelo caminho seguro (`CHECK NOT VALID` → `VALIDATE` →
+   `SET NOT NULL` → dropa o CHECK).
+
+Consequências do endurecimento:
+
+- A cascata ganhou um 4º degrau: **qualquer conta ativa** do tenant, antes de
+  desistir. Só cai aí se o admin desmarcou o padrão sem marcar outro — o dado
+  segue honesto (é conta real do tenant) e a venda não trava por configuração.
+- `requireReceivingAccountId` falha ALTO (`PRECONDITION_FAILED`, com instrução
+  de onde cadastrar) quando o tenant não tem conta ativa nenhuma. Travar é
+  melhor que gravar dinheiro sem origem e descobrir na conciliação meses depois.
+- A FK virou `ON DELETE RESTRICT`: com a coluna `NOT NULL`, um `SET NULL`
+  viraria violação no momento em que alguém apagasse a conta.
+- `tenantFinancialInit` passa a criar a conta padrão, e o **`prisma/seed.ts`
+  passa a chamar `tenantFinancialInit`** — antes não chamava, e um banco montado
+  do zero (o do CI) nascia com tenants sem categoria e sem conta.
 
 ## Consequências
 
@@ -113,9 +138,34 @@ método original é nulo, cron cross-tenant, ajuste manual de gaveta).
   cron cross-tenant, e forçaria o operador a inventar conta — exatamente o dado
   ruim que a conciliação não perdoa.
 
+## Adendo — termo obrigatório também no trade-in (2026-08-04)
+
+Decisão do dono, na mesma conversa: *"o termo existe sim nos dois casos, por isso
+a confirmação de assinatura deve ser obrigatória para o produto entrar no
+estoque"*.
+
+Isso **corrige** o que a auditoria havia registrado como divergência deliberada.
+A leitura anterior era que o trade-in dispensava termo porque o contrato da venda
+já descrevia o aparelho de entrada. Não é o caso: o termo existe nos dois fluxos,
+e a assinatura da venda **é** a assinatura desse termo.
+
+Como ficou:
+
+- O aparelho recebido em troca entra `BLOCKED`, igual à compra de balcão. A loja
+  não pode revender antes de ter prova de que o aparelho é dela.
+- A liberação (`BLOCKED → AVAILABLE`) acontece quando o termo de entrega da venda
+  é assinado — `confirmPhysicalSignature` (papel) e `checkSignatureStatus`
+  (retorno do Autentique). O webhook já cobria por outro caminho, casando a
+  `DevicePurchase` por IMEI/série.
+- A `DevicePurchase` da troca é marcada `termSigned` com
+  `termSignedVia: "sale_delivery_term"` — distingue, no histórico, o termo que
+  veio da venda do termo avulso da compra de balcão.
+- Vale só para trocas NOVAS: aparelhos de troca já no estoque continuam
+  vendáveis. Bloquear retroativamente sumiria com mercadoria que a loja já está
+  anunciando.
+
 ## Fora de escopo (decisão do dono pendente)
 
-- Tornar a conta obrigatória depois do backfill.
 - Saldo por conta com conciliação de extrato (OFX/CSV).
 - Se a carteira DePix (`TenantDepixWallet`) vira uma `ReceivingAccount` do tipo
   `WALLET` ou apenas aponta para uma.

@@ -312,13 +312,15 @@ compra↔financeiro↔caixa não tem cobertura.
     pelo custo médio derivado das entradas, e gravar custo ali seria inventar
     dado.
 
-**Ainda pendente (decisão do dono)**
-15. **Unificar trade-in e compra de aparelho.** A divergência de status
-    (BLOCKED × AVAILABLE) foi documentada no código como deliberada: no trade-in
-    o cliente assina o contrato da VENDA, que já descreve o aparelho de entrada.
-    Se você quiser o termo avulso também no trade-in, é decisão sua.
-17. **Tornar a conta obrigatória**, depois de rodar um tempo com ela nula e ver
-    quanto de fato fica sem conta (a tela mostra o total "sem conta").
+**Também FEITAS (decisões do dono, 2026-08-04)**
+15. ~~**Unificar trade-in e compra de aparelho.**~~ **FEITO.** A leitura anterior
+    — de que o trade-in dispensava termo — estava ERRADA. O dono confirmou: *"o
+    termo existe sim nos dois casos"*. O aparelho de troca passa a entrar
+    `BLOCKED` e só libera quando o termo de entrega da venda é assinado. Vale
+    para trocas novas; as que já estão no estoque seguem vendáveis.
+17. ~~**Tornar a conta obrigatória.**~~ **FEITO.** Como nenhum tenant tinha conta
+    (0 de 6), a migration cria "Caixa da Loja" para todos ANTES de exigir — daí
+    o `NOT NULL` não trava ninguém. Ver ADR 0069, fase 2.
 
 ## O que ficou de fora (backlog consciente)
 

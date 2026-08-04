@@ -2,6 +2,7 @@ import { PrismaClient, Prisma } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { hashSync } from "bcryptjs";
 import { PLAN_CATALOG, CATALOG_SLUGS, catalogPlanModules } from "../src/lib/plans/catalog";
+import { tenantFinancialInit } from "../src/server/services/tenant-financial-init.service";
 
 /**
  * Planos do catálogo comercial (idempotente por slug). A definição mora em
@@ -102,6 +103,18 @@ async function main() {
     create: { slug: "loja-teste", name: "Loja Teste", status: "ACTIVE" },
   });
   console.log(`Tenant: ${tenantTest.name} (${tenantTest.id})`);
+
+  // Fundação financeira dos tenants semeados: categorias fixas, formas de
+  // pagamento, bandeiras e — desde o ADR 0069 fase 2 — a conta de recebimento
+  // padrão. É a MESMA função que o cadastro real de tenant chama
+  // (`admin.createTenant`), para o banco de teste não divergir do de produção.
+  //
+  // Antes o seed não chamava: um banco montado do zero (o do CI) tinha tenants
+  // sem categoria e sem conta, e qualquer coisa que dependesse disso passava
+  // local e quebrava no CI.
+  for (const t of [tenantArena, tenantTest]) {
+    await prisma.$transaction((tx) => tenantFinancialInit(tx, t.id));
+  }
 
   // --- Super Admin (no tenant link — accesses /admin directly) ---
   const superAdmin = await upsertUserByCpf(superCpf, {
