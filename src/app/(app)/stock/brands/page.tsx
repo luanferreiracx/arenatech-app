@@ -36,7 +36,7 @@ export default function BrandsPage() {
   const [newName, setNewName] = useState("");
   const [editId, setEditId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
-  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const [isAdding, setIsAdding] = useState(false);
 
   const listQuery = useQuery(trpc.stock.listBrands.queryOptions({}));
@@ -71,7 +71,7 @@ export default function BrandsPage() {
     trpc.stock.deleteBrand.mutationOptions({
       onSuccess: () => {
         toast.success("Marca excluida");
-        setDeleteId(null);
+        setDeleteTarget(null);
         invalidate();
       },
       onError: (err) => toast.error(err.message),
@@ -217,7 +217,7 @@ export default function BrandsPage() {
                               variant="ghost"
                               size="icon"
                               aria-label={`Excluir marca ${brand.name}`}
-                              onClick={() => setDeleteId(brand.id)}
+                              onClick={() => setDeleteTarget({ id: brand.id, name: brand.name })}
                               disabled={brand.productCount > 0}
                               title={brand.productCount > 0 ? "Marca com produtos vinculados" : "Excluir"}
                             >
@@ -236,12 +236,19 @@ export default function BrandsPage() {
       </Card>
 
       <ConfirmDialog
-        open={!!deleteId}
-        onOpenChange={(open) => !open && setDeleteId(null)}
+        open={!!deleteTarget}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
         title="Excluir marca?"
-        description="Esta acao nao pode ser desfeita."
+        // Antes era anônima e ainda MENTIA: o servidor faz soft delete, então
+        // é recuperável. Confirmação que não diz O QUE vai sumir não é
+        // proteção. Auditoria de frontend 2026-08-04.
+        description={
+          deleteTarget
+            ? `A marca "${deleteTarget.name}" sai das listas e dos filtros. Os produtos que a usam nao sao excluidos — ficam sem marca.`
+            : ""
+        }
         variant="destructive"
-        onConfirm={() => { if (deleteId) deleteMutation.mutate({ id: deleteId }); }}
+        onConfirm={() => { if (deleteTarget) deleteMutation.mutate({ id: deleteTarget.id }); }}
         isLoading={deleteMutation.isPending}
       />
     </div>

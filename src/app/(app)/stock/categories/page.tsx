@@ -21,6 +21,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/lib/toast";
 import { useIsTenantAdmin } from "@/lib/auth/use-tenant-admin";
 
+/** Máximo que o schema aceita — mantém a lista inteira visível na prática. */
+const CATEGORIES_PAGE_SIZE = 100;
+
 export default function CategoriesPage() {
   const trpc = useTRPC();
   const isAdmin = useIsTenantAdmin();
@@ -28,10 +31,17 @@ export default function CategoriesPage() {
   const [newName, setNewName] = useState("");
   const [editId, setEditId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
-  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const [isAdding, setIsAdding] = useState(false);
 
-  const listQuery = useQuery(trpc.stock.listCategories.queryOptions({}));
+  // O servidor pagina em 50 por padrão e a tela não tinha controle de página:
+  // a categoria 51 existia no banco e era INALCANÇÁVEL pela UI. Pede o máximo
+  // permitido e avisa quando ainda houver mais — silenciar seria repetir o bug.
+  // Auditoria de frontend 2026-08-04, P1-11.
+  const [page, setPage] = useState(0);
+  const listQuery = useQuery(
+    trpc.stock.listCategories.queryOptions({ page, pageSize: CATEGORIES_PAGE_SIZE }),
+  );
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: trpc.stock.listCategories.queryKey() });
 
@@ -62,7 +72,7 @@ export default function CategoriesPage() {
     trpc.stock.deleteCategory.mutationOptions({
       onSuccess: () => {
         toast.success("Categoria excluida");
-        setDeleteId(null);
+        setDeleteTarget(null);
         invalidate();
       },
       onError: (err) => toast.error(err.message),
@@ -204,7 +214,7 @@ export default function CategoriesPage() {
                               variant="ghost"
                               size="icon"
                               aria-label={`Excluir categoria ${cat.name}`}
-                              onClick={() => setDeleteId(cat.id)}
+                              onClick={() => setDeleteTarget({ id: cat.id, name: cat.name })}
                               disabled={cat._count.products > 0}
                               title={cat._count.products > 0 ? "Categoria com produtos vinculados" : "Excluir"}
                             >
@@ -219,16 +229,52 @@ export default function CategoriesPage() {
               </TableBody>
             </Table>
           )}
+
+          {/* Paginação só aparece quando existe mais de uma página. Sem isto,
+              a categoria além da 100ª ficava invisível E inalcançável. */}
+          {(listQuery.data?.pageCount ?? 0) > 1 && (
+            <div className="flex items-center justify-between gap-3 border-t border-border pt-3 text-sm">
+              <span className="text-muted-foreground">
+                Pagina {page + 1} de {listQuery.data?.pageCount}
+              </span>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page === 0}
+                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                >
+                  Anterior
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page + 1 >= (listQuery.data?.pageCount ?? 1)}
+                  onClick={() => setPage((p) => p + 1)}
+                >
+                  Proxima
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
       <ConfirmDialog
-        open={!!deleteId}
-        onOpenChange={(open) => !open && setDeleteId(null)}
+        open={!!deleteTarget}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
         title="Excluir categoria?"
-        description="Esta acao nao pode ser desfeita."
+        // Antes era anônima ("Esta acao nao pode ser desfeita") e ainda
+        // MENTIA: o servidor faz soft delete, então é recuperável. Confirmação
+        // que não diz o QUE vai sumir não é proteção — o operador clica no
+        // automático. Auditoria de frontend 2026-08-04.
+        description={
+          deleteTarget
+            ? `A categoria "${deleteTarget.name}" sai das listas e dos filtros. Os produtos que a usam nao sao excluidos — ficam sem categoria.`
+            : ""
+        }
         variant="destructive"
-        onConfirm={() => { if (deleteId) deleteMutation.mutate({ id: deleteId }); }}
+        onConfirm={() => { if (deleteTarget) deleteMutation.mutate({ id: deleteTarget.id }); }}
         isLoading={deleteMutation.isPending}
       />
     </div>

@@ -820,9 +820,13 @@ export function ServiceOrderDetail({ id }: { id: string }) {
               )}
             </div>
             <div className="space-y-3 text-sm">
-              <div><p className="text-muted-foreground text-xs">Problema Relatado</p><p>{order.reportedProblem ?? "—"}</p></div>
-              {order.diagnosedProblem && <div><p className="text-muted-foreground text-xs">Defeito Constatado</p><p>{order.diagnosedProblem}</p></div>}
-              {order.internalNotes && <div><p className="text-muted-foreground text-xs">Observacoes Internas</p><p>{order.internalNotes}</p></div>}
+              {/* Texto livre do cliente/técnico: sem `break-words`, uma URL
+                  colada ou reclamação longa esticava a coluna do grid e
+                  espremia as outras duas. `device-history-panel` já tratava o
+                  mesmo campo. Auditoria de frontend 2026-08-04 (frame leak). */}
+              <div className="min-w-0"><p className="text-muted-foreground text-xs">Problema Relatado</p><p className="break-words">{order.reportedProblem ?? "—"}</p></div>
+              {order.diagnosedProblem && <div className="min-w-0"><p className="text-muted-foreground text-xs">Defeito Constatado</p><p className="break-words">{order.diagnosedProblem}</p></div>}
+              {order.internalNotes && <div className="min-w-0"><p className="text-muted-foreground text-xs">Observacoes Internas</p><p className="break-words">{order.internalNotes}</p></div>}
             </div>
           </div>
 
@@ -872,28 +876,33 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                       </div>
                     </div>
                   ) : (
-                    <div key={item.id} className="flex items-center justify-between py-2 border-b border-border last:border-b-0 text-sm">
-                      <div className="flex-1">
+                    // `flex-1` sem `min-w-0` era TRUNCATE GHOST na prática: uma
+                    // descrição longa (ou uma URL colada) empurrava o bloco de
+                    // ações para fora do card, escondendo Editar e Remover.
+                    // `min-w-0` + `break-words` no texto, `shrink-0` nas ações.
+                    // Auditoria de frontend 2026-08-04.
+                    <div key={item.id} className="flex items-center justify-between gap-3 py-2 border-b border-border last:border-b-0 text-sm">
+                      <div className="min-w-0 flex-1">
                         <StatusBadge variant={item.type === "SERVICE" ? "info" : "warning"} className="mr-2 text-[10px]">
                           {item.type === "SERVICE" ? "Servico" : "Produto"}
                         </StatusBadge>
-                        <span>{item.description}</span>
+                        <span className="break-words">{item.description}</span>
                       </div>
-                      <div className="flex items-center gap-4">
-                        <span className="text-muted-foreground">{item.quantity}x {formatMoney(item.unitPrice)}</span>
+                      <div className="flex shrink-0 items-center gap-2 sm:gap-4">
+                        <span className="whitespace-nowrap text-muted-foreground">{item.quantity}x {formatMoney(item.unitPrice)}</span>
                         <span className="font-mono font-medium w-24 text-right">{formatMoney(item.total)}</span>
                         {canEditItems && (
                           <>
-                            <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="Editar item" onClick={() => { setEditItemId(item.id); setEditItemDesc(item.description); setEditItemQty(item.quantity); setEditItemPrice(item.unitPrice); }}>
-                              <Pencil className="h-3 w-3" />
+                            <Button variant="ghost" size="icon" className="h-9 w-9" aria-label="Editar item" onClick={() => { setEditItemId(item.id); setEditItemDesc(item.description); setEditItemQty(item.quantity); setEditItemPrice(item.unitPrice); }}>
+                              <Pencil className="h-3.5 w-3.5" />
                             </Button>
                             {/* Confirma antes de remover: no servidor isto
                                 devolve estoque, grava StockMovement e recalcula
                                 totais. Era um clique num ícone pequeno, colado
                                 no de editar, sem confirmação nem undo.
                                 Auditoria de frontend 2026-08-04, P1-5. */}
-                            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" aria-label="Remover item" onClick={() => setPendingRemoveItem({ id: item.id, description: item.description, isProduct: item.type === "PRODUCT", quantity: item.quantity })}>
-                              <Trash2 className="h-3 w-3" />
+                            <Button variant="ghost" size="icon" className="h-9 w-9 text-destructive" aria-label="Remover item" onClick={() => setPendingRemoveItem({ id: item.id, description: item.description, isProduct: item.type === "PRODUCT", quantity: item.quantity })}>
+                              <Trash2 className="h-3.5 w-3.5" />
                             </Button>
                           </>
                         )}
@@ -1689,7 +1698,27 @@ export function ServiceOrderDetail({ id }: { id: string }) {
       <Dialog {...dialog.props("refund")}>
         <DialogContent>
           <DialogHeader><DialogTitle>Estornar OS</DialogTitle></DialogHeader>
-          <div><Label>Motivo do Estorno (min. 10 caracteres)</Label><Textarea value={refundReason} onChange={(e) => setRefundReason(e.target.value)} rows={3} /></div>
+          {/* PREVIEW dos efeitos. O servidor faz muito mais do que o diálogo
+              admitia: devolve peças ao estoque, gera SAÍDA na gaveta (por isso
+              exige caixa aberto), cancela recebíveis e comissões. O operador
+              não tinha como saber que uma retirada de caixa ia ser registrada.
+              O estorno de VENDA já mostra os efeitos — paridade.
+              Auditoria de frontend 2026-08-04, P1-6. */}
+          <div className="space-y-3 text-sm">
+            <p>
+              Estornar a OS <strong>#{order.number}</strong> de{" "}
+              <strong>{formatMoney(order.totalAmount)}</strong> vai:
+            </p>
+            <ul className="list-disc space-y-1 pl-5 text-muted-foreground">
+              <li>devolver ao estoque as pecas usadas nesta OS;</li>
+              <li>registrar a <strong>saida do dinheiro no caixa</strong> (exige caixa aberto);</li>
+              <li>cancelar recebiveis pendentes e comissoes ainda nao pagas.</li>
+            </ul>
+            <p className="text-muted-foreground text-xs">
+              Se houver NF-e ativa para esta OS, o estorno e bloqueado — cancele a nota antes.
+            </p>
+          </div>
+          <div><Label htmlFor="refund-reason">Motivo do Estorno (min. 10 caracteres)</Label><Textarea id="refund-reason" value={refundReason} onChange={(e) => setRefundReason(e.target.value)} rows={3} /></div>
           <DialogFooter>
             <Button variant="outline" onClick={() => dialog.close()}>Voltar</Button>
             <Button variant="destructive" disabled={refundReason.length < 10 || refundMut.isPending} onClick={() => refundMut.mutate({ id, reason: refundReason })}>{refundMut.isPending ? "Estornando..." : "Confirmar Estorno"}</Button>
