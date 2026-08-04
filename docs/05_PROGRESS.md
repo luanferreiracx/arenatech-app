@@ -2038,6 +2038,44 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-08-04 — Auditoria profunda do modulo de Estoque: 5 P0 + 6 P1 fechados
+
+Gatilho: o dono reportou que ao finalizar uma compra de aparelhos "informamos apenas que e PIX e ja
+passa, nao se escolhe conta, nao se faz mais nada". A auditoria partiu do sintoma e varreu o modulo
+inteiro e suas fronteiras (venda/PDV, OS, NF-e, financeiro, caixa). Relatorio completo em
+`docs/auditorias/2026-08-04-auditoria-estoque.md`.
+
+O padrao que ligou quase tudo: **o caminho feliz e solido; reversao, excecao e variacao sangravam.**
+
+- Implementado (P0): pagamento obrigatorio na compra (entrava aparelho avaliado no estoque com ZERO
+  lancamento financeiro — o custo sumia da despesa e voltava no CMV da revenda); editar produto com
+  variacoes parou de HARD DELETE-ar as existentes e zerar o saldo (59 unidades sumiam sem nenhum
+  StockMovement); cancelar compra passou a estornar o LEDGER (a despesa cancelada ficava no DRE para
+  sempre, porque os leitores somam sem olhar status); estorno de OS passou a devolver as pecas;
+  estorno "com defeito" de item nao-serializado parou de gravar ENTRY fantasma.
+- Implementado (P1): dinheiro sem caixa aberto agora bloqueia (era aceito em silencio → falta
+  fantasma no fechamento); saida de caixa vai para a sessao do PROPRIO usuario; compra nasce
+  categorizada (categoria fixa nova COMPRA_APARELHO + backfill); NF-e credita a VARIACAO quando ha
+  variationId (mercadoria importada ficava invisivel); parcela nao nasce mais negativa; data de
+  vencimento validada; `reportVendasPeriodo` parou de vazar custo/margem ao operador; trade-in ganhou
+  productId (sem ele o cancelamento nunca removia o StockItem) e o estorno total tira o aparelho de
+  entrada do estoque; `uncancel` de OS voltou a debitar a variacao certa.
+- Endurecimento de banco: CHECK de saldo nao-negativo em products/product_variations e WITH CHECK nas
+  5 policies de RLS que so tinham USING (usando `current_tenant_id()`, que devolve NULL em vez de
+  estourar quando o pooler reseta a conexao).
+- Decisoes: a divergencia de status entre compra de balcao (BLOCKED ate assinar termo) e trade-in
+  (AVAILABLE na hora) e DELIBERADA e agora esta dita no codigo — no trade-in o cliente assina o
+  contrato da VENDA, que ja descreve o aparelho de entrada.
+- Uma hipotese da auditoria foi REFUTADA na verificacao: duplo-pagamento em aparelho sem IMEI e
+  inalcancavel (o validador exige IMEI ou serial). Ficou um teste fixando o invariante em vez de uma
+  guarda para caminho morto.
+- Validacao: 18 testes de integracao novos, cada um nascido VERMELHO. As duas correcoes de maior
+  risco foram validadas tambem no navegador real (editar e salvar o produto preservou as 59 unidades;
+  o form bloqueia o submit sem forma de pagamento). 2297 unit + 414 integracao verdes.
+- Proximo (aguarda decisao do dono): conta bancaria (ReceivingAccount) em FinancialTransaction — e a
+  correcao de RAIZ da queixa original ("nao se escolhe conta"), mas atravessa venda, OS, despesa e
+  compra; decidir se o kardex valorizado (`unitCostCents`) vira real ou sai.
+
 ### 2026-07-06 — Comissoes: ajuda de custo = valor TOTAL no mes (nao diaria)
 
 Auditoria da comissao da Samya (comissao CORRETA, R$1.870,94) revelou que a ajuda de custo modelava

@@ -1,5 +1,15 @@
 # Auditoria profunda — Módulo de Estoque (2026-08-04)
 
+> **STATUS: CORRIGIDO.** Todos os P0 e P1 abaixo foram fechados na branch
+> `fix/estoque-robustez-auditoria`, com 18 testes de integração novos — cada um
+> nascido VERMELHO contra o código antigo. As duas correções de maior risco
+> (P0-1 variações e P0-3 pagamento) foram validadas também no navegador real.
+>
+> **Uma hipótese da auditoria NÃO se confirmou** e está registrada como tal na
+> seção P1-8: o duplo-pagamento em aparelho sem IMEI é inalcançável, porque o
+> validador exige IMEI ou serial. Ficou um teste fixando o invariante em vez de
+> uma guarda para um caminho morto.
+
 > Gatilho: o dono reportou que ao finalizar uma compra de aparelhos "informamos
 > apenas que é PIX e já passa, não se escolhe conta, não se faz mais nada".
 > Esta auditoria partiu desse sintoma e varreu o módulo inteiro e suas fronteiras
@@ -184,13 +194,17 @@ quando o item tem `variationId`. Mas o saldo vendável de um produto
 `hasVariations` é a **soma das variações** (`stock-item.service.ts:47-51`).
 A NF-e diz que entraram 50, o kardex diz 50, o saldo vendável diz **0**.
 
-### P1-8 — Sem idempotência em nenhuma mutação de estoque
-Zero ocorrências de `idempot`/`clientRequestId` no router. `stockEntryBatch` não
-tem chave natural: duplo clique ou retry após o timeout de 20s da transação
-commita duas vezes. Em `createPurchase`, a unique parcial de IMEI protege por
-acidente — mas **não** para aparelhos sem IMEI (AirPods, iPad WiFi), que o código
-permite explicitamente: aí saem duas compras, dois StockItems, **dois pagamentos**.
-A venda foi endurecida com `finalize-idempotency.service.ts`; a compra não.
+### P1-8 — Idempotência: hipótese REFUTADA na verificação
+A auditoria afirmou que aparelhos sem IMEI (AirPods, iPad WiFi) permitiriam
+duplo-pagamento. **Não procede.** O `createDevicePurchaseSchema` exige IMEI **ou**
+serial (`Informe IMEI ou numero de serie do aparelho`), então o caminho sem
+identificador é inalcançável pela API — confirmado executando o cenário, que
+falha na validação. Com identificador, a unique parcial de IMEI já barra o retry.
+
+O bloco permissivo no router é código morto herdado, não um buraco. Ficou um
+teste fixando o invariante: se alguém afrouxar a exigência do validador, o risco
+volta e o teste avisa. `stockEntryBatch` segue sem chave natural — risco real,
+porém menor (não move dinheiro), registrado no backlog.
 
 ### P1-9 — Sem `CHECK (current_stock >= 0)` no banco
 O invariante só se sustenta porque 7+ call sites lembram de escrever
@@ -283,15 +297,28 @@ compra↔financeiro↔caixa não tem cobertura.
 12. `CHECK (current_stock >= 0) NOT VALID` nas duas tabelas.
 13. Teste de integração cobrindo compra→financeiro→caixa→cancelamento.
 
-**Perigosas (exigem decisão do dono)**
+**Perigosas (exigem decisão do dono) — NÃO feitas, aguardando você**
 14. **Conta bancária (ReceivingAccount) no financeiro.** Coluna nova em
     `FinancialTransaction` + backfill + UI em toda entrada/saída. É a correção de
-    raiz da queixa original, mas atravessa venda, OS, despesa e compra.
-15. **Unificar trade-in e compra de aparelho.** Hoje são dois fluxos com regras
-    divergentes para o mesmo evento. Decidir se o termo é obrigatório e aplicar
-    nos dois.
-16. **Decidir se o kardex valorizado é real.** Ou preenche custo em todos os
-    movimentos, ou remove as colunas. Meio preenchido é a pior opção.
+    raiz da queixa original ("não se escolhe conta"), mas atravessa venda, OS,
+    despesa e compra — é uma mudança de modelo, não um ajuste. **Pendente.**
+15. **Unificar trade-in e compra de aparelho.** A divergência de status
+    (BLOCKED × AVAILABLE) foi documentada no código como deliberada: no trade-in
+    o cliente assina o contrato da VENDA, que já descreve o aparelho de entrada.
+    Se você quiser o termo avulso também no trade-in, é decisão sua. **Pendente.**
+16. **Decidir se o kardex valorizado é real.** `unitCostCents` é preenchido por
+    um caminho só e lido por nenhum relatório. Ou preenche custo em todos os
+    movimentos, ou remove as colunas. **Pendente.**
+
+## O que ficou de fora (backlog consciente)
+
+- `stockEntryBatch`/`stockExit` sem chave de idempotência (não movem dinheiro).
+- `quantityBefore/After` ainda ausentes em `stockExit`, `importCsv` e no
+  finalize da venda — só `adjustStock` foi encadeado nesta rodada.
+- Peça de OS segue como `RESERVE` para sempre (nunca vira `EXIT` no pagamento):
+  o saldo está certo, o tipo do movimento é que mente.
+- URL de foto aceita qualquer scheme (mitigado por CSP + exigir admin).
+- NF-e ignora produto serializado em silêncio e ainda conta como importado.
 
 ## Baixa confiança / perguntas em aberto
 
