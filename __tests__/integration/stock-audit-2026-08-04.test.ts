@@ -336,6 +336,50 @@ describe("Auditoria estoque 2026-08-04 — compra de aparelho x financeiro", () 
     expect(afterLedger._sum.amountCents).toBe(0);
   });
 
+  it("P1-9: vendedor excluído é rejeitado (não grava compra com contraparte fantasma)", async () => {
+    const productId = await makeDeviceProduct();
+    const customerId = await makeCustomer();
+    await prisma.customer.update({
+      where: { id: customerId },
+      data: { deletedAt: new Date() },
+    });
+
+    await expect(
+      call().stock.createPurchase({
+        productId,
+        sellerType: "customer",
+        customerId,
+        imei: makeImei(),
+        condition: "USED",
+        purchasePrice: 120000,
+        paymentMode: "payable",
+      } as any),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
+  it("compra CANCELADA não pode ter o termo assinado", async () => {
+    const productId = await makeDeviceProduct();
+    const customerId = await makeCustomer();
+
+    const purchase = await call().stock.createPurchase({
+      productId,
+      sellerType: "customer",
+      customerId,
+      imei: makeImei(),
+      condition: "USED",
+      purchasePrice: 100000,
+      paymentMode: "payable",
+    } as any);
+    purchaseIds.push(purchase.id);
+
+    await call().stock.cancelPurchase({ id: purchase.id, reason: "erro de digitacao" });
+
+    // Sem a guarda, a compra ficava num estado impossível: cancelada E assinada.
+    await expect(
+      call().stock.confirmPurchasePhysicalSignature({ id: purchase.id }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
   it("P1-3: compra à vista nasce categorizada no financeiro", async () => {
     const productId = await makeDeviceProduct();
     const customerId = await makeCustomer();

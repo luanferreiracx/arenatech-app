@@ -1045,6 +1045,37 @@ export const stockRouter = createTRPCRouter({
           });
         }
 
+        // O vendedor precisa EXISTIR e estar ativo. Antes o id só era lido lá
+        // embaixo, para pegar o nome de exibição, com `findUnique` sem filtro de
+        // `deletedAt` e um `?? "Fornecedor não identificado"` que engolia a
+        // falha: dava para gravar uma compra apontando para um cliente/fornecedor
+        // excluído. (Cross-tenant nunca foi possível — a RLS já cuida disso.)
+        // Auditoria de estoque 2026-08-04, P1-9.
+        if (input.sellerType === "customer" && input.customerId) {
+          const seller = await tx.customer.findFirst({
+            where: { id: input.customerId, deletedAt: null },
+            select: { id: true },
+          });
+          if (!seller) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Cliente vendedor nao encontrado ou excluido.",
+            });
+          }
+        }
+        if (input.sellerType === "supplier" && input.supplierId) {
+          const seller = await tx.supplier.findFirst({
+            where: { id: input.supplierId, deletedAt: null, active: true },
+            select: { id: true },
+          });
+          if (!seller) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Fornecedor nao encontrado, inativo ou excluido.",
+            });
+          }
+        }
+
         // Preco minimo R$ 1,00 (defesa em profundidade — validator ja
         // garante, mas backend nao confia no client).
         if (input.purchasePrice < 100) {
@@ -1814,8 +1845,20 @@ export const stockRouter = createTRPCRouter({
         if (purchase.termSigned) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Termo ja foi assinado." });
         }
-        await tx.devicePurchase.update({
-          where: { id: input.id },
+        // Compra CANCELADA não assina termo. Sem esta guarda, marcar a
+        // assinatura de uma compra cancelada tentava liberar o aparelho de volta
+        // (o `deletedAt: null` do release segurava o dano, mas a compra ficava
+        // com estado impossível: cancelada E assinada).
+        // Auditoria de estoque 2026-08-04.
+        if (purchase.cancelledAt) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Compra cancelada nao pode ter o termo assinado.",
+          });
+        }
+        // CAS em `termSigned`: duas confirmações concorrentes gravavam as duas.
+        const claim = await tx.devicePurchase.updateMany({
+          where: { id: input.id, termSigned: false, cancelledAt: null },
           data: {
             termSigned: true,
             termSignedAt: new Date(),
@@ -1823,6 +1866,12 @@ export const stockRouter = createTRPCRouter({
             termSignedByUserId: ctx.session.user.id,
           },
         });
+        if (claim.count !== 1) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "A compra mudou de estado durante a confirmacao. Recarregue e tente novamente.",
+          });
+        }
         // Libera o StockItem dessa compra (estava BLOCKED aguardando assinatura)
         await releaseStockItemForPurchase(tx, purchase);
         return purchase.autentiqueDocumentId;
@@ -1862,6 +1911,14 @@ export const stockRouter = createTRPCRouter({
         if (!purchase) throw new TRPCError({ code: "NOT_FOUND" });
         if (purchase.termSigned) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Termo ja foi assinado." });
+        }
+        // Não gasta crédito do Autentique (nem constrange o cliente a assinar)
+        // por uma compra que já foi cancelada. Auditoria de estoque 2026-08-04.
+        if (purchase.cancelledAt) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Compra cancelada nao pode ter o termo enviado.",
+          });
         }
         // Reenvio permitido (paridade PDV): se ja havia doc, considera resend
         // e sobrescreve com novo. Doc antigo fica orfao no Autentique — best
@@ -2018,14 +2075,20 @@ export const stockRouter = createTRPCRouter({
       // ETAPA 3 — persiste se assinado + libera StockItem
       if (status.signed) {
         await ctx.withTenant(async (tx) => {
-          await tx.devicePurchase.update({
-            where: { id: input.id },
+          // Mesma guarda do caminho físico: compra cancelada não vira assinada,
+          // nem devolve o aparelho ao estoque. Como a chamada ao Autentique
+          // acontece FORA da transação, a compra pode ter sido cancelada nesse
+          // meio-tempo — por isso o estado é reivindicado com CAS aqui dentro.
+          // Auditoria de estoque 2026-08-04.
+          const claim = await tx.devicePurchase.updateMany({
+            where: { id: input.id, termSigned: false, cancelledAt: null },
             data: {
               termSigned: true,
               termSignedAt: new Date(),
               termSignedVia: "autentique",
             },
           });
+          if (claim.count !== 1) return;
           await releaseStockItemForPurchase(tx, purchase);
         });
         return { signed: true, status: "signed" };
