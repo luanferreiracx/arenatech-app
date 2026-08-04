@@ -879,18 +879,22 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                     // `flex-1` sem `min-w-0` era TRUNCATE GHOST na prática: uma
                     // descrição longa (ou uma URL colada) empurrava o bloco de
                     // ações para fora do card, escondendo Editar e Remover.
-                    // `min-w-0` + `break-words` no texto, `shrink-0` nas ações.
+                    //
+                    // EMPILHA em telas estreitas: mantendo tudo na mesma linha,
+                    // as ações `shrink-0` não deixavam largura para o texto e a
+                    // descrição quebrava com UMA LETRA POR LINHA (visto a
+                    // 320px). Descrição em cima, valores e ações embaixo.
                     // Auditoria de frontend 2026-08-04.
-                    <div key={item.id} className="flex items-center justify-between gap-3 py-2 border-b border-border last:border-b-0 text-sm">
-                      <div className="min-w-0 flex-1">
+                    <div key={item.id} className="flex flex-col gap-2 py-2 border-b border-border last:border-b-0 text-sm sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                      <div className="min-w-0 sm:flex-1">
                         <StatusBadge variant={item.type === "SERVICE" ? "info" : "warning"} className="mr-2 text-[10px]">
                           {item.type === "SERVICE" ? "Servico" : "Produto"}
                         </StatusBadge>
                         <span className="break-words">{item.description}</span>
                       </div>
-                      <div className="flex shrink-0 items-center gap-2 sm:gap-4">
+                      <div className="flex shrink-0 flex-wrap items-center justify-end gap-x-3 gap-y-1 sm:flex-nowrap sm:gap-4">
                         <span className="whitespace-nowrap text-muted-foreground">{item.quantity}x {formatMoney(item.unitPrice)}</span>
-                        <span className="font-mono font-medium w-24 text-right">{formatMoney(item.total)}</span>
+                        <span className="whitespace-nowrap font-mono font-medium text-right sm:w-24">{formatMoney(item.total)}</span>
                         {canEditItems && (
                           <>
                             <Button variant="ghost" size="icon" className="h-9 w-9" aria-label="Editar item" onClick={() => { setEditItemId(item.id); setEditItemDesc(item.description); setEditItemQty(item.quantity); setEditItemPrice(item.unitPrice); }}>
