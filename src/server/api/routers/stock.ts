@@ -89,7 +89,10 @@ import {
   reverseCashPaidTransaction,
 } from "@/server/services/installment-ledger.service";
 import { writeCashMovement } from "@/server/services/cash-session.service";
-import { resolveCategoryId } from "@/server/services/financial-category.service";
+import {
+  ensureDevicePurchaseCategoryId,
+  DEVICE_PURCHASE_CATEGORY_NAME,
+} from "@/server/services/financial-category.service";
 import { affectsCashDrawer, canonicalMethodToken } from "@/lib/payments/cash-method";
 import {
   resolveBrandId,
@@ -110,13 +113,6 @@ import { Prisma } from "@prisma/client";
 import { startOfDayBrt, endOfDayBrt } from "@/lib/utils/date-range";
 import { getAppBaseUrl } from "@/lib/utils/app-url";
 import { saleGoodsRevenueCents } from "@/lib/sales/sale-revenue";
-
-/**
- * Categoria financeira das compras de aparelho. Nome único e estável — o
- * `resolveCategoryId` cria na primeira compra do tenant e reusa depois, então
- * mudar esta string passa a criar uma categoria nova e parte o histórico.
- */
-const DEVICE_PURCHASE_CATEGORY = "Compra de aparelho";
 
 /**
  * Libera o StockItem criado por essa compra: BLOCKED -> AVAILABLE.
@@ -1353,19 +1349,14 @@ export const stockRouter = createTRPCRouter({
             // negócio (compra de aparelho) ficava fora de qualquer relatório
             // por categoria, e a FK `category_id` nascia nula. A venda já
             // categoriza. Auditoria 2026-08-04, P1-3.
-            const purchaseCategoryId = await resolveCategoryId(
-              tx,
-              ctx.tenantId,
-              DEVICE_PURCHASE_CATEGORY,
-              "PAYABLE",
-            );
+            const purchaseCategoryId = await ensureDevicePurchaseCategoryId(tx, ctx.tenantId);
             const purchaseFt = await tx.financialTransaction.create({
               data: {
                 tenantId: ctx.tenantId,
                 type: "PAYABLE",
                 status: "PAID",
                 description,
-                category: DEVICE_PURCHASE_CATEGORY,
+                category: DEVICE_PURCHASE_CATEGORY_NAME,
                 categoryId: purchaseCategoryId,
                 supplierId: input.supplierId ?? undefined,
                 supplier: sellerName,
@@ -1438,19 +1429,14 @@ export const stockRouter = createTRPCRouter({
             const installmentAmount = Math.floor(totalCents / installmentsCount);
             const remainder = totalCents - installmentAmount * installmentsCount;
 
-            const payableCategoryId = await resolveCategoryId(
-              tx,
-              ctx.tenantId,
-              DEVICE_PURCHASE_CATEGORY,
-              "PAYABLE",
-            );
+            const payableCategoryId = await ensureDevicePurchaseCategoryId(tx, ctx.tenantId);
             const transaction = await tx.financialTransaction.create({
               data: {
                 tenantId: ctx.tenantId,
                 type: "PAYABLE",
                 status: "PENDING",
                 description,
-                category: DEVICE_PURCHASE_CATEGORY,
+                category: DEVICE_PURCHASE_CATEGORY_NAME,
                 categoryId: payableCategoryId,
                 supplierId: input.supplierId ?? undefined,
                 supplier: sellerName,
