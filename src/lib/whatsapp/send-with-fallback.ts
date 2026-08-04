@@ -194,6 +194,8 @@ async function sendTemplateByContext(
   params: string[],
   header?: MediaHeader,
   urlButtonParam?: string,
+  /** Tenant com credencial própria (BYO). Ausente = credencial do ambiente. */
+  tenantId?: string,
 ): Promise<SendResult> {
   const templateKey = TEMPLATE_CONTEXTS[contexto];
   if (!templateKey) {
@@ -210,6 +212,7 @@ async function sendTemplateByContext(
     template.name,
     template.language,
     buildComponents(template, params, header, urlButtonParam),
+    tenantId,
   );
   if (primary.success) {
     return { success: true, via: "template", templateUsed: template.name, messageId: primary.messageId };
@@ -226,6 +229,7 @@ async function sendTemplateByContext(
       const r = await sendCloudTemplate(
         phone, t2.name, t2.language,
         buildComponents(t2, params, header), // sem url button
+        tenantId,
       );
       if (r.success) return { success: true, via: "template", templateUsed: t2.name, messageId: r.messageId };
     }
@@ -238,6 +242,7 @@ async function sendTemplateByContext(
       const r = await sendCloudTemplate(
         phone, t3.name, t3.language,
         buildComponents(t3, paramsForFallback(generic, params, contexto), header),
+        tenantId,
       );
       if (r.success) return { success: true, via: "template", templateUsed: t3.name, messageId: r.messageId };
     }
@@ -251,7 +256,13 @@ async function sendTemplateByContext(
         ? [params[0]!, params[1]!]
         : [params[0] ?? "Cliente", CONTEXT_SUBJECT[contexto] ?? "seu atendimento"];
     logger.info("WhatsApp template fallback: → padrao", { failed: template.name });
-    const r = await sendCloudTemplate(phone, padrao.name, padrao.language, buildComponents(padrao, paramsPadrao));
+    const r = await sendCloudTemplate(
+      phone,
+      padrao.name,
+      padrao.language,
+      buildComponents(padrao, paramsPadrao),
+      tenantId,
+    );
     if (r.success) return { success: true, via: "template", templateUsed: padrao.name, messageId: r.messageId };
     return { success: false, via: "template", error: r.error };
   }
@@ -275,14 +286,26 @@ export async function sendTextWithFallback(opts: {
   const normalized = formatBrPhone(opts.phone);
   const inWindow = await isWithin24hWindow(normalized);
 
+  // Tenant com credencial própria (BYO) envia pela WABA dele. Vem de
+  // `opts.log.tenantId`, que os chamadores já passam para auditoria — sem isso
+  // seria preciso mexer em todos eles. Ausente = credencial do ambiente.
+  const tenantId = opts.log?.tenantId;
+
   let result: SendResult;
   if (inWindow) {
-    const r = await sendCloudText(opts.phone, opts.freeText);
+    const r = await sendCloudText(opts.phone, opts.freeText, tenantId);
     result = r.success
       ? { success: true, via: "text", messageId: r.messageId }
       : { success: false, via: "text", error: r.error };
   } else {
-    result = await sendTemplateByContext(opts.phone, opts.contexto, opts.params, undefined, opts.urlButtonParam);
+    result = await sendTemplateByContext(
+      opts.phone,
+      opts.contexto,
+      opts.params,
+      undefined,
+      opts.urlButtonParam,
+      tenantId,
+    );
   }
 
   if (opts.log) {

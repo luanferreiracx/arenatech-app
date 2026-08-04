@@ -8,6 +8,7 @@ const ALL_TABS: SettingsTab[] = [
   { label: "Geral", href: "/settings/general" },
   { label: "Assistência", href: "/settings/assistance" },
   { label: "Assistente (Talison)", href: "/settings/bot" },
+  { label: "WhatsApp", href: "/settings/whatsapp" },
   { label: "Fiscal", href: "/settings/fiscal" },
   { label: "Formas de Pagamento", href: "/settings/payment-methods" },
   { label: "Cartões e Recebimento", href: "/settings/card-acquirers" },
