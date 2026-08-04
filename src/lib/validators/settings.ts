@@ -185,6 +185,8 @@ export const createUserSchema = z.object({
   phone: requiredBrPhoneSchema,
   role: z.enum(["admin", "operator"]),
   isTechnician: z.boolean().optional(),
+  /** Modo bancada: enxuga a tela de OS (auditoria frontend 2026-08-04). */
+  benchModeOnly: z.boolean().optional(),
   isCashier: z.boolean().optional(),
 });
 
@@ -197,6 +199,8 @@ export const updateUserSchema = z.object({
   phone: requiredBrPhoneSchema,
   role: z.enum(["admin", "operator"]),
   isTechnician: z.boolean().optional(),
+  /** Modo bancada: enxuga a tela de OS (auditoria frontend 2026-08-04). */
+  benchModeOnly: z.boolean().optional(),
   isCashier: z.boolean().optional(),
 });
 

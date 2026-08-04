@@ -133,6 +133,8 @@ export type CreateTenantUserParams = {
   phone?: string | null;
   role: TenantUserRole;
   isTechnician?: boolean;
+  /** Modo bancada: enxuga a tela de OS (auditoria frontend 2026-08-04). */
+  benchModeOnly?: boolean;
   isCashier?: boolean;
 };
 
@@ -187,6 +189,7 @@ export async function createTenantUserInTx(tx: Tx, params: CreateTenantUserParam
       tenantId: tenant.id,
       role: params.role,
       isTechnician: params.isTechnician ?? false,
+      benchModeOnly: params.benchModeOnly ?? false,
       isCashier: params.isCashier ?? false,
     },
   });
@@ -209,6 +212,7 @@ export async function createTenantUserInTx(tx: Tx, params: CreateTenantUserParam
     payload: {
       role: params.role,
       isTechnician: params.isTechnician ?? false,
+      benchModeOnly: params.benchModeOnly ?? false,
       isCashier: params.isCashier ?? false,
       reusedExistingUser: Boolean(existingUser),
     },
@@ -231,6 +235,8 @@ export type UpdateTenantUserParams = {
   phone?: string | null;
   role: TenantUserRole;
   isTechnician?: boolean;
+  /** Modo bancada: enxuga a tela de OS (auditoria frontend 2026-08-04). */
+  benchModeOnly?: boolean;
   isCashier?: boolean;
 };
 
@@ -252,6 +258,7 @@ export async function updateTenantUserInTx(tx: Tx, params: UpdateTenantUserParam
     data: {
       role: params.role,
       isTechnician: params.isTechnician ?? false,
+      benchModeOnly: params.benchModeOnly ?? false,
       isCashier: params.isCashier ?? false,
     },
   });
@@ -268,6 +275,7 @@ export async function updateTenantUserInTx(tx: Tx, params: UpdateTenantUserParam
       roleBefore: membership.role,
       roleAfter: params.role,
       isTechnician: params.isTechnician ?? false,
+      benchModeOnly: params.benchModeOnly ?? false,
       isCashier: params.isCashier ?? false,
     },
   });

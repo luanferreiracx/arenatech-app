@@ -933,6 +933,7 @@ export const settingsRouter = createTRPCRouter({
           tenantId: ut.tenantId,
           role: ut.role,
           isTechnician: ut.isTechnician,
+          benchModeOnly: ut.benchModeOnly,
           isCashier: ut.isCashier,
           name: ut.user.name,
           cpf: ut.user.cpf,
@@ -983,6 +984,7 @@ export const settingsRouter = createTRPCRouter({
           phone: input.phone,
           role: input.role,
           isTechnician: input.isTechnician,
+          benchModeOnly: input.benchModeOnly,
           isCashier: input.isCashier,
         }),
       );
@@ -1001,6 +1003,7 @@ export const settingsRouter = createTRPCRouter({
           phone: input.phone,
           role: input.role,
           isTechnician: input.isTechnician,
+          benchModeOnly: input.benchModeOnly,
           isCashier: input.isCashier,
         }),
       );

@@ -58,6 +58,7 @@ type UserRow = {
   userId: string;
   role: string;
   isTechnician: boolean;
+  benchModeOnly: boolean;
   isCashier: boolean;
   name: string;
   cpf: string;
@@ -89,6 +90,7 @@ export function UsersManager() {
     phone: "",
     role: "operator",
     isTechnician: false,
+    benchModeOnly: false,
     isCashier: false,
   });
 
@@ -150,7 +152,7 @@ export function UsersManager() {
   );
 
   function openCreate() {
-    setForm({ name: "", cpf: "", email: "", phone: "", role: "operator", isTechnician: false, isCashier: false });
+    setForm({ name: "", cpf: "", email: "", phone: "", role: "operator", isTechnician: false, benchModeOnly: false, isCashier: false });
     setShowCreate(true);
   }
   function openEdit(u: UserRow) {
@@ -162,6 +164,7 @@ export function UsersManager() {
       phone: u.phone ?? "",
       role: u.role === "admin" ? "admin" : "operator",
       isTechnician: u.isTechnician,
+      benchModeOnly: u.benchModeOnly,
       isCashier: u.isCashier,
     });
   }
@@ -174,6 +177,7 @@ export function UsersManager() {
       phone: form.phone.trim(),
       role: form.role as "admin" | "operator",
       isTechnician: form.isTechnician,
+      benchModeOnly: form.benchModeOnly,
       isCashier: form.isCashier,
     });
   const submitEdit = () => {
@@ -185,6 +189,7 @@ export function UsersManager() {
       phone: form.phone.trim(),
       role: form.role as "admin" | "operator",
       isTechnician: form.isTechnician,
+      benchModeOnly: form.benchModeOnly,
       isCashier: form.isCashier,
     });
   };
@@ -353,6 +358,26 @@ export function UsersManager() {
                 />
                 É técnico (atende reparos / atribuição de OS)
               </label>
+              {/* Separado de `isTechnician` por decisão do dono (2026-08-04):
+                  em loja pequena o técnico às vezes também atende o balcão, e
+                  aí esconder botão atrapalharia. Só aparece quando faz sentido. */}
+              {form.isTechnician && (
+                <label className="ml-6 flex items-start gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={form.benchModeOnly}
+                    onChange={(e) => setForm((f) => ({ ...f, benchModeOnly: e.target.checked }))}
+                  />
+                  <span className="min-w-0">
+                    Só bancada — esconde da tela de OS o que é de balcão (receber
+                    pagamento, recibo, termos, estornar, cancelar).
+                    <span className="block text-xs text-muted-foreground">
+                      Não muda permissão: só tira da frente o que ele não usa.
+                    </span>
+                  </span>
+                </label>
+              )}
               <label className="flex items-center gap-2 text-sm">
                 <input
                   type="checkbox"

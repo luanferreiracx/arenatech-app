@@ -136,6 +136,19 @@ model UserTenant {
   // (paridade Laravel `usuarios.eh_tecnico`); "Caixa" opera o PDV/caixa.
   isTechnician Boolean @default(false) @map("is_technician")
   isCashier    Boolean @default(false) @map("is_cashier")
+  /**
+   * Enxuga a tela de OS para bancada: esconde o bloco de dinheiro e documentos
+   * (Receber Pagamento, Recibo, Termos, Estornar, Cancelar) e destaca
+   * diagnóstico e conclusão.
+   *
+   * Campo PRÓPRIO, e não derivado de `isTechnician`, por decisão do dono
+   * (2026-08-04): em loja pequena o técnico às vezes também atende o balcão, e
+   * aí esconder botão atrapalha. Quem sabe a rotina é o admin da loja.
+   *
+   * NÃO é permissão — o servidor continua barrando quem não pode. É redução de
+   * carga cognitiva: menos ação errada ao alcance de quem nunca a usa.
+   */
+  benchModeOnly Boolean @default(false) @map("bench_mode_only")
   createdAt DateTime @default(now()) @map("created_at")
 
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)

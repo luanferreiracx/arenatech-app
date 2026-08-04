@@ -200,7 +200,19 @@ export function PdvScreen() {
   const draftQuery = useQuery(
     trpc.sale.getDraft.queryOptions(
       { id: draftId! },
-      { enabled: !!draftId, refetchOnWindowFocus: false },
+      // Revalida ao voltar o foco (decisão do dono, 2026-08-04).
+      //
+      // `abandonDraft` apaga TODOS os rascunhos do vendedor, e o mount do PDV
+      // sempre o chama: abrir o PDV numa segunda aba matava o carrinho da
+      // primeira. Com `refetchOnWindowFocus: false`, a aba órfã não descobria —
+      // seguia mostrando itens que não existiam mais no banco, e cada `addItem`
+      // falhava contra um `saleId` deletado.
+      //
+      // Revalidando, o `getDraft` devolve NOT_FOUND e o early-return de erro
+      // (que já existia) mostra a tela de "rascunho encerrado" com o caminho de
+      // volta, em vez de deixar o operador batendo produtos num carrinho
+      // fantasma. Auditoria de frontend 2026-08-04, P1-7.
+      { enabled: !!draftId, refetchOnWindowFocus: true },
     ),
   );
 
@@ -374,6 +386,12 @@ export function PdvScreen() {
       toast.error("Aguarde o rascunho ser criado ou reinicie a venda.");
       return;
     }
+    // Trava de reentrada. A checagem de estoque abaixo lê `items` do rascunho,
+    // que só atualiza depois do refetch: cinco cliques em 300ms liam o mesmo
+    // valor velho e furavam o saldo. O servidor barra no finalize, mas aí o
+    // operador já está com o cliente na frente e precisa desmontar o carrinho.
+    // Auditoria de frontend 2026-08-04, P1-8.
+    if (addItemMutation.isPending) return;
 
     // Produto serializado (IMEI/serial) — abre modal de selecao em vez de
     // adicionar direto. Paridade Laravel modal-selecionar-imei.
@@ -548,6 +566,13 @@ export function PdvScreen() {
 
   // -- Customer --
   const handleSelectCustomer = (id: string | undefined) => {
+    // Guarda o estado ANTERIOR para reverter se o servidor recusar. Sem isso,
+    // a falha deixava a tela mostrando o cliente vinculado e `canFinalize`
+    // habilitado, enquanto o servidor não tinha cliente na venda: o operador
+    // montava o pagamento inteiro e só então o finalize recusava
+    // ("Venda com aparelho exige cliente selecionado"), perdendo o trabalho.
+    // Auditoria de frontend 2026-08-04, P1-9.
+    const previousId = customerId;
     setCustomerId(id);
     if (!draftId || !id) return;
     setCustomerMutation.mutate(
@@ -556,17 +581,33 @@ export function PdvScreen() {
         onSuccess: () => {
           setShowCustomerDialog(false);
         },
-        onError: (err) => toast.error(err.message),
+        onError: (err) => {
+          setCustomerId(previousId);
+          toast.error(err.message);
+        },
       },
     );
   };
 
   const handleRemoveCustomer = () => {
+    // Idem: guarda tudo o que some da tela e devolve se o servidor recusar.
+    // Antes nem tratava erro — a falha era 100% silenciosa.
+    const previous = { id: customerId, name: customerName, taxId: customerTaxId };
     setCustomerId(undefined);
     setCustomerName(null);
     setCustomerTaxId(null);
     if (!draftId) return;
-    setCustomerMutation.mutate({ saleId: draftId, customerId: null });
+    setCustomerMutation.mutate(
+      { saleId: draftId, customerId: null },
+      {
+        onError: (err) => {
+          setCustomerId(previous.id);
+          setCustomerName(previous.name);
+          setCustomerTaxId(previous.taxId);
+          toast.error(err.message);
+        },
+      },
+    );
   };
 
   // -- Discount --
@@ -631,8 +672,14 @@ export function PdvScreen() {
     setDraftId(null);
     setCustomerId(undefined);
     setCustomerName(null);
+    // `onSettled`, não `onSuccess`: se o abandon falha (rede), o `onSuccess`
+    // nunca roda, `initDraft` nunca é chamado e a tela fica sem rascunho E sem
+    // erro — todo produto novo cai em "Aguarde o rascunho ser criado", e
+    // clicar em Reiniciar de novo repete o buraco. O `initDraft` desta mesma
+    // tela já usava `onSettled`; era inconsistência entre dois caminhos que
+    // fazem a mesma coisa. Auditoria de frontend 2026-08-04, P1-10.
     abandonDraftMutation.mutate(undefined, {
-      onSuccess: () => {
+      onSettled: () => {
         initDraft();
       },
       onError: (err) => {
@@ -758,25 +805,45 @@ export function PdvScreen() {
   }
 
   if (draftId && draftQuery.isError) {
+    // NOT_FOUND aqui quase sempre significa uma coisa concreta: o PDV foi
+    // aberto em outra aba e o `abandonDraft` do mount apagou este rascunho.
+    // Dizer isso, e oferecer "começar nova venda", vale mais que um
+    // "tentar novamente" que vai falhar de novo — o rascunho não volta.
+    const draftGone = draftQuery.error.data?.code === "NOT_FOUND";
     return (
       <div className="flex items-center justify-center h-[calc(100vh-80px)]">
         <Card className="max-w-md w-full">
           <CardContent className="p-8 text-center space-y-4">
             <AlertTriangle className="mx-auto h-12 w-12 text-destructive opacity-60" />
             <h2 className="text-lg font-semibold">
-              Não foi possível carregar a venda
+              {draftGone ? "Esta venda foi encerrada" : "Não foi possível carregar a venda"}
             </h2>
             <p className="text-sm text-muted-foreground">
-              {draftQuery.error.message || "Verifique se o recebimento ainda está em aberto."}
+              {draftGone
+                ? "O PDV foi aberto em outra aba ou janela, e o carrinho daqui foi descartado. Comece uma nova venda para continuar."
+                : draftQuery.error.message || "Verifique se o recebimento ainda está em aberto."}
             </p>
             <div className="flex justify-center gap-2">
               <Button variant="outline" onClick={() => router.back()}>
                 Voltar
               </Button>
-              <Button onClick={() => draftQuery.refetch()} className="gap-2">
-                <RefreshCw className="h-4 w-4" />
-                Tentar novamente
-              </Button>
+              {draftGone ? (
+                <Button
+                  onClick={() => {
+                    setDraftId(null);
+                    initDraft();
+                  }}
+                  className="gap-2"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  Começar nova venda
+                </Button>
+              ) : (
+                <Button onClick={() => draftQuery.refetch()} className="gap-2">
+                  <RefreshCw className="h-4 w-4" />
+                  Tentar novamente
+                </Button>
+              )}
             </div>
           </CardContent>
         </Card>

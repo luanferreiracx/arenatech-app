@@ -27,6 +27,7 @@ declare module "next-auth" {
       role: string;
       /** Função "técnico" (flag) — usada p/ escopo de OS e listagem de técnicos. */
       isTechnician?: boolean;
+      benchModeOnly?: boolean;
       /**
        * Assinatura suspensa por falta de pagamento (ADR 0061). O tenant mantém a
        * sessão e o piso sempre-ligado; `modules` já vem reduzido. A UI e o proxy
@@ -59,6 +60,7 @@ declare module "next-auth/jwt" {
       role: string;
       /** Função "técnico" (flag) — usada p/ escopo de OS e listagem de técnicos. */
       isTechnician?: boolean;
+      benchModeOnly?: boolean;
       /**
        * Assinatura suspensa por falta de pagamento (ADR 0061). O tenant mantém a
        * sessão e o piso sempre-ligado; `modules` já vem reduzido. A UI e o proxy
