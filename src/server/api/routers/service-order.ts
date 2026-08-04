@@ -1211,6 +1211,12 @@ export const serviceOrderRouter = createTRPCRouter({
           if (qty <= 0) continue;
           await reserveStockForOsItem(tx, ctx.tenantId, ctx.session.user.id, {
             productId: item.productId,
+            // `variationId` faltava aqui, enquanto a liberação (`releaseAllOsItems`)
+            // sempre passou: cancelar creditava a VARIAÇÃO e descancelar debitava o
+            // PRODUTO PAI. Como o saldo vendável de um produto com variações é a
+            // soma das variações, o ciclo cancelar→descancelar inflava o saldo
+            // permanentemente. Auditoria de estoque 2026-08-04, P2.
+            variationId: item.variationId ?? null,
             quantity: qty,
             orderId: input.id,
             itemDescription: item.description,

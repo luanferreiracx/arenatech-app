@@ -592,6 +592,71 @@ describe("Auditoria estoque 2026-08-04 — estorno de OS devolve peças", () => 
   });
 });
 
+describe("Auditoria estoque 2026-08-04 — OS com variação", () => {
+  it("P2: cancelar e descancelar OS não infla o saldo da variação", async () => {
+    const product = await prisma.product.create({
+      data: {
+        tenantId,
+        name: `${MARK}-osvar-${Date.now()}`,
+        salePrice: 200,
+        costPrice: 100,
+        isSerialized: false,
+        hasVariations: true,
+        active: true,
+      },
+    });
+    productIds.push(product.id);
+    const variation = await prisma.productVariation.create({
+      data: { tenantId, productId: product.id, currentStock: 10, active: true },
+    });
+
+    const customerId = await makeCustomer();
+    const order = await prisma.serviceOrder.create({
+      data: {
+        tenantId,
+        number: `${MARK}-osv-${Date.now()}`,
+        customerId,
+        createdById: adminId,
+        status: "IN_PROGRESS",
+        publicLink: `${MARK}-plv-${Date.now()}`,
+        totalAmount: 200,
+        serviceAmount: 0,
+      },
+    });
+    orderIds.push(order.id);
+
+    await call().serviceOrder.addItem({
+      orderId: order.id,
+      type: "PRODUCT",
+      productId: product.id,
+      variationId: variation.id,
+      description: "Bateria",
+      quantity: 2,
+      unitPrice: 10000,
+    } as any);
+
+    const consumed = await prisma.productVariation.findUniqueOrThrow({
+      where: { id: variation.id },
+      select: { currentStock: true },
+    });
+    expect(consumed.currentStock).toBe(8);
+
+    await call().serviceOrder.cancel({ id: order.id, reason: "cliente desistiu" } as any);
+    await call().serviceOrder.uncancel({
+      id: order.id,
+      reason: "cliente voltou atras",
+    } as any);
+
+    // Antes: cancelar creditava a VARIAÇÃO (+2 → 10) e descancelar debitava o
+    // PRODUTO PAI (que ninguém lê), deixando a variação em 10 para sempre.
+    const afterRoundTrip = await prisma.productVariation.findUniqueOrThrow({
+      where: { id: variation.id },
+      select: { currentStock: true },
+    });
+    expect(afterRoundTrip.currentStock).toBe(8);
+  });
+});
+
 describe("Auditoria estoque 2026-08-04 — variações", () => {
   it("P0-1: editar produto NÃO apaga variação com saldo (nem perde o saldo)", async () => {
     const product = await prisma.product.create({
