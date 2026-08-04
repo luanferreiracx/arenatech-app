@@ -272,6 +272,25 @@ model TenantIntegration {
   createdAt   DateTime            @default(now()) @map("created_at")
   updatedAt   DateTime            @updatedAt @map("updated_at")
 
+  /// SAÚDE da credencial, preenchida pela verificação periódica.
+  ///
+  /// Existe porque credencial de terceiro APODRECE sozinha: o token da Meta
+  /// expira (24h no temporário, 60 dias no de usuário — só o de system user é
+  /// permanente), pode ser revogado no Business Manager, e o número pode perder
+  /// a verificação. Nada disso gera evento nosso — sem checar de tempos em
+  /// tempos, o primeiro sinal é o bot parar de responder ao cliente da loja.
+  ///
+  /// `healthCheckedAt` nulo = nunca verificada (integração recém-criada).
+  healthCheckedAt   DateTime? @map("health_checked_at")
+  /// `true` = a última verificação passou. `false` = falhou; `healthReason` diz
+  /// por quê (mesmos códigos de `CloudCredentialFailureReason`).
+  healthOk          Boolean?  @map("health_ok")
+  healthReason      String?   @map("health_reason")
+  /// Quando o AVISO de credencial quebrada foi enviado. Impede repetir o mesmo
+  /// alerta a cada execução do cron — o padrão que já mordeu este projeto no
+  /// alarme que nunca calava.
+  healthNotifiedAt  DateTime? @map("health_notified_at")
+
   @@unique([tenantId, provider])
   @@index([tenantId])
   @@map("tenant_integrations")
@@ -286,6 +305,15 @@ enum IntegrationProvider {
   FOCUS_NFE
   IMEI_CHECK
   INFINITEPAY
+  /// WhatsApp Business Cloud API oficial (Meta), com credencial POR TENANT.
+  /// Distinto de `EVOLUTION_WHATSAPP` (não-oficial, por QR code): são caminhos
+  /// diferentes, com contratos e riscos diferentes, e um tenant pode usar um
+  /// sem o outro.
+  ///
+  /// O `config` guarda `{ phoneNumberId, tokenSealed, wabaId? }` — o token
+  /// SEMPRE cifrado (`sealSecret`), nunca em claro. Ver
+  /// `lib/services/whatsapp-tenant-config.ts`.
+  WHATSAPP_CLOUD
 }
 
 model UserRole {

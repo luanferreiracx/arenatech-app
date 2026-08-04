@@ -303,6 +303,12 @@ const SETTINGS_TAB_MODULE: ReadonlyArray<readonly [string, ModuleKey | null]> = 
   ["/settings/integrations", "tools"],
   ["/settings/assistance", "service-orders"],
   ["/settings/bot", "service-orders"],
+  // Conexão do WhatsApp da loja (Cloud API, credencial própria). Gateada por
+  // `customers` porque é aí que mora o contato com o cliente — e todo plano do
+  // catálogo inclui `customers`, então na prática toda loja que contrata pode
+  // conectar o WhatsApp dela. Não é `service-orders`: mensagem para cliente
+  // serve varejo e assistência igualmente.
+  ["/settings/whatsapp", "customers"],
   ["/settings/delivery-persons", "service-orders"],
 ];
 

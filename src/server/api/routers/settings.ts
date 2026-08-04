@@ -2,6 +2,12 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { hashSync, compareSync } from "bcryptjs";
 import { Prisma } from "@prisma/client";
+import { publicIntegrationConfig } from "@/lib/integrations/public-config";
+import { checkCloudCredentials } from "@/lib/services/whatsapp-credential-check";
+import {
+  sealCloudCredential,
+  readCloudCredential,
+} from "@/lib/services/whatsapp-tenant-config";
 import { createTRPCRouter, tenantProcedure, tenantAdminProcedure, protectedProcedure, superAdminTenantProcedure } from "@/server/api/trpc";
 import { withAdmin, withTenant } from "@/server/db";
 import { validatePasswordPolicy } from "@/lib/password";
@@ -26,6 +32,7 @@ import {
   upsertPaymentRatesSchema,
   updatePaymentMethodFullSchema,
   updateIntegrationSchema,
+  saveWhatsappCloudSchema,
   listUsersSchema,
   createUserSchema,
   updateUserSchema,
@@ -552,12 +559,35 @@ export const settingsRouter = createTRPCRouter({
   // INTEGRATIONS
   // ═══════════════════════════════════════
 
+  /**
+   * Integrações do tenant, com o `config` FILTRADO por allowlist.
+   *
+   * Este endpoint é `tenantProcedure` — qualquer membro do tenant o chama, e o
+   * PDV o consome no diálogo de pagamento (ou seja: todo operador de caixa).
+   * Devolver o `config` cru significaria entregar credencial de integração a
+   * quem só precisa saber se o InfinitePay está ligado.
+   *
+   * Hoje o `config` guarda dados inócuos (`handle`, `defaultEmail`), mas a
+   * credencial do WhatsApp Cloud passa a morar aqui — cifrada, e ainda assim
+   * sem motivo nenhum para trafegar até uma tela de venda. Allowlist EXPLÍCITO,
+   * como em `toPublicPlanView`: campo novo em `config` não vaza por omissão.
+   */
   listIntegrations: tenantProcedure.query(async ({ ctx }) => {
     return ctx.withTenant(async (tx) => {
-      return tx.tenantIntegration.findMany({
+      const rows = await tx.tenantIntegration.findMany({
         where: { tenantId: ctx.tenantId },
         orderBy: { provider: "asc" },
       });
+      return rows.map((row) => ({
+        id: row.id,
+        provider: row.provider,
+        enabled: row.enabled,
+        config: publicIntegrationConfig(row.config, row.provider),
+        healthOk: row.healthOk,
+        healthCheckedAt: row.healthCheckedAt,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+      }));
     });
   }),
 
@@ -591,6 +621,191 @@ export const settingsRouter = createTRPCRouter({
             config: configValue,
           },
         });
+      });
+    }),
+
+  // ═══════════════════════════════════════
+  // WHATSAPP CLOUD API (credencial por tenant)
+  // ═══════════════════════════════════════
+
+  /**
+   * Estado da conexão do WhatsApp do tenant, para a tela.
+   *
+   * NUNCA devolve o token — nem cifrado. A tela mostra o número conectado e a
+   * saúde da última verificação; para trocar a credencial, o admin digita um
+   * token novo.
+   */
+  getWhatsappCloud: tenantAdminProcedure.query(async ({ ctx }) => {
+    return ctx.withTenant(async (tx) => {
+      const row = await tx.tenantIntegration.findUnique({
+        where: {
+          tenantId_provider: { tenantId: ctx.tenantId, provider: "WHATSAPP_CLOUD" },
+        },
+        select: {
+          enabled: true,
+          config: true,
+          healthOk: true,
+          healthReason: true,
+          healthCheckedAt: true,
+        },
+      });
+      if (!row) {
+        return { configured: false as const };
+      }
+
+      const publicConfig = publicIntegrationConfig(row.config, "WHATSAPP_CLOUD");
+      return {
+        configured: true as const,
+        enabled: row.enabled,
+        phoneNumberId: typeof publicConfig.phoneNumberId === "string" ? publicConfig.phoneNumberId : null,
+        wabaId: typeof publicConfig.wabaId === "string" ? publicConfig.wabaId : null,
+        healthOk: row.healthOk,
+        healthReason: row.healthReason,
+        healthCheckedAt: row.healthCheckedAt,
+      };
+    });
+  }),
+
+  /**
+   * Testa a credencial contra a Meta SEM gravar nada.
+   *
+   * Existe separado do salvar porque são perguntas diferentes: "esses dados que
+   * acabei de digitar funcionam?" e "quero passar a usar esses dados". Testar
+   * sem gravar deixa o admin conferir antes de trocar uma conexão que está
+   * funcionando — o que importa quando ele está corrigindo às pressas.
+   */
+  testWhatsappCloud: tenantAdminProcedure
+    .input(saveWhatsappCloudSchema.extend({ token: z.string().min(20).max(500) }))
+    .mutation(async ({ input }) => {
+      const result = await checkCloudCredentials({
+        token: input.token,
+        phoneNumberId: input.phoneNumberId,
+      });
+      // O retorno já é o contrato da tela: `ok` + motivo legível, sem token.
+      return result;
+    }),
+
+  /**
+   * Grava a credencial — só depois de a Meta confirmá-la.
+   *
+   * Validar ANTES de gravar é o ponto do módulo inteiro: salvar uma credencial
+   * que não funciona deixa o lojista achando que configurou, e o defeito só
+   * aparece quando um cliente dele não recebe resposta.
+   */
+  saveWhatsappCloud: tenantAdminProcedure
+    .input(saveWhatsappCloudSchema)
+    .mutation(async ({ ctx, input }) => {
+      // Token ausente = manter o atual. Permite corrigir só o ID do número sem
+      // redigitar um token que a tela nunca mostra de volta.
+      const existing = await ctx.withTenant((tx) =>
+        tx.tenantIntegration.findUnique({
+          where: {
+            tenantId_provider: { tenantId: ctx.tenantId, provider: "WHATSAPP_CLOUD" },
+          },
+          select: { config: true },
+        }),
+      );
+      const current = readCloudCredential(existing?.config);
+      const token = input.token ?? current?.token;
+      if (!token) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Informe o token da Meta para conectar o WhatsApp.",
+        });
+      }
+
+      // Verificação FORA da transação: I/O de rede segurando conexão de banco
+      // transforma lentidão da Meta em rollback.
+      const check = await checkCloudCredentials({ token, phoneNumberId: input.phoneNumberId });
+      if (!check.ok) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: check.message });
+      }
+
+      const config = sealCloudCredential({
+        token,
+        phoneNumberId: input.phoneNumberId,
+        ...(input.wabaId ? { wabaId: input.wabaId } : {}),
+      });
+
+      await ctx.withTenant(async (tx) => {
+        await tx.tenantIntegration.upsert({
+          where: {
+            tenantId_provider: { tenantId: ctx.tenantId, provider: "WHATSAPP_CLOUD" },
+          },
+          create: {
+            tenantId: ctx.tenantId,
+            provider: "WHATSAPP_CLOUD",
+            enabled: true,
+            config: config as unknown as Prisma.InputJsonValue,
+            healthCheckedAt: new Date(),
+            healthOk: true,
+            healthReason: null,
+          },
+          update: {
+            enabled: true,
+            config: config as unknown as Prisma.InputJsonValue,
+            // Acabou de ser verificada: registra a saúde e limpa o carimbo de
+            // aviso, para uma quebra futura alertar na hora.
+            healthCheckedAt: new Date(),
+            healthOk: true,
+            healthReason: null,
+            healthNotifiedAt: null,
+          },
+        });
+
+        // Auditoria SEM o token: registra que a credencial mudou e qual número
+        // passou a valer, que é o que se precisa saber depois.
+        await logAudit(tx as never, {
+          tenantId: ctx.tenantId,
+          userId: ctx.session.user.id,
+          action: "updated",
+          entity: "whatsapp_cloud_integration",
+          entityId: ctx.tenantId,
+          payload: {
+            phoneNumberId: input.phoneNumberId,
+            verifiedName: check.verifiedName,
+            tokenChanged: Boolean(input.token),
+          },
+        });
+      });
+
+      return {
+        ok: true as const,
+        displayPhoneNumber: check.displayPhoneNumber,
+        verifiedName: check.verifiedName,
+      };
+    }),
+
+  /** Liga/desliga o envio pela Cloud API sem apagar a credencial. */
+  setWhatsappCloudEnabled: tenantAdminProcedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const row = await tx.tenantIntegration.findUnique({
+          where: {
+            tenantId_provider: { tenantId: ctx.tenantId, provider: "WHATSAPP_CLOUD" },
+          },
+          select: { id: true },
+        });
+        if (!row) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Conecte o WhatsApp antes de ativá-lo.",
+          });
+        }
+        await tx.tenantIntegration.update({
+          where: { id: row.id },
+          data: { enabled: input.enabled },
+        });
+        await logAudit(tx as never, {
+          tenantId: ctx.tenantId,
+          userId: ctx.session.user.id,
+          action: "updated",
+          entity: "whatsapp_cloud_integration",
+          entityId: ctx.tenantId,
+          payload: { enabled: input.enabled },
+        });
+        return { enabled: input.enabled };
       });
     }),
 

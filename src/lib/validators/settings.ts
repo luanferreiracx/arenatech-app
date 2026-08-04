@@ -116,6 +116,31 @@ export const updateIntegrationSchema = z.object({
 
 export type UpdateIntegrationInput = z.infer<typeof updateIntegrationSchema>;
 
+// ── WhatsApp Cloud API (credencial POR TENANT, BYO) ──
+
+/**
+ * Procedures próprios, fora de `updateIntegrationSchema`: aqui o token é
+ * cifrado antes de gravar e a credencial é VERIFICADA contra a Meta antes de
+ * salvar. Passar isso pelo caminho genérico gravaria o token em claro.
+ */
+export const saveWhatsappCloudSchema = z.object({
+  /**
+   * Token permanente do system user. Ausente = "mantém o que já está salvo",
+   * para o admin poder corrigir só o ID do número sem redigitar o token — que
+   * a tela nunca mostra de volta.
+   */
+  token: z.string().min(20, "Token muito curto").max(500).optional(),
+  /** ID numérico do número na Meta. Não é o telefone. */
+  phoneNumberId: z
+    .string()
+    .min(5, "ID do número inválido")
+    .max(50)
+    .regex(/^\d+$/, "O ID do número tem só dígitos — não é o telefone com DDD"),
+  /** WABA ID, opcional: usado depois para sincronizar templates aprovados. */
+  wabaId: z.string().max(50).regex(/^\d*$/, "O WABA ID tem só dígitos").optional(),
+});
+export type SaveWhatsappCloudInput = z.infer<typeof saveWhatsappCloudSchema>;
+
 // ── Users (tenant members) ──
 
 export const listUsersSchema = z.object({
