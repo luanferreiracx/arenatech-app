@@ -86,6 +86,7 @@ import {
   OrderEntryChecklistCard,
   OrderDeviceInfoCard,
 } from "./detail-sections";
+import { QueryErrorState } from "@/components/domain/query-error-state";
 import { DeviceHistoryPanel } from "./device-history-panel";
 import { ServiceOrderPhotoManager } from "./service-order-photo-manager";
 
@@ -159,6 +160,10 @@ export function ServiceOrderDetail({ id }: { id: string }) {
   const [checkQuotePending, setCheckQuotePending] = useState(false);
   // Envio do orçamento ao cliente — modal de número (padrão do sistema).
   // Edicao inline de item
+  /** Item aguardando confirmação de remoção (devolve estoque no servidor). */
+  const [pendingRemoveItem, setPendingRemoveItem] = useState<
+    { id: string; description: string; isProduct: boolean; quantity: number } | null
+  >(null);
   const [editItemId, setEditItemId] = useState<string | null>(null);
   const [editItemDesc, setEditItemDesc] = useState("");
   const [editItemQty, setEditItemQty] = useState(1);
@@ -289,8 +294,26 @@ export function ServiceOrderDetail({ id }: { id: string }) {
     trpc.serviceOrder.listTechnicianAssignees.queryOptions()
   );
 
-  if (isLoading || !order) {
+  if (isLoading) {
     return <div className="animate-pulse space-y-4"><div className="h-8 w-48 bg-muted rounded" /><div className="h-64 bg-muted rounded" /></div>;
+  }
+
+  // `isLoading || !order` deixava a tela num ESQUELETO ETERNO quando a query
+  // falhava: `isLoading` virava false, `order` continuava undefined, a condição
+  // seguia verdadeira e o `retry` não roda em 4xx. Medido: 9s após o erro, zero
+  // mensagem — o operador só via um retângulo pulsando.
+  // Auditoria de frontend 2026-08-04, P0-3.
+  if (orderQuery.isError) {
+    return (
+      <QueryErrorState
+        error={orderQuery.error}
+        notFoundTitle="Ordem de servico nao encontrada"
+        notFoundDescription="Ela pode ter sido excluida ou o link esta errado."
+      />
+    );
+  }
+  if (!order) {
+    return <QueryErrorState error={null} notFoundTitle="Ordem de servico nao encontrada" />;
   }
 
   const status = order.status as ServiceOrderStatus;
@@ -864,7 +887,12 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                             <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="Editar item" onClick={() => { setEditItemId(item.id); setEditItemDesc(item.description); setEditItemQty(item.quantity); setEditItemPrice(item.unitPrice); }}>
                               <Pencil className="h-3 w-3" />
                             </Button>
-                            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" aria-label="Remover item" onClick={() => removeItemMut.mutate({ id: item.id })}>
+                            {/* Confirma antes de remover: no servidor isto
+                                devolve estoque, grava StockMovement e recalcula
+                                totais. Era um clique num ícone pequeno, colado
+                                no de editar, sem confirmação nem undo.
+                                Auditoria de frontend 2026-08-04, P1-5. */}
+                            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" aria-label="Remover item" onClick={() => setPendingRemoveItem({ id: item.id, description: item.description, isProduct: item.type === "PRODUCT", quantity: item.quantity })}>
                               <Trash2 className="h-3 w-3" />
                             </Button>
                           </>
@@ -1577,6 +1605,49 @@ export function ServiceOrderDetail({ id }: { id: string }) {
       </Dialog>
 
       {/* Delete Dialog (admin only, OS cancelada) */}
+      {/* Remoção de item da OS. Fica FORA do `useActiveDialog` de propósito:
+          é uma confirmação pontual e não deve fechar (nem ser fechada por)
+          nenhum dos fluxos longos — o mesmo acoplamento que hoje destrói o
+          motivo digitado no cancelamento. */}
+      <Dialog
+        open={pendingRemoveItem !== null}
+        onOpenChange={(o) => !o && setPendingRemoveItem(null)}
+      >
+        <DialogContent>
+          <DialogHeader><DialogTitle>Remover item da OS?</DialogTitle></DialogHeader>
+          <div className="space-y-3 text-sm">
+            <p className="break-words">
+              Item: <strong>{pendingRemoveItem?.description}</strong>
+            </p>
+            {pendingRemoveItem?.isProduct && (
+              <p className="text-destructive">
+                {pendingRemoveItem.quantity} un. volta(m) para o estoque e o total da
+                OS e recalculado.
+              </p>
+            )}
+            <p className="text-muted-foreground text-xs">
+              A descricao e o preco digitados nao podem ser recuperados depois.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPendingRemoveItem(null)}>
+              Voltar
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={removeItemMut.isPending}
+              onClick={() => {
+                if (!pendingRemoveItem) return;
+                removeItemMut.mutate({ id: pendingRemoveItem.id });
+                setPendingRemoveItem(null);
+              }}
+            >
+              {removeItemMut.isPending ? "Removendo..." : "Remover item"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog {...dialog.props("delete")}>
         <DialogContent>
           <DialogHeader><DialogTitle>Excluir OS permanentemente</DialogTitle></DialogHeader>

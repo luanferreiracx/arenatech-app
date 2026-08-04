@@ -95,7 +95,7 @@ export function PurchasesTable() {
     setPage(0);
   };
 
-  const { data, isLoading } = useQuery(
+  const { data, isLoading, error } = useQuery(
     trpc.stock.listPurchases.queryOptions({
       search: debouncedSearch || undefined,
       page,
@@ -299,6 +299,7 @@ export function PurchasesTable() {
         setPage(0);
       }}
       isLoading={isLoading}
+      error={error}
       emptyMessage="Nenhuma compra registrada."
       toolbar={
         <DataTableToolbar

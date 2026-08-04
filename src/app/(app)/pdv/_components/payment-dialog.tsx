@@ -30,6 +30,11 @@ import {
 } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "@/lib/toast";
+import {
+  persistPendingFinalize,
+  readPendingFinalize,
+  type PendingFinalize,
+} from "@/lib/pdv/pending-finalize";
 
 
 interface PaymentEntry {
@@ -134,6 +139,11 @@ export function PaymentDialog({
   const [showDepixQr, setShowDepixQr] = useState(false);
   const [showInfinitepay, setShowInfinitepay] = useState(false);
   const [isAutoFinalizing, setIsAutoFinalizing] = useState(false);
+  // Pagamento recebido cuja venda não fechou. Inicializa lendo a sessão: se o
+  // operador deu F5 depois da falha, o aviso volta em vez de sumir.
+  const [pendingFinalize, setPendingFinalize] = useState<PendingFinalize | null>(() =>
+    typeof window === "undefined" ? null : readPendingFinalize(saleId),
+  );
   const autoFinalizeAttemptedRef = useRef(false);
   // Leg DePix aguardando confirmacao do QR. So entra em `payments` quando o
   // pagamento e confirmado (onPaid). Paridade Laravel: QR ao adicionar o leg,
@@ -514,15 +524,34 @@ export function PaymentDialog({
       },
       {
         onSuccess: (data) => {
+          // A venda fechou: a pendência deixou de existir, aqui e na sessão.
+          setPendingFinalize(null);
+          persistPendingFinalize(null);
           toast.success(options?.auto ? `${autoLabel} confirmado. Venda finalizada!` : "Venda finalizada com sucesso!");
           onSuccess((data as unknown as { id: string }).id);
         },
         onError: (err) => {
-          toast.error(
-            options?.auto
-              ? `${autoLabel} confirmado, mas a finalizacao falhou: ${err.message}. Tente confirmar novamente.`
-              : err.message,
-          );
+          if (options?.auto) {
+            // O dinheiro JÁ ENTROU e a venda não foi registrada. Este é o pior
+            // estado possível no PDV, e um toast não serve: some em segundos,
+            // e o operador sob pressão refaz a cobrança — cobrando o cliente
+            // duas vezes (mesma classe do incidente de saque duplicado).
+            //
+            // Marca um estado BLOQUEANTE e PERSISTENTE: sobrevive a F5 porque
+            // vive em sessionStorage, não em useState. A venda continua DRAFT
+            // no servidor, então tentar de novo é seguro e idempotente.
+            // Auditoria de frontend 2026-08-04, P0-1.
+            const pending: PendingFinalize = {
+              saleId,
+              amountCents: paymentsToFinalize.reduce((s, p) => s + p.amount, 0),
+              label: autoLabel,
+              message: err.message,
+            };
+            setPendingFinalize(pending);
+            persistPendingFinalize(pending);
+            return;
+          }
+          toast.error(err.message);
         },
         onSettled: () => {
           if (options?.auto) setIsAutoFinalizing(false);
@@ -623,13 +652,49 @@ export function PaymentDialog({
         aberto (sem desmontar, pra preservar o state). Evita Radix Dialogs
         aninhados. */}
     <Dialog open={open && !showDepixQr && !showInfinitepay} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+      <DialogContent
+        className="max-w-lg max-h-[85vh] overflow-y-auto"
+        // Com pagamento recebido e venda não registrada, o diálogo não some por
+        // acidente: fechar aqui esconderia a única indicação de que o dinheiro
+        // entrou. Sai pelo botão, que é explícito.
+        onEscapeKeyDown={(e) => {
+          if (pendingFinalize) e.preventDefault();
+        }}
+        onPointerDownOutside={(e) => {
+          if (pendingFinalize) e.preventDefault();
+        }}
+      >
         <DialogHeader>
           <DialogTitle>Finalizar Venda</DialogTitle>
           <DialogDescription>
             Selecione as formas de pagamento
           </DialogDescription>
         </DialogHeader>
+
+        {/* Pagamento recebido e venda NÃO registrada. Fica fixo no topo, em
+            vermelho, com o valor — para o operador não refazer a cobrança. */}
+        {pendingFinalize && (
+          <div className="rounded-md border border-destructive bg-destructive/10 p-3 space-y-2">
+            <p className="text-sm font-semibold text-destructive">
+              {pendingFinalize.label} de {formatCurrency(pendingFinalize.amountCents)} JA
+              FOI RECEBIDO
+            </p>
+            <p className="text-sm break-words">
+              A venda ainda nao foi registrada ({pendingFinalize.message}). NAO cobre o
+              cliente de novo — clique em &quot;Tentar registrar de novo&quot;. Se o erro
+              persistir, anote o valor e chame o suporte.
+            </p>
+            <Button
+              size="sm"
+              onClick={() => runFinalize(payments, { auto: true, label: pendingFinalize.label })}
+              disabled={finalizeMutation.isPending || isAutoFinalizing}
+            >
+              {finalizeMutation.isPending || isAutoFinalizing
+                ? "Registrando..."
+                : "Tentar registrar de novo"}
+            </Button>
+          </div>
+        )}
 
         {/* Total */}
         <div className="text-center py-4 bg-muted/50 rounded-lg mb-2">
@@ -934,7 +999,13 @@ export function PaymentDialog({
 
         {/* Footer */}
         <div className="flex justify-end gap-2 pt-2 border-t">
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isAutoFinalizing}>
+          {/* Com dinheiro recebido e venda em aberto, cancelar esconderia a
+              única pista de que o cliente pagou. O caminho é registrar. */}
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={isAutoFinalizing || !!pendingFinalize}
+          >
             Cancelar
           </Button>
           <Button

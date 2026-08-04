@@ -252,7 +252,7 @@ export function ServiceOrdersTable() {
             setPage(0);
           }}
         >
-          <SelectTrigger className="w-[180px]">
+          <SelectTrigger className="w-full min-w-0 sm:w-44">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -270,7 +270,7 @@ export function ServiceOrdersTable() {
             setPage(0);
           }}
         >
-          <SelectTrigger className="w-[180px]">
+          <SelectTrigger className="w-full min-w-0 sm:w-44">
             <SelectValue placeholder="Tecnico" />
           </SelectTrigger>
           <SelectContent>
@@ -282,19 +282,23 @@ export function ServiceOrdersTable() {
             ))}
           </SelectContent>
         </Select>
-        <div className="flex items-center gap-2">
+        {/* `w-[150px]` fixo em cada campo somava 300px + gaps e estourava a
+            tela em 320px (medido: scrollWidth 357). Agora o par ocupa a linha
+            e divide o espaço, encolhendo junto. WCAG 1.4.10.
+            Auditoria de frontend 2026-08-04. */}
+        <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto">
           <DateInput
             value={dateFrom}
             onChange={(v) => { setDateFrom(v); setPage(0); }}
-            className="w-[150px]"
+            className="min-w-0 flex-1 sm:w-36 sm:flex-none"
             placeholder="De"
             aria-label="Data de inicio"
           />
-          <span className="text-muted-foreground text-xs">ate</span>
+          <span className="shrink-0 text-muted-foreground text-xs">ate</span>
           <DateInput
             value={dateTo}
             onChange={(v) => { setDateTo(v); setPage(0); }}
-            className="w-[150px]"
+            className="min-w-0 flex-1 sm:w-36 sm:flex-none"
             placeholder="Ate"
             aria-label="Data de fim"
           />
@@ -309,6 +313,7 @@ export function ServiceOrdersTable() {
         pageSize={10}
         onPageChange={setPage}
         isLoading={isLoading}
+        error={listQuery.error}
         emptyState={emptyState}
       />
     </div>

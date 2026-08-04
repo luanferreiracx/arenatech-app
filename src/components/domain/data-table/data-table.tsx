@@ -17,6 +17,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
+import { QueryErrorState } from "@/components/domain/query-error-state";
 import { DataTablePagination } from "./data-table-pagination";
 
 export interface DataTableProps<TData, TValue> {
@@ -36,6 +37,16 @@ export interface DataTableProps<TData, TValue> {
    * busca não retornou nada.
    */
   emptyState?: React.ReactNode;
+  /**
+   * Erro da query que alimenta a tabela. Quando presente, a tabela mostra o
+   * estado de ERRO em vez do estado vazio.
+   *
+   * A distinção não é cosmética: sem ela, uma query que falha renderiza
+   * "Nenhuma compra registrada" — uma AFIRMAÇÃO sobre o negócio. Num sistema de
+   * estoque, dizer que o dado não existe é pior que admitir que não deu para
+   * carregar. Auditoria de frontend 2026-08-04, P0-4.
+   */
+  error?: unknown;
   toolbar?: React.ReactNode;
   /** Habilita seleção de linhas. Requer `getRowId`, `rowSelection` e `onRowSelectionChange`. */
   enableRowSelection?: boolean;
@@ -57,6 +68,7 @@ export function DataTable<TData, TValue>({
   isLoading = false,
   emptyMessage = "Nenhum resultado encontrado.",
   emptyState,
+  error,
   toolbar,
   enableRowSelection = false,
   rowSelection,
@@ -115,6 +127,15 @@ export function DataTable<TData, TValue>({
                   ))}
                 </TableRow>
               ))
+            ) : error ? (
+              // ERRO tem precedência sobre vazio: "não deu para carregar" e
+              // "não existe" são fatos diferentes, e confundi-los faz o
+              // operador acreditar que os dados sumiram.
+              <TableRow className="hover:bg-transparent">
+                <TableCell colSpan={columns.length} className="p-0">
+                  <QueryErrorState error={error} />
+                </TableCell>
+              </TableRow>
             ) : table.getRowModel().rows.length === 0 ? (
               <TableRow className="hover:bg-transparent">
                 <TableCell

@@ -28,12 +28,15 @@ import {
   STOCK_WRITEOFF_REASONS,
 } from "@/lib/validators/stock";
 import { blockEnterSubmit } from "@/lib/utils/form-keyboard";
+import { ConfirmDialog } from "@/components/domain/confirm-dialog";
 
 type ProductSearchResult = {
   id: string;
   name: string;
   sku: string | null;
   hasVariations: boolean;
+  /** Saldo efetivo (o servidor resolve via `resolveCurrentStockByProduct`). */
+  currentStock: number;
 };
 
 export default function StockExitPage() {
@@ -43,6 +46,18 @@ export default function StockExitPage() {
   const [reasonCode, setReasonCode] = useState<string>("danificado");
   const [reasonDetail, setReasonDetail] = useState<string>("");
   const [selectedProductHasVariations, setSelectedProductHasVariations] = useState(false);
+  const [selectedProductName, setSelectedProductName] = useState<string | null>(null);
+  const [selectedProductStock, setSelectedProductStock] = useState<number | null>(null);
+  /**
+   * Baixa pendente de confirmação. A baixa é irreversível e mexe em patrimônio:
+   * ia do submit direto para o `mutate`, sem dizer o que sairia nem o que
+   * sobraria. O `adjust-stock-dialog` já mostrava esse preview — a ação mais
+   * dura não mostrava. Auditoria de frontend 2026-08-04, P1-5.
+   */
+  const [pendingExit, setPendingExit] = useState<
+    | { data: StockExitInput; reason: string }
+    | null
+  >(null);
 
   const form = useForm<StockExitInput>({
     resolver: zodResolver(stockExitSchema),
@@ -66,7 +81,8 @@ export default function StockExitPage() {
       const reason = reasonDetail.trim()
         ? `${label}: ${reasonDetail.trim()}`
         : label;
-      exitMutation.mutate({ ...data, reason });
+      // Confirma ANTES de escrever: mostra produto, quantidade e saldo restante.
+      setPendingExit({ data, reason });
     },
     // onInvalid: sem isto, o submit era bloqueado em silencio (botao "nao fazia
     // nada") quando algum campo estava invalido — ex: quantidade vazia (NaN) ou
@@ -98,6 +114,10 @@ export default function StockExitPage() {
               }}
               onSelect={(p) => {
                 setSelectedProductHasVariations(p.hasVariations);
+                // Guardados só para o preview da confirmação — o operador
+                // precisa ver O QUE vai sair e QUANTO sobra antes de confirmar.
+                setSelectedProductName(p.name);
+                setSelectedProductStock(p.currentStock ?? null);
               }}
               searchFn={async (search) => {
                 // excludeSerialized: a baixa por quantidade nao se aplica a
@@ -182,6 +202,37 @@ export default function StockExitPage() {
           onCancel={() => router.push("/stock")}
         />
       </form>
+
+      {/* Confirmação com PREVIEW. "Tem certeza?" genérico não é proteção: o
+          operador precisa ler o que sai e o que sobra antes de dar baixa em
+          patrimônio, porque não há como desfazer. */}
+      <ConfirmDialog
+        open={pendingExit !== null}
+        onOpenChange={(o) => !o && setPendingExit(null)}
+        title="Dar baixa neste estoque?"
+        description={
+          pendingExit
+            ? [
+                `Sai ${pendingExit.data.quantity} un. de ${selectedProductName ?? "produto selecionado"}.`,
+                selectedProductStock != null && !selectedProductHasVariations
+                  ? `Saldo apos a baixa: ${Math.max(0, selectedProductStock - pendingExit.data.quantity)} un.`
+                  : null,
+                `Motivo: ${pendingExit.reason}.`,
+                "A baixa nao pode ser desfeita — so um novo lancamento de entrada corrige.",
+              ]
+                .filter(Boolean)
+                .join(" ")
+            : ""
+        }
+        confirmLabel="Dar baixa"
+        variant="destructive"
+        isLoading={exitMutation.isPending}
+        onConfirm={() => {
+          if (!pendingExit) return;
+          exitMutation.mutate({ ...pendingExit.data, reason: pendingExit.reason });
+          setPendingExit(null);
+        }}
+      />
     </div>
   );
 }
