@@ -2038,6 +2038,34 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-08-04 — Auditoria de FRONTEND (a 1a do projeto): 4 P0 corrigidos
+
+As 15 auditorias anteriores olharam backend, dinheiro e dominio. Nenhuma tinha perguntado se o
+OPERADOR consegue usar. Relatorio em `docs/auditorias/2026-08-04-auditoria-frontend.md`, correcoes
+no PR #809.
+
+O padrao encontrado: **o backend foi endurecido a cada auditoria; a camada que comunica o resultado
+ao operador, nao.** Onde o servidor esta certo e a tela mente, quem paga e o operador.
+
+- **P0 (dinheiro):** o estado "cliente JA pagou" vivia so no `useState` do payment-dialog — todo o
+  resto do fluxo de dinheiro e reconciliado contra o servidor, esse ponto nao era. Escape, F5 ou
+  queda de rede apagavam a prova de que o dinheiro entrou, e o operador refazia a cobranca. Agora:
+  o QR do DePix nao cancela depois de pago, e a falha do auto-finalize vira estado BLOQUEANTE e
+  PERSISTENTE (sessionStorage, escopado a venda) com botao de tentar de novo.
+- **P0 (dado):** `isLoading || !order` deixava a tela de OS num esqueleto pulsando PARA SEMPRE
+  quando a query falhava (medido: 9s, zero mensagem). E as tabelas afirmavam "Nenhuma compra
+  registrada" quando a query falhava — `isError` aparecia ZERO vezes nos modulos de OS e Estoque.
+  `DataTable` ganhou a prop `error` com precedencia sobre o vazio: uma mudanca protege todas.
+- **Estruturais:** preview de efeitos no estorno de OS (o dialogo pedia so o motivo, enquanto o
+  servidor gera saida na gaveta); confirmacao com preview na baixa de estoque e na remocao de item
+  de OS; confirmacoes que nomeiam o registro em vez de "tem certeza?"; paginacao em categorias.
+- **Validacao empirica pegou 2 erros que a leitura do diff nao pegou:** um `w-[11rem]` que eu mesmo
+  introduzi no lugar de valor da escala, e o item da OS que — com tudo numa linha — quebrava com UMA
+  LETRA POR LINHA a 320px, pior que o original. So apareceu abrindo a tela com texto longo real.
+- 2312 unit (6 novos) + 423 integracao verdes. Overflow de 320px na lista de OS: 37px → 0.
+- Pendente: 147 `<Label>` orfaos, guards do PDV (addItem/reiniciar/cliente), `take` nos relatorios,
+  alvos de toque do carrinho. Decisao do dono: revalidar draft ao focar aba e usar `isTechnician`.
+
 ### 2026-08-04 — Conta OBRIGATORIA + termo obrigatorio no trade-in (ADR 0069 fase 2)
 
 Duas decisoes do dono, implementadas juntas.
