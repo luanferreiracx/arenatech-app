@@ -71,6 +71,18 @@ export function WhatsappCloudForm() {
     }),
   );
 
+  const syncMutation = useMutation(
+    trpc.settings.syncWhatsappTemplates.mutationOptions({
+      onSuccess: (r) =>
+        toast.success(
+          r.total > 0
+            ? `${r.total} ${r.total === 1 ? "template aprovado" : "templates aprovados"} encontrados na sua conta.`
+            : "Sua conta ainda não tem templates aprovados na Meta.",
+        ),
+      onError: (err) => toast.error(err.message),
+    }),
+  );
+
   const toggleMutation = useMutation(
     trpc.settings.setWhatsappCloudEnabled.mutationOptions({
       onSuccess: (r) => {
@@ -102,7 +114,15 @@ export function WhatsappCloudForm() {
 
   return (
     <div className="space-y-6">
-      {configured && <ConnectionStatus status={status} onToggle={(v) => toggleMutation.mutate({ enabled: v })} pending={toggleMutation.isPending} />}
+      {configured && (
+        <ConnectionStatus
+          status={status}
+          onToggle={(v) => toggleMutation.mutate({ enabled: v })}
+          pending={toggleMutation.isPending}
+          onSyncTemplates={() => syncMutation.mutate()}
+          syncing={syncMutation.isPending}
+        />
+      )}
 
       <Card>
         <CardHeader>
@@ -256,10 +276,14 @@ function ConnectionStatus({
   status,
   onToggle,
   pending,
+  onSyncTemplates,
+  syncing,
 }: {
   status: StatusData;
   onToggle: (enabled: boolean) => void;
   pending: boolean;
+  onSyncTemplates: () => void;
+  syncing: boolean;
 }) {
   const quebrada = status.healthOk === false;
 
@@ -303,6 +327,35 @@ function ConnectionStatus({
             </AlertDescription>
           </Alert>
         )}
+
+        {/* Templates da WABA do tenant. Fora da janela de 24h a Meta só aceita
+            template aprovado NA CONTA DELE — sem sincronizar, o sistema tentaria
+            os templates da Arena Tech e a Meta recusaria. */}
+        <div className="min-w-0 border-t border-border pt-4">
+          <p className="min-w-0 break-words text-sm font-medium">Templates aprovados</p>
+          <p className="mt-0.5 min-w-0 break-words text-xs text-muted-foreground">
+            Mensagens enviadas mais de 24 horas depois do último contato do cliente
+            exigem um modelo aprovado pela Meta na sua conta. Sincronize depois de
+            aprovar modelos novos.
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="mt-3"
+            disabled={syncing}
+            onClick={onSyncTemplates}
+          >
+            {syncing ? (
+              <>
+                <Loader2 className="mr-2 size-4 animate-spin" aria-hidden />
+                Sincronizando...
+              </>
+            ) : (
+              "Sincronizar templates"
+            )}
+          </Button>
+        </div>
 
         <div className="flex min-w-0 items-center justify-between gap-4 border-t border-border pt-4">
           <div className="min-w-0">

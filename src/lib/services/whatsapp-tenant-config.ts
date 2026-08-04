@@ -28,6 +28,19 @@ export type CloudCredentialConfig = {
   phoneNumberId: string;
   tokenSealed: string;
   wabaId?: string;
+  /**
+   * Templates APROVADOS na WABA deste tenant, sincronizados da Meta.
+   *
+   * Guardado aqui, e não em coluna própria, porque é uma lista de strings que
+   * só faz sentido junto da credencial que a produziu: trocar de WABA invalida
+   * a lista inteira, e mantê-las separadas criaria a chance de ficarem
+   * dessincronizadas.
+   *
+   * Ausente = nunca sincronizado. Diferente de lista VAZIA, que significa "a
+   * Meta respondeu e este tenant não tem template aprovado nenhum".
+   */
+  approvedTemplates?: string[];
+  templatesSyncedAt?: string;
 };
 
 /** O que o código usa em memória, com o token já em claro. */
@@ -35,6 +48,8 @@ export type CloudCredential = {
   phoneNumberId: string;
   token: string;
   wabaId?: string;
+  /** `null` = nunca sincronizado; `[]` = sincronizado e sem template aprovado. */
+  approvedTemplates: string[] | null;
 };
 
 export function sealCloudCredential(input: {
@@ -67,5 +82,8 @@ export function readCloudCredential(config: unknown): CloudCredential | null {
     phoneNumberId,
     token: openSecret(tokenSealed, WHATSAPP_CLOUD_SECRET_CONTEXT),
     ...(typeof raw.wabaId === "string" && raw.wabaId ? { wabaId: raw.wabaId } : {}),
+    approvedTemplates: Array.isArray(raw.approvedTemplates)
+      ? raw.approvedTemplates.filter((t): t is string => typeof t === "string")
+      : null,
   };
 }

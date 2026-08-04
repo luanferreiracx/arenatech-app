@@ -4,6 +4,7 @@ import { hashSync, compareSync } from "bcryptjs";
 import { Prisma } from "@prisma/client";
 import { publicIntegrationConfig } from "@/lib/integrations/public-config";
 import { checkCloudCredentials } from "@/lib/services/whatsapp-credential-check";
+import { fetchApprovedTemplateNames } from "@/lib/services/whatsapp-template-sync";
 import {
   sealCloudCredential,
   readCloudCredential,
@@ -775,6 +776,65 @@ export const settingsRouter = createTRPCRouter({
         verifiedName: check.verifiedName,
       };
     }),
+
+  /**
+   * Sincroniza os templates aprovados da WABA do tenant.
+   *
+   * Necessário porque `APPROVED_TEMPLATES` (catálogo do código) lista o que está
+   * aprovado na conta da Arena Tech — um tenant com WABA própria não tem esses
+   * templates, e fora da janela de 24h a Meta só aceita template aprovado. Sem
+   * isto o sintoma é cruel: dentro de 24h funciona, fora dela toda mensagem
+   * falha e nada explica por quê.
+   */
+  syncWhatsappTemplates: tenantAdminProcedure.mutation(async ({ ctx }) => {
+    const row = await ctx.withTenant((tx) =>
+      tx.tenantIntegration.findUnique({
+        where: { tenantId_provider: { tenantId: ctx.tenantId, provider: "WHATSAPP_CLOUD" } },
+        select: { id: true, config: true },
+      }),
+    );
+    const credential = readCloudCredential(row?.config);
+    if (!row || !credential) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "Conecte o WhatsApp antes de sincronizar os templates.",
+      });
+    }
+    if (!credential.wabaId) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message:
+          "Informe o ID da conta do WhatsApp Business (WABA ID) para sincronizar os templates.",
+      });
+    }
+
+    // Consulta à Meta FORA de transação: paginada e lenta, não pode segurar
+    // conexão de banco.
+    const result = await fetchApprovedTemplateNames({
+      token: credential.token,
+      wabaId: credential.wabaId,
+    });
+    if (!result.ok) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: result.message });
+    }
+
+    // Preserva o restante do `config` (credencial inclusive) — sobrescrever o
+    // objeto inteiro apagaria o token.
+    const nextConfig = {
+      ...(row.config as Record<string, unknown>),
+      approvedTemplates: result.names,
+      templatesSyncedAt: new Date().toISOString(),
+    };
+
+    await ctx.withTenant((tx) =>
+      tx.tenantIntegration.update({
+        where: { id: row.id },
+        data: { config: nextConfig as Prisma.InputJsonValue },
+      }),
+    );
+
+    return { ok: true as const, total: result.names.length, names: result.names };
+  }),
 
   /** Liga/desliga o envio pela Cloud API sem apagar a credencial. */
   setWhatsappCloudEnabled: tenantAdminProcedure
