@@ -19,6 +19,50 @@
 
 ---
 
+### 2026-08-05 — Comissão de intermediação de OS: percentual OU valor fixo (#825)
+
+O dono apontou que a intermediação de OS deveria aceitar os dois tipos de
+comissão — percentual ou valor fixo — como as demais categorias. Ela era a única
+categoria "comercial" travada em percentual: o seletor **Tipo** nem aparecia no
+bloco, e o servidor rejeitava valor fixo com *"esta categoria so aceita
+percentual, origem propria."*
+
+**A causa não era um esquecimento, era um flag conflado.** `CATEGORIES_WITH_AXES`
+governava **dois eixos ao mesmo tempo**: o tipo do valor (percentual vs. R$ fixo)
+e a origem (própria vs. participação na loja). Só existia a opção de liberar os
+dois juntos ou nenhum. Como a origem `STORE` não faz sentido em intermediação
+— captar a OS é sempre ato próprio do prestador, não existe "intermediação de
+outro" —, a categoria tinha ficado de fora do flag inteiro, e com ela o tipo do
+valor que ela legitimamente deveria ter.
+
+**Correção:** separar o flag em dois eixos independentes —
+`CATEGORIES_WITH_VALUE_TYPE_AXIS` (percentual/fixo) e
+`CATEGORIES_WITH_STORE_SOURCE` (origem loja). Intermediação entra só no primeiro.
+As mensagens de erro do validador também deixaram de ser uma frase única para
+duas específicas, então quem erra descobre *qual* eixo recusou.
+
+O motor de cálculo não precisou mudar: o evento de intermediação já entra com
+`qty: 1`, então uma regra fixa paga R$ X por OS captada, independente do valor do
+serviço. O campo é rotulado **"Valor por OS captada (R$)"** para não sugerir que
+o valor escala com o serviço. AT de execução (sem/com peça) segue travada em
+percentual, e quem já usava percentual não muda (`PERCENT` continua o default).
+
+**Decisões:** (1) intermediação não ganha origem `STORE` — foi por isso que o
+flag foi partido em vez de só receber mais uma categoria; (2) o rótulo do valor
+fixo virou um mapa por categoria (`FIXED_RATE_LABELS`), porque a unidade cobrada
+muda — por unidade vendida, por serviço, por OS captada.
+
+**Validado na tela, não só no diff:** navegador real, login → dialog → troca de
+tipo → save, com a regra conferida no banco (`value_type = FIXED_PER_UNIT`) e
+zero erros de console. 7 testes novos, e confirmei que eles **falham** sem a
+correção (não são vacuous). Suíte: 2334 testes verdes.
+
+**Próximo:** nada pendente neste escopo. O texto da opção no seletor ainda diz
+"Valor fixo por unidade" para todas as categorias (o rótulo do campo é que
+especializa) — cosmético, não confunde na prática.
+
+---
+
 ### 2026-08-03 — Onboarding deixa de terminar em silêncio (ADR 0064/0065)
 
 Duas lacunas que só aparecem quando existe cliente de verdade do outro lado.
