@@ -126,7 +126,7 @@ export function StepDevice({ data, onChange }: Props) {
             </div>
 
             <div className="space-y-2">
-              <Label>
+              <Label htmlFor="os-original">
                 OS Original {data.warrantyType === "return" && <span className="text-destructive">*</span>}
               </Label>
               <Select
@@ -139,7 +139,7 @@ export function StepDevice({ data, onChange }: Props) {
                 }
                 disabled={customerOrders.length === 0}
               >
-                <SelectTrigger>
+                <SelectTrigger id="os-original">
                   <SelectValue
                     placeholder={
                       customerOrdersQuery.isLoading
@@ -161,9 +161,9 @@ export function StepDevice({ data, onChange }: Props) {
             </div>
 
             <div className="space-y-2">
-              <Label>Prazo de garantia (meses)</Label>
+              <Label htmlFor="prazo-de-garantia-meses">Prazo de garantia (meses)</Label>
               <div className="flex items-center gap-2">
-                <Input
+                <Input id="prazo-de-garantia-meses"
                   type="number"
                   min={0}
                   max={120}

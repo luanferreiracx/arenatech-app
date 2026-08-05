@@ -206,8 +206,8 @@ export function RecurringExpensesManager() {
           <div className="space-y-3">
             {!form.id && (
               <div className="space-y-1">
-                <Label>Tipo</Label>
-                <div className="flex gap-2">
+                <Label id="recorrente-tipo-label">Tipo</Label>
+                <div role="group" aria-labelledby="recorrente-tipo-label" className="flex gap-2">
                   {(["PAYABLE", "RECEIVABLE"] as const).map((t) => (
                     <Button
                       key={t}
@@ -237,13 +237,13 @@ export function RecurringExpensesManager() {
               </div>
             </div>
             <div className="space-y-1">
-              <Label>Categoria</Label>
-              <FinancialCategorySelect value={form.category} onChange={(c) => setForm((f) => ({ ...f, category: c }))} transactionType={form.type} />
+              <Label htmlFor="categoria">Categoria</Label>
+              <FinancialCategorySelect id="categoria" value={form.category} onChange={(c) => setForm((f) => ({ ...f, category: c }))} transactionType={form.type} />
             </div>
             {form.type === "PAYABLE" && !form.id && (
               <div className="space-y-1">
-                <Label>Fornecedor</Label>
-                <SupplierSelect value={form.supplierId} onChange={(v) => setForm((f) => ({ ...f, supplierId: v }))} />
+                <Label htmlFor="fornecedor">Fornecedor</Label>
+                <SupplierSelect id="fornecedor" value={form.supplierId} onChange={(v) => setForm((f) => ({ ...f, supplierId: v }))} />
               </div>
             )}
             <div className="space-y-1">

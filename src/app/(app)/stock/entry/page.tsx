@@ -96,8 +96,8 @@ export default function StockEntryPage() {
         {/* Header: dados compartilhados pelo lote */}
         <FormSection title="Dados da entrada">
           <div className="space-y-2 sm:max-w-md">
-            <Label>Fornecedor</Label>
-            <EntitySelector<SupplierSearchResult>
+            <Label htmlFor="fornecedor">Fornecedor</Label>
+            <EntitySelector<SupplierSearchResult> id="fornecedor"
               value={form.watch("supplierId") ?? ""}
               onChange={(v) => form.setValue("supplierId", v || null)}
               searchFn={async (search) => {
@@ -120,6 +120,11 @@ export default function StockEntryPage() {
             {fields.map((field, idx) => {
               const productId = form.watch(`items.${idx}.productId`) || null;
               const showVariation = !!hasVariationsByField[field.id];
+              // A linha se repete: id literal geraria duplicata no DOM e o
+              // <label> ligaria sempre no primeiro item. O `field.id` do
+              // useFieldArray é estável e sobrevive à reordenação (o `idx`
+              // não).
+              const rowId = `item-${field.id}`;
               return (
                 <div
                   key={field.id}
@@ -151,8 +156,8 @@ export default function StockEntryPage() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label>Produto *</Label>
-                    <EntitySelector<ProductSearchResult>
+                    <Label htmlFor={`${rowId}-produto`}>Produto *</Label>
+                    <EntitySelector<ProductSearchResult> id={`${rowId}-produto`}
                       value={productId ?? undefined}
                       onChange={(v) => {
                         form.setValue(`items.${idx}.productId`, v ?? "");
@@ -200,8 +205,8 @@ export default function StockEntryPage() {
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label htmlFor="quantidade">Quantidade *</Label>
-                      <Input id="quantidade"
+                      <Label htmlFor={`${rowId}-quantidade`}>Quantidade *</Label>
+                      <Input id={`${rowId}-quantidade`}
                         type="number"
                         min={1}
                         {...form.register(`items.${idx}.quantity`, {
@@ -215,8 +220,8 @@ export default function StockEntryPage() {
                       )}
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="custo-unitario">Custo Unitario</Label>
-                      <MoneyInput id="custo-unitario"
+                      <Label htmlFor={`${rowId}-custo-unitario`}>Custo Unitario</Label>
+                      <MoneyInput id={`${rowId}-custo-unitario`}
                         value={form.watch(`items.${idx}.unitCost`) ?? 0}
                         onChange={(v) =>
                           form.setValue(`items.${idx}.unitCost`, v)

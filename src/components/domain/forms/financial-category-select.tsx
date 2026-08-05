@@ -16,8 +16,17 @@ type FinancialCategorySelectProps = {
    */
   value: string;
   onChange: (categoryName: string) => void;
+  /** Id do <select>, para o `<Label htmlFor>` associar. Auditoria 2026-08-04. */
+  id?: string;
   /** Tipo da transação — mapeado para o tipo da categoria (RECEITA/DESPESA). */
   transactionType: "RECEIVABLE" | "PAYABLE";
+  /**
+   * O `<FormControl>` do shadcn injeta `id`/`aria-*` via `Slot`, e a raiz aqui
+   * é um `<div>` — então o `htmlFor` do `<FormLabel>` apontava para o div, não
+   * para o campo. Repassar ao `<select>` é o que torna a associação real.
+   */
+  "aria-describedby"?: string;
+  "aria-invalid"?: boolean;
 };
 
 /**
@@ -33,6 +42,9 @@ export function FinancialCategorySelect({
   value,
   onChange,
   transactionType,
+  id,
+  "aria-describedby": ariaDescribedBy,
+  "aria-invalid": ariaInvalid,
 }: FinancialCategorySelectProps) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
@@ -77,6 +89,9 @@ export function FinancialCategorySelect({
   return (
     <div className="space-y-2">
       <select
+        id={id}
+        aria-describedby={ariaDescribedBy}
+        aria-invalid={ariaInvalid}
         className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
         value={creating ? NEW_CATEGORY_OPTION : value}
         onChange={(e) => {

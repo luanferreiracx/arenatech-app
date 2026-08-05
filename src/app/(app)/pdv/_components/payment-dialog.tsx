@@ -1,5 +1,6 @@
 "use client";
 import { formatCentsBRL as formatCurrency } from "@/lib/format";
+import { FieldTitle } from "@/components/domain/forms/field";
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -595,8 +596,9 @@ export function PaymentDialog({
           </div>
 
           <div className="space-y-2">
-            <Label>Forma de devolução</Label>
-            <div className="space-y-2">
+            {/* Rótulo de grupo dos radios nativos abaixo. */}
+            <Label id="forma-devolucao-label">Forma de devolução</Label>
+            <div role="radiogroup" aria-labelledby="forma-devolucao-label" className="space-y-2">
               {(["cash", "pix"] as const).map((m) => (
                 <label
                   key={m}
@@ -937,7 +939,7 @@ export function PaymentDialog({
 
             {showChange && (
               <div>
-                <Label>Troco</Label>
+                <FieldTitle>Troco</FieldTitle>
                 <div className="text-lg font-bold text-success bg-muted/50 rounded-md p-2 text-center">
                   {trocoDisplay > 0 ? formatCurrency(trocoDisplay) : "R$ 0,00"}
                 </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 /**
  * Rascunho local de formulário longo, em `sessionStorage`.
@@ -103,6 +103,72 @@ export function useFormDraft<T>(
 /** O storage não emite eventos que nos interessem: leitura é one-shot. */
 function subscribeToNothing(): () => void {
   return () => {};
+}
+
+/**
+ * Mesma rede de segurança, para formulários de `react-hook-form`.
+ *
+ * O `useFormDraft` acima serve a formulários com `useState` (o wizard de OS).
+ * Aqui o estado vive no RHF, então o rascunho é gravado a cada mudança do
+ * `watch` e devolvido via `reset` na montagem.
+ *
+ * @returns `restored` (havia rascunho ao abrir) e `clear` (chame ao salvar).
+ */
+export function useRhfDraft<T extends Record<string, unknown>>(
+  key: string,
+  form: {
+    watch: (cb: (values: unknown) => void) => { unsubscribe: () => void };
+    reset: (values: T) => void;
+    getValues: () => T;
+  },
+  opts?: { maxAgeMs?: number },
+): { restored: boolean; clear: () => void } {
+  const maxAgeMs = opts?.maxAgeMs ?? 12 * 60 * 60 * 1000;
+  const storageKey = `draft:${key}`;
+  // Só isto é estado: se o operador dispensou o rascunho ("Começar do zero").
+  // O resto é DERIVADO da leitura do storage — não precisa de `setState`.
+  const [dismissed, setDismissed] = useState(false);
+
+  const hasDraft = useSyncExternalStore(
+    subscribeToNothing,
+    () => readDraft<T>(storageKey, maxAgeMs) !== null,
+    () => false,
+  );
+
+  // O `reset` precisa rodar num efeito: mexe no estado interno do RHF, e fazer
+  // isso durante o render seria efeito colateral em corpo de componente.
+  // Mas o efeito NÃO chama `setState` — antes chamava, e a regra
+  // `react-hooks/set-state-in-effect` estava certa: era um render em cascata
+  // desnecessário, já que `restored` é dedutível do próprio `hasDraft`.
+  const restoredOnceRef = useRef(false);
+  useEffect(() => {
+    if (!hasDraft || restoredOnceRef.current) return;
+    const saved = readDraft<T>(storageKey, maxAgeMs);
+    if (!saved) return;
+    restoredOnceRef.current = true;
+    form.reset(saved);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasDraft]);
+
+  const restored = hasDraft && !dismissed;
+
+  // Grava a cada alteração de campo.
+  useEffect(() => {
+    const sub = form.watch(() => writeDraft(storageKey, form.getValues()));
+    return () => sub.unsubscribe();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storageKey]);
+
+  const clear = useCallback(() => {
+    try {
+      sessionStorage.removeItem(storageKey);
+    } catch {
+      // storage indisponível: nada a limpar.
+    }
+    setDismissed(true);
+  }, [storageKey]);
+
+  return { restored, clear };
 }
 
 /**

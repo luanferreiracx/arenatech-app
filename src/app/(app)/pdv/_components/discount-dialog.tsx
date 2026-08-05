@@ -80,8 +80,9 @@ export function DiscountDialog({
         </DialogHeader>
         <div className="space-y-4">
           <div>
-            <Label>Tipo de Desconto</Label>
-            <div className="flex gap-2 mt-2">
+            {/* Rótulo de grupo: nomeia os dois botões de tipo, não um campo. */}
+            <Label id="desconto-tipo-label">Tipo de Desconto</Label>
+            <div role="group" aria-labelledby="desconto-tipo-label" className="flex gap-2 mt-2">
               <Button
                 type="button"
                 variant={discountType === "fixed" ? "default" : "outline"}

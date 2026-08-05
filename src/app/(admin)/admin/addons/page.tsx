@@ -409,18 +409,18 @@ export default function AddonsPage() {
             </div>
             <div className="flex items-center gap-6">
               <div className="flex items-center gap-2">
-                <Switch
+                <Switch id="destaque"
                   checked={form.featured}
                   onCheckedChange={(v) => setForm({ ...form, featured: v })}
                 />
-                <Label>Destaque</Label>
+                <Label htmlFor="destaque">Destaque</Label>
               </div>
               <div className="flex items-center gap-2">
-                <Switch
+                <Switch id="ativo"
                   checked={form.active}
                   onCheckedChange={(v) => setForm({ ...form, active: v })}
                 />
-                <Label>Ativo</Label>
+                <Label htmlFor="ativo">Ativo</Label>
               </div>
             </div>
             <div className="flex justify-end gap-2">

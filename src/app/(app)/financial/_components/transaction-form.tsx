@@ -138,13 +138,13 @@ export function TransactionForm() {
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <Label>Tipo *</Label>
+              <Label htmlFor="transacao-tipo">Tipo *</Label>
               <Controller
                 name="type"
                 control={control}
                 render={({ field }) => (
                   <Select value={field.value} onValueChange={field.onChange}>
-                    <SelectTrigger>
+                    <SelectTrigger id="transacao-tipo">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -157,12 +157,13 @@ export function TransactionForm() {
             </div>
 
             <div>
-              <Label>Categoria</Label>
+              <Label htmlFor="transacao-categoria">Categoria</Label>
               <Controller
                 name="category"
                 control={control}
                 render={({ field }) => (
                   <FinancialCategorySelect
+                    id="transacao-categoria"
                     value={field.value}
                     onChange={field.onChange}
                     transactionType={type}
@@ -197,12 +198,16 @@ export function TransactionForm() {
 
           {type === "PAYABLE" && (
             <div>
-              <Label>Fornecedor</Label>
+              <Label htmlFor="transacao-fornecedor">Fornecedor</Label>
               <Controller
                 control={control}
                 name="supplierId"
                 render={({ field }) => (
-                  <SupplierSelect value={field.value} onChange={field.onChange} />
+                  <SupplierSelect
+                    id="transacao-fornecedor"
+                    value={field.value}
+                    onChange={field.onChange}
+                  />
                 )}
               />
             </div>
@@ -217,13 +222,14 @@ export function TransactionForm() {
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <Label>Valor Total (R$) *</Label>
+              <Label htmlFor="transacao-valor-total">Valor Total (R$) *</Label>
               <Controller
                 name="totalAmount"
                 control={control}
                 rules={{ min: { value: 1, message: "Valor deve ser maior que zero" } }}
                 render={({ field }) => (
                   <MoneyInput
+                    id="transacao-valor-total"
                     value={field.value}
                     onChange={field.onChange}
                   />
@@ -235,7 +241,7 @@ export function TransactionForm() {
             </div>
 
             <div>
-              <Label>Forma de Pagamento</Label>
+              <Label htmlFor="transacao-forma-pagamento">Forma de Pagamento</Label>
               <Controller
                 name="paymentMethod"
                 control={control}
@@ -250,7 +256,7 @@ export function TransactionForm() {
                     value={field.value || SEM_FORMA}
                     onValueChange={(v) => field.onChange(v === SEM_FORMA ? "" : v)}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger id="transacao-forma-pagamento">
                       <SelectValue placeholder="Selecione" />
                     </SelectTrigger>
                     <SelectContent>
@@ -284,16 +290,16 @@ export function TransactionForm() {
             </div>
 
             <div>
-              <Label>Data de Emissao *</Label>
+              <Label htmlFor="transacao-data-emissao">Data de Emissao *</Label>
               <Controller
                 control={control}
                 name="emissionDate"
                 rules={{ required: "Data de emissao e obrigatoria" }}
                 render={({ field }) => (
                   <DateInput
+                    id="transacao-data-emissao"
                     value={field.value ?? ""}
                     onChange={field.onChange}
-                    aria-label="Data de emissao"
                     required
                   />
                 )}

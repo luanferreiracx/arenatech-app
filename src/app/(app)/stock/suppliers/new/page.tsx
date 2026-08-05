@@ -227,11 +227,11 @@ export default function NewSupplierPage() {
           </div>
 
           <div className="flex items-center gap-3 mt-4">
-            <Switch
+            <Switch id="fornecedor-ativo"
               checked={form.watch("active") ?? true}
               onCheckedChange={(v) => form.setValue("active", v)}
             />
-            <Label>Fornecedor ativo</Label>
+            <Label htmlFor="fornecedor-ativo">Fornecedor ativo</Label>
           </div>
         </FormSection>
 

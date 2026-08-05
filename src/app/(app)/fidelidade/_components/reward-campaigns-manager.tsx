@@ -265,8 +265,8 @@ export function RewardCampaignsManager() {
                 </div>
               ) : (
                 <div className="space-y-1">
-                  <Label>{form.rewardType === "GIFT" ? "Valor do brinde" : "Valor"}</Label>
-                  <MoneyInput value={form.value} onChange={(v) => setForm((f) => ({ ...f, value: v }))} />
+                  <Label htmlFor="campanha-valor">{form.rewardType === "GIFT" ? "Valor do brinde" : "Valor"}</Label>
+                  <MoneyInput id="campanha-valor" value={form.value} onChange={(v) => setForm((f) => ({ ...f, value: v }))} />
                 </div>
               )}
               <div className="space-y-1">

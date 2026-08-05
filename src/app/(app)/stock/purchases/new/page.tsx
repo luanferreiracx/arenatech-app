@@ -47,6 +47,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { CustomerQuickCreate } from "@/components/domain/customer-quick-create";
+import { useRhfDraft } from "@/hooks/use-form-draft";
+import { Button } from "@/components/ui/button";
 
 /**
  * Valor-sentinela do "deixar o backend decidir a conta". O Radix Select não
@@ -85,6 +87,14 @@ export default function NewPurchasePage() {
     },
   });
 
+  // Rede de segurança do formulário longo (~20 campos): um clique errado em
+  // Cancelar, um F5 ou fechar a aba perdia tudo. Auditoria de frontend
+  // 2026-08-04.
+  const { restored: draftRestored, clear: clearDraft } = useRhfDraft(
+    "compra-aparelho",
+    form,
+  );
+
   const paymentMode = form.watch("paymentMode");
   const sellerType = form.watch("sellerType");
 
@@ -112,6 +122,7 @@ export default function NewPurchasePage() {
     trpc.stock.createPurchase.mutationOptions({
       onSuccess: (purchase) => {
         toast.success("Compra registrada com sucesso!");
+        clearDraft();
         queryClient.invalidateQueries({ queryKey: [["stock"]] });
         // Redireciona pra detalhe pra operador escolher enviar termo,
         // confirmar assinatura fisica, imprimir etc. Sem isso, ele caia
@@ -160,6 +171,28 @@ export default function NewPurchasePage() {
         title="Nova Compra de Aparelho"
         subtitle="Registre a compra de aparelho novo, seminovo, usado ou de vitrine"
       />
+
+      {/* Rascunho restaurado. Avisar é obrigatório: um formulário que reaparece
+          preenchido sem explicação faz o operador achar que abriu a compra
+          errada. E precisa haver saída — daí o "Começar do zero". */}
+      {draftRestored && (
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-md border border-info/40 bg-info/10 px-3 py-2 text-sm">
+          <span className="min-w-0">
+            Retomamos o preenchimento que você tinha começado nesta sessão.
+          </span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              clearDraft();
+              form.reset();
+            }}
+          >
+            Começar do zero
+          </Button>
+        </div>
+      )}
 
       <Form {...form}>
         <form

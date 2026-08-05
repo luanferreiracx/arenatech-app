@@ -317,10 +317,10 @@ function UpgradeDialogInner({ open, onOpenChange, saleId, upgrades, cartTotal }:
         {/* Etapa 1: busca de modelo do catalogo */}
         {!selected ? (
           <div className="space-y-2">
-            <Label>Buscar modelo do aparelho</Label>
+            <Label htmlFor="buscar-modelo-do-aparelho">Buscar modelo do aparelho</Label>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
+              <Input id="buscar-modelo-do-aparelho"
                 ref={searchRef}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}

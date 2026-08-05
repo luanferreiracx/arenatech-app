@@ -313,15 +313,15 @@ function EditForm({ order, onSubmit, onAttachNfse, attachNfsePending, onDetachNf
             </div>
             <div className="space-y-2"><Label htmlFor="prazo-garantia-meses">Prazo Garantia (meses)</Label><Input id="prazo-garantia-meses" type="number" min={0} max={120} {...register("warrantyMonths", { valueAsNumber: true })} readOnly={isCompleted} /></div>
             <div className="space-y-2">
-              <Label>Data Prevista</Label>
+              <Label htmlFor="os-data-prevista">Data Prevista</Label>
               <Controller
                 control={control}
                 name="estimatedDate"
                 render={({ field }) => (
                   <DateInput
+                    id="os-data-prevista"
                     value={(field.value as string) ?? ""}
                     onChange={field.onChange}
-                    aria-label="Data prevista de entrega"
                   />
                 )}
               />

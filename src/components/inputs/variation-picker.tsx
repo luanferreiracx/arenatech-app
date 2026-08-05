@@ -1,5 +1,6 @@
 "use client";
 
+import { useId } from "react";
 import { useTRPC } from "@/trpc/react";
 import { useQuery } from "@tanstack/react-query";
 import { Label } from "@/components/ui/label";
@@ -26,6 +27,10 @@ export function VariationPicker({
   showStock = true,
   label = "Variacao",
 }: VariationPickerProps) {
+  // Antes do early return: a ordem dos hooks precisa ser estável. O componente
+  // aparece várias vezes na mesma tela (um por item do carrinho), então o id
+  // não pode ser uma constante literal.
+  const selectId = useId();
   const trpc = useTRPC();
   const query = useQuery({
     ...trpc.stock.listVariations.queryOptions({ productId: productId! }),
@@ -36,7 +41,7 @@ export function VariationPicker({
 
   return (
     <div className="space-y-1">
-      <Label>{label} *</Label>
+      <Label htmlFor={selectId}>{label} *</Label>
       {query.isLoading ? (
         <Skeleton className="h-10 w-full" />
       ) : !query.data || query.data.length === 0 ? (
@@ -45,6 +50,7 @@ export function VariationPicker({
         </p>
       ) : (
         <select
+          id={selectId}
           className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
           value={value ?? ""}
           onChange={(e) => onChange(e.target.value || null)}

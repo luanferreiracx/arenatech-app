@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useId } from "react";
 import { Plus, Pencil, Trash2, Check, ChevronsUpDown, X } from "lucide-react";
 import { useTRPC } from "@/trpc/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -60,18 +60,22 @@ function ScopeMultiSelect({
   onChange: (next: string[]) => void;
   emptyHint: string;
 }) {
+  // O picker aparece mais de uma vez na tela (um por lista de observações),
+  // então o id do gatilho precisa ser único por instância.
+  const pickerId = useId();
   const [open, setOpen] = useState(false);
   const toggle = (value: string) =>
     onChange(selected.includes(value) ? selected.filter((v) => v !== value) : [...selected, value]);
 
   return (
     <div className="space-y-2">
-      <Label>{label}</Label>
+      <Label htmlFor={pickerId}>{label}</Label>
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <Button
             type="button"
             variant="outline"
+            id={pickerId}
             role="combobox"
             aria-expanded={open}
             className="w-full justify-between font-normal"

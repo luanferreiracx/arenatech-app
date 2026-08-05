@@ -156,13 +156,19 @@ export function PlansList() {
               <div><Label htmlFor="max-consultas-imei">Max Consultas IMEI</Label><Input id="max-consultas-imei" type="number" {...form.register("maxImeiQueries", { valueAsNumber: true })} min={0} /></div>
             </div>
             <div>
-              <Label>Modulos liberados</Label>
-              <p className="text-xs text-muted-foreground mb-2">
+              {/* Rótulo de grupo dos checkboxes de módulo. */}
+              <Label id="plano-modulos-label">Modulos liberados</Label>
+              <p id="plano-modulos-ajuda" className="text-xs text-muted-foreground mb-2">
                 Define o que os tenants deste plano podem acessar. Alguns módulos exigem
                 outros (ex.: Vendas / PDV precisa de Caixa e Financeiro) — os exigidos são
                 marcados automaticamente. (arena-tech tem acesso total, independente do plano.)
               </p>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <div
+                role="group"
+                aria-labelledby="plano-modulos-label"
+                aria-describedby="plano-modulos-ajuda"
+                className="grid grid-cols-1 gap-2 sm:grid-cols-2"
+              >
                 {PLAN_SELECTABLE_MODULES.map((mod) => {
                   const isRequired = requiredModules.has(mod);
                   return (

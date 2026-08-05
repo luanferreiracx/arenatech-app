@@ -182,10 +182,11 @@ export function BulkActionDialog({ action, onClose }: BulkActionDialogProps) {
 
           {(action.action === "duplicate" || action.action === "rename") && (
             <div className="space-y-2">
-              <Label>
+              <Label htmlFor="bulk-novo-nome">
                 {action.action === "duplicate" ? "Nome do novo tipo" : "Novo nome"}
               </Label>
               <Input
+                id="bulk-novo-nome"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
                 placeholder="Ex: Troca de Tela Premium"

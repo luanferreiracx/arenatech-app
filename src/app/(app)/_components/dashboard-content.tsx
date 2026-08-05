@@ -129,13 +129,19 @@ function CashierStatusBanner() {
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border bg-card px-4 py-3">
-      <div className="flex items-center gap-3">
+      {/*
+        `min-w-0` também AQUI: o filho já tinha, mas um elo sem ele no meio da
+        cadeia flex faz o `truncate` de baixo virar decoração — o item se recusa
+        a encolher abaixo do conteúdo e estoura a viewport. Medido: 5px de
+        overflow a 320px.
+      */}
+      <div className="flex min-w-0 items-center gap-3">
         <span
           className={`h-2.5 w-2.5 shrink-0 rounded-full ${cashier.isOpen ? "bg-success shadow-[0_0_0_3px_var(--color-success)]/20" : "bg-destructive"}`}
           aria-hidden
         />
         <div className="min-w-0">
-          <p className="font-medium">Caixa {cashier.isOpen ? "aberto" : "fechado"}</p>
+          <p className="truncate font-medium">Caixa {cashier.isOpen ? "aberto" : "fechado"}</p>
           <p className="truncate text-sm text-muted-foreground">
             {cashier.isOpen
               ? `${cashier.salesCount} movimentações nesta abertura`
