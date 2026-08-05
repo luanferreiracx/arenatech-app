@@ -337,13 +337,25 @@ sem nome; clicar no rótulo não foca. Piores: `service-order-detail.tsx` (23),
 - ~~**Alvos de toque do carrinho do PDV**~~ **FEITO: 28px → 36px**, com o input
   de quantidade acompanhando para não desalinhar a linha.
 
+**Fechados no PR #815:**
+
+- ~~**NF-e conta serializado como importado**~~ **FEITO.** O pulo do produto
+  serializado está certo (aparelho com IMEI entra unidade a unidade, pelo fluxo
+  de compra); errado era dizer que importou. Agora o item fica `PENDING`, é
+  contado à parte (`skippedSerialized`) e a tela avisa com o caminho a seguir.
+- ~~**Sem rascunho nos formulários longos**~~ **FEITO no wizard de OS.** Novo
+  `useFormDraft` (`src/hooks/use-form-draft.ts`): `sessionStorage`, expira em
+  12h, salva no `visibilitychange` (único evento confiável em mobile). A
+  restauração é AVISADA, com botão "Começar do zero".
+
 **Ainda aberto** (menor severidade, sem prazo):
 
 - **~30 caixas de texto livre** sem estratégia de overflow. As que escondiam
   botão foram corrigidas; as restantes só esticam layout.
-- **Sem rascunho/autosave** nos formulários longos (compra de aparelho, wizard
-  de OS): fechar a aba no meio perde o preenchimento.
-- **NF-e ignora produto serializado em silêncio** e ainda o conta como importado.
+- **59 `<Label>`** ainda sem associação, em componentes que não encaminham `id`
+  (Switch, Checkbox, EntitySelector). Cobertos por teste-teto.
+- **Rascunho na compra de aparelho** — o hook existe, falta aplicar. O wizard de
+  OS era o caso com mais trabalho em risco (5 passos).
 
 ## Lições de processo desta rodada
 
