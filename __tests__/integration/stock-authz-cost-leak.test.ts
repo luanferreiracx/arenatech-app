@@ -66,7 +66,11 @@ describe("Auditoria Estoque — authz (ao vivo)", () => {
     expect(opDetail).not.toHaveProperty("costPrice");
     expect(adminDetail).toHaveProperty("costPrice");
 
-    const opList = await call(operatorCtx).stock.list({});
+    // Busca pelo proprio produto em vez de `list({})`: o pageSize padrao e 10 e
+    // a ordenacao e por nome, entao o produto do teste caía fora da primeira
+    // pagina assim que o banco passava de 10 produtos — falha por volume do
+    // banco, nao por regressao de authz (o que o teste quer medir).
+    const opList = await call(operatorCtx).stock.list({ search: `${MARK}-produto` });
     const row = opList.data.find((p: any) => p.id === productId);
     expect(row).toBeDefined();
     expect(row).not.toHaveProperty("costPrice");
