@@ -21,6 +21,21 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    # Auditoria 2026-08-05 (P1-B3): postgres e redis tinham healthcheck, o app
+    # NÃO — justamente o container que serve todos os clientes. `restart:
+    # unless-stopped` só age em processo MORTO; um app pendurado (event loop
+    # travado, pool esgotado) fica de pé sem servir e ninguém descobre.
+    #
+    # `start_period` de 40s: o Next standalone leva alguns segundos para atender,
+    # e falha durante o boot não conta como unhealthy.
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "node -e \"fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     networks:
       - arenatech
 
