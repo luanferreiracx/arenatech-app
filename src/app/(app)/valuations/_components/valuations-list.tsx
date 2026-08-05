@@ -512,8 +512,8 @@ export function ValuationsList() {
 
           <div className="space-y-4">
             <div>
-              <Label>Modelo</Label>
-              <Input
+              <Label htmlFor="modelo">Modelo</Label>
+              <Input id="modelo"
                 value={formModelo}
                 onChange={(e) => setFormModelo(e.target.value)}
                 placeholder="Ex: iPhone 13 Pro"
@@ -521,18 +521,18 @@ export function ValuationsList() {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label>Armazenamento</Label>
+                <Label htmlFor="armazenamento">Armazenamento</Label>
                 <Select value={formArmazenamento} onValueChange={setFormArmazenamento}>
-                  <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                  <SelectTrigger id="armazenamento"><SelectValue placeholder="Selecione" /></SelectTrigger>
                   <SelectContent>
                     {STORAGE_OPTIONS.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
               <div>
-                <Label>Saúde da Bateria</Label>
+                <Label htmlFor="saude-da-bateria">Saúde da Bateria</Label>
                 <Select value={formSaudeBateria} onValueChange={setFormSaudeBateria}>
-                  <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                  <SelectTrigger id="saude-da-bateria"><SelectValue placeholder="Selecione" /></SelectTrigger>
                   <SelectContent>
                     {BATTERY_HEALTH_OPTIONS.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
                   </SelectContent>
@@ -540,12 +540,12 @@ export function ValuationsList() {
               </div>
             </div>
             <div>
-              <Label>Valor de Compra</Label>
-              <MoneyInput value={formValor} onChange={setFormValor} />
+              <Label htmlFor="valor-de-compra">Valor de Compra</Label>
+              <MoneyInput id="valor-de-compra" value={formValor} onChange={setFormValor} />
             </div>
             <div>
-              <Label>Validade (dias)</Label>
-              <Input
+              <Label htmlFor="validade-dias">Validade (dias)</Label>
+              <Input id="validade-dias"
                 type="number"
                 min={1}
                 max={365}
@@ -584,17 +584,17 @@ export function ValuationsList() {
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <Label>Modelo</Label>
+              <Label htmlFor="modelo-2">Modelo</Label>
               <Select value={adjustModelo} onValueChange={setAdjustModelo}>
-                <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                <SelectTrigger id="modelo-2"><SelectValue placeholder="Selecione" /></SelectTrigger>
                 <SelectContent>
                   {(modelsQuery.data ?? []).map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
             <div>
-              <Label>Percentual (%)</Label>
-              <Input
+              <Label htmlFor="percentual">Percentual (%)</Label>
+              <Input id="percentual"
                 type="text"
                 inputMode="decimal"
                 value={adjustPercentRaw}
@@ -622,17 +622,17 @@ export function ValuationsList() {
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <Label>Modelo</Label>
+              <Label htmlFor="modelo-3">Modelo</Label>
               <Select value={adjustFixedModelo} onValueChange={setAdjustFixedModelo}>
-                <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                <SelectTrigger id="modelo-3"><SelectValue placeholder="Selecione" /></SelectTrigger>
                 <SelectContent>
                   {(modelsQuery.data ?? []).map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
             <div>
-              <Label>Valor (R$)</Label>
-              <Input
+              <Label htmlFor="valor-r">Valor (R$)</Label>
+              <Input id="valor-r"
                 type="text"
                 inputMode="decimal"
                 value={adjustFixedRaw}
@@ -660,17 +660,17 @@ export function ValuationsList() {
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <Label>Modelo de origem</Label>
+              <Label htmlFor="modelo-de-origem">Modelo de origem</Label>
               <Select value={dupSource} onValueChange={setDupSource}>
-                <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                <SelectTrigger id="modelo-de-origem"><SelectValue placeholder="Selecione" /></SelectTrigger>
                 <SelectContent>
                   {(modelsQuery.data ?? []).map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
             <div>
-              <Label>Modelo de destino</Label>
-              <Input
+              <Label htmlFor="modelo-de-destino">Modelo de destino</Label>
+              <Input id="modelo-de-destino"
                 value={dupTarget}
                 onChange={(e) => setDupTarget(e.target.value)}
                 placeholder="Ex: iPhone 15 Pro Max"
@@ -695,17 +695,17 @@ export function ValuationsList() {
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <Label>Modelo</Label>
+              <Label htmlFor="modelo-4">Modelo</Label>
               <Select value={whatsAppModelo} onValueChange={setWhatsAppModelo}>
-                <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                <SelectTrigger id="modelo-4"><SelectValue placeholder="Selecione" /></SelectTrigger>
                 <SelectContent>
                   {(modelsQuery.data ?? []).map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
             <div>
-              <Label>Telefone do cliente</Label>
-              <Input
+              <Label htmlFor="telefone-do-cliente">Telefone do cliente</Label>
+              <Input id="telefone-do-cliente"
                 value={whatsAppPhone}
                 onChange={(e) => setWhatsAppPhone(e.target.value)}
                 placeholder="86999999999"

@@ -155,12 +155,12 @@ export default function NewSupplierPage() {
         <FormSection title="Dados do Fornecedor">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="space-y-2">
-              <Label>Tipo de Pessoa *</Label>
+              <Label htmlFor="tipo-de-pessoa">Tipo de Pessoa *</Label>
               <Select
                 value={form.watch("type")}
                 onValueChange={(v) => form.setValue("type", v as "PF" | "PJ")}
               >
-                <SelectTrigger>
+                <SelectTrigger id="tipo-de-pessoa">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -170,9 +170,10 @@ export default function NewSupplierPage() {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>CPF/CNPJ</Label>
+              <Label htmlFor="cpf-cnpj">CPF/CNPJ</Label>
               <div className="flex gap-2">
                 <Input
+                  id="cpf-cnpj"
                   {...form.register(form.watch("type") === "PF" ? "cpf" : "cnpj")}
                   placeholder={form.watch("type") === "PF" ? "000.000.000-00" : "00.000.000/0000-00"}
                 />
@@ -199,8 +200,8 @@ export default function NewSupplierPage() {
               )}
             </div>
             <div className="space-y-2 sm:col-span-1">
-              <Label>Razao Social / Nome *</Label>
-              <Input {...form.register("name")} />
+              <Label htmlFor="razao-social-nome">Razao Social / Nome *</Label>
+              <Input id="razao-social-nome" {...form.register("name")} />
               {form.formState.errors.name && (
                 <p className="text-xs text-destructive">{form.formState.errors.name.message}</p>
               )}
@@ -209,19 +210,19 @@ export default function NewSupplierPage() {
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
             <div className="space-y-2">
-              <Label>Nome Fantasia</Label>
-              <Input {...form.register("tradeName")} />
+              <Label htmlFor="nome-fantasia">Nome Fantasia</Label>
+              <Input id="nome-fantasia" {...form.register("tradeName")} />
             </div>
             <div className="space-y-2">
-              <Label>Telefone</Label>
-              <PhoneInput
+              <Label htmlFor="telefone">Telefone</Label>
+              <PhoneInput id="telefone"
                 value={form.watch("phone") ?? ""}
                 onValueChange={(v: string) => form.setValue("phone", v)}
               />
             </div>
             <div className="space-y-2">
-              <Label>Email</Label>
-              <Input type="email" {...form.register("email")} />
+              <Label htmlFor="email">Email</Label>
+              <Input id="email" type="email" {...form.register("email")} />
             </div>
           </div>
 
@@ -237,8 +238,8 @@ export default function NewSupplierPage() {
         <FormSection title="Endereco">
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
             <div className="space-y-2">
-              <Label>CEP</Label>
-              <CepInput
+              <Label htmlFor="cep">CEP</Label>
+              <CepInput id="cep"
                 value={form.watch("zipCode") ?? ""}
                 onValueChange={(v: string) => form.setValue("zipCode", v)}
                 onAddressFound={(addr: AddressResult) => {
@@ -250,30 +251,30 @@ export default function NewSupplierPage() {
               />
             </div>
             <div className="space-y-2 sm:col-span-2">
-              <Label>Logradouro</Label>
-              <Input {...form.register("street")} />
+              <Label htmlFor="logradouro">Logradouro</Label>
+              <Input id="logradouro" {...form.register("street")} />
             </div>
             <div className="space-y-2">
-              <Label>Numero</Label>
-              <Input {...form.register("streetNumber")} />
+              <Label htmlFor="numero">Numero</Label>
+              <Input id="numero" {...form.register("streetNumber")} />
             </div>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mt-4">
             <div className="space-y-2">
-              <Label>Complemento</Label>
-              <Input {...form.register("complement")} />
+              <Label htmlFor="complemento">Complemento</Label>
+              <Input id="complemento" {...form.register("complement")} />
             </div>
             <div className="space-y-2">
-              <Label>Bairro</Label>
-              <Input {...form.register("neighborhood")} />
+              <Label htmlFor="bairro">Bairro</Label>
+              <Input id="bairro" {...form.register("neighborhood")} />
             </div>
             <div className="space-y-2">
-              <Label>Cidade</Label>
-              <Input {...form.register("city")} />
+              <Label htmlFor="cidade">Cidade</Label>
+              <Input id="cidade" {...form.register("city")} />
             </div>
             <div className="space-y-2">
-              <Label>UF</Label>
-              <Input {...form.register("state")} maxLength={2} className="uppercase" />
+              <Label htmlFor="uf">UF</Label>
+              <Input id="uf" {...form.register("state")} maxLength={2} className="uppercase" />
             </div>
           </div>
         </FormSection>

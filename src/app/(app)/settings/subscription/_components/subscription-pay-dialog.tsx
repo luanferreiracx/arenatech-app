@@ -152,8 +152,8 @@ export function SubscriptionPayDialog({ open, amountCents, onClose, onPaid }: Su
               Para gerar o PIX é <strong>obrigatório</strong> informar o CPF/CNPJ do pagador (exigência da Eulen).
             </div>
             <div className="space-y-1.5">
-              <Label>CPF ou CNPJ do pagador</Label>
-              <Input
+              <Label htmlFor="cpf-ou-cnpj-do-pagador">CPF ou CNPJ do pagador</Label>
+              <Input id="cpf-ou-cnpj-do-pagador"
                 value={taxIdInput}
                 onChange={(e) => setTaxIdInput(e.target.value)}
                 placeholder="000.000.000-00 ou 00.000.000/0000-00"

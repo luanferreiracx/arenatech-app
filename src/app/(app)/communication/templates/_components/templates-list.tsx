@@ -119,20 +119,20 @@ export function TemplatesList() {
           </DialogHeader>
           <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
             <div>
-              <Label>Canal</Label>
+              <Label htmlFor="canal">Canal</Label>
               <Select value={form.watch("channel")} onValueChange={(v) => form.setValue("channel", v as "WHATSAPP" | "EMAIL")} disabled={!!editingId}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger id="canal"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="WHATSAPP">WhatsApp</SelectItem>
                   <SelectItem value="EMAIL">E-mail</SelectItem>
                 </SelectContent>
               </Select>
             </div>
-            <div><Label>Nome</Label><Input {...form.register("name")} /></div>
-            {!editingId && <div><Label>Slug</Label><Input {...form.register("slug")} placeholder="ex: os-concluida" /></div>}
+            <div><Label htmlFor="nome">Nome</Label><Input id="nome" {...form.register("name")} /></div>
+            {!editingId && <div><Label htmlFor="slug">Slug</Label><Input id="slug" {...form.register("slug")} placeholder="ex: os-concluida" /></div>}
             <div>
-              <Label>Corpo</Label>
-              <Textarea {...form.register("body")} rows={4} placeholder="Ola {{nome}}, sua OS {{numero}} foi concluida..." />
+              <Label htmlFor="corpo">Corpo</Label>
+              <Textarea id="corpo" {...form.register("body")} rows={4} placeholder="Ola {{nome}}, sua OS {{numero}} foi concluida..." />
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={close}>Cancelar</Button>

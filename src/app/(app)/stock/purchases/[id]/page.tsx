@@ -418,8 +418,8 @@ export default function PurchaseDetailPage({ params }: PageProps) {
             </DialogDescription>
           </DialogHeader>
           <div>
-            <Label>Motivo do cancelamento *</Label>
-            <Textarea
+            <Label htmlFor="motivo-do-cancelamento">Motivo do cancelamento *</Label>
+            <Textarea id="motivo-do-cancelamento"
               value={cancelReason}
               onChange={(e) => setCancelReason(e.target.value)}
               placeholder="Informe o motivo..."

@@ -84,8 +84,8 @@ export default function AssistanceSettingsPage() {
       <form onSubmit={form.handleSubmit((d) => mutation.mutate(d))} className="space-y-6">
         <FormSection title="Termos de serviço">
           <div className="space-y-2">
-            <Label>Termos de serviço (exibido na OS)</Label>
-            <Textarea
+            <Label htmlFor="termos-de-servico-exibido-na-os">Termos de serviço (exibido na OS)</Label>
+            <Textarea id="termos-de-servico-exibido-na-os"
               {...form.register("termsOfService")}
               rows={8}
               placeholder="Descreva os termos de serviço da sua assistência..."
@@ -95,8 +95,8 @@ export default function AssistanceSettingsPage() {
 
         <FormSection title="Política de garantia">
           <div className="space-y-2">
-            <Label>Política de garantia (exibido na OS e PDV)</Label>
-            <Textarea
+            <Label htmlFor="politica-de-garantia-exibido-na-os-e-pdv">Política de garantia (exibido na OS e PDV)</Label>
+            <Textarea id="politica-de-garantia-exibido-na-os-e-pdv"
               {...form.register("warrantyPolicy")}
               rows={8}
               placeholder="Descreva a política de garantia..."
@@ -107,8 +107,8 @@ export default function AssistanceSettingsPage() {
         <FormSection title="Orçamentos de serviço (WhatsApp)">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label>Parcelas sem juros (até)</Label>
-              <Input
+              <Label htmlFor="parcelas-sem-juros-ate">Parcelas sem juros (até)</Label>
+              <Input id="parcelas-sem-juros-ate"
                 type="number"
                 min={1}
                 max={24}
@@ -119,8 +119,8 @@ export default function AssistanceSettingsPage() {
               </p>
             </div>
             <div className="space-y-2">
-              <Label>Desconto PIX (%)</Label>
-              <Input
+              <Label htmlFor="desconto-pix">Desconto PIX (%)</Label>
+              <Input id="desconto-pix"
                 type="number"
                 min={0}
                 max={100}

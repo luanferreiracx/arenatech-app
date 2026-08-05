@@ -54,12 +54,12 @@ export function InvoiceForm() {
       <FormSection title="Dados da Nota">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
-            <Label>Tipo</Label>
+            <Label htmlFor="tipo">Tipo</Label>
             <Select
               value={form.watch("type")}
               onValueChange={(v) => form.setValue("type", v as "NFE" | "NFCE" | "NFSE")}
             >
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger id="tipo"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="NFE">NF-e</SelectItem>
                 <SelectItem value="NFCE">NFC-e</SelectItem>
@@ -68,15 +68,15 @@ export function InvoiceForm() {
             </Select>
           </div>
           <div>
-            <Label>Nome Destinatario</Label>
-            <Input {...form.register("recipientName")} placeholder="Nome do destinatario" />
+            <Label htmlFor="nome-destinatario">Nome Destinatario</Label>
+            <Input id="nome-destinatario" {...form.register("recipientName")} placeholder="Nome do destinatario" />
             {form.formState.errors.recipientName && (
               <p className="text-xs text-destructive mt-1">{form.formState.errors.recipientName.message}</p>
             )}
           </div>
           <div>
-            <Label>CPF/CNPJ</Label>
-            <Input {...form.register("recipientCpfCnpj")} placeholder="CPF ou CNPJ" />
+            <Label htmlFor="cpf-cnpj">CPF/CNPJ</Label>
+            <Input id="cpf-cnpj" {...form.register("recipientCpfCnpj")} placeholder="CPF ou CNPJ" />
             {form.formState.errors.recipientCpfCnpj && (
               <p className="text-xs text-destructive mt-1">{form.formState.errors.recipientCpfCnpj.message}</p>
             )}
@@ -90,12 +90,12 @@ export function InvoiceForm() {
             <CardContent className="p-4">
               <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
                 <div className="md:col-span-2">
-                  <Label>Descricao</Label>
-                  <Input {...form.register(`items.${index}.description`)} placeholder="Descricao do item" />
+                  <Label htmlFor="descricao">Descricao</Label>
+                  <Input id="descricao" {...form.register(`items.${index}.description`)} placeholder="Descricao do item" />
                 </div>
                 <div>
-                  <Label>Quantidade</Label>
-                  <Input
+                  <Label htmlFor="quantidade">Quantidade</Label>
+                  <Input id="quantidade"
                     type="number"
                     step="0.01"
                     min="0.01"
@@ -103,8 +103,8 @@ export function InvoiceForm() {
                   />
                 </div>
                 <div>
-                  <Label>Preco Unit. (R$)</Label>
-                  <MoneyInput
+                  <Label htmlFor="preco-unit-r">Preco Unit. (R$)</Label>
+                  <MoneyInput id="preco-unit-r"
                     value={form.watch(`items.${index}.unitPrice`)}
                     onChange={(v) => form.setValue(`items.${index}.unitPrice`, v)}
                   />

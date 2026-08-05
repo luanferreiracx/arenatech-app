@@ -488,8 +488,8 @@ export function DeviceCatalogAdmin() {
             <DialogTitle>{categoryDialog?.id ? "Renomear categoria" : "Nova categoria"}</DialogTitle>
           </DialogHeader>
           <div>
-            <Label>Nome</Label>
-            <Input
+            <Label htmlFor="nome">Nome</Label>
+            <Input id="nome"
               autoFocus
               value={categoryDialog?.name ?? ""}
               onChange={(e) => setCategoryDialog((d) => d ? { ...d, name: e.target.value } : d)}
@@ -528,12 +528,12 @@ export function DeviceCatalogAdmin() {
             </div>
 
             <div>
-              <Label>Categoria</Label>
+              <Label htmlFor="categoria">Categoria</Label>
               <Select
                 value={deviceDialog?.categoryId ?? "__none__"}
                 onValueChange={(v) => setDeviceDialog((d) => d ? { ...d, categoryId: v === "__none__" ? null : v } : d)}
               >
-                <SelectTrigger>
+                <SelectTrigger id="categoria">
                   <SelectValue placeholder="— sem categoria —" />
                 </SelectTrigger>
                 <SelectContent>
@@ -547,8 +547,8 @@ export function DeviceCatalogAdmin() {
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label>Preço cartão (R$)</Label>
-                <Input
+                <Label htmlFor="preco-cartao-r">Preço cartão (R$)</Label>
+                <Input id="preco-cartao-r"
                   type="number"
                   step="0.01"
                   min="0"
@@ -573,8 +573,8 @@ export function DeviceCatalogAdmin() {
             </div>
 
             <div>
-              <Label>Condição</Label>
-              <Input
+              <Label htmlFor="condicao">Condição</Label>
+              <Input id="condicao"
                 value={deviceDialog?.condition ?? ""}
                 onChange={(e) => setDeviceDialog((d) => d ? { ...d, condition: e.target.value } : d)}
                 placeholder="Novo, Seminovo, Usado..."
@@ -582,8 +582,8 @@ export function DeviceCatalogAdmin() {
             </div>
 
             <div>
-              <Label>Descrição</Label>
-              <Textarea
+              <Label htmlFor="descricao">Descrição</Label>
+              <Textarea id="descricao"
                 value={deviceDialog?.description ?? ""}
                 onChange={(e) => setDeviceDialog((d) => d ? { ...d, description: e.target.value } : d)}
                 placeholder="Detalhes que o bot pode usar ao responder"
@@ -592,8 +592,8 @@ export function DeviceCatalogAdmin() {
             </div>
 
             <div>
-              <Label>URL da imagem</Label>
-              <Input
+              <Label htmlFor="url-da-imagem">URL da imagem</Label>
+              <Input id="url-da-imagem"
                 value={deviceDialog?.imageUrl ?? ""}
                 onChange={(e) => setDeviceDialog((d) => d ? { ...d, imageUrl: e.target.value } : d)}
                 placeholder="https://..."

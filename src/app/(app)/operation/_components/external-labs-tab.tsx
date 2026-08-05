@@ -106,9 +106,9 @@ export function ExternalLabsTab() {
             <DialogDescription>Dados do laboratorio externo</DialogDescription>
           </DialogHeader>
           <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
-            <div><Label>Local</Label><Input {...form.register("name")} placeholder="Nome do laboratorio" /></div>
-            <div><Label>Responsavel</Label><Input {...form.register("contact")} placeholder="Pessoa de contato" /></div>
-            <div><Label>WhatsApp</Label><Input {...form.register("phone")} placeholder="(00) 00000-0000" inputMode="tel" /></div>
+            <div><Label htmlFor="local">Local</Label><Input id="local" {...form.register("name")} placeholder="Nome do laboratorio" /></div>
+            <div><Label htmlFor="responsavel">Responsavel</Label><Input id="responsavel" {...form.register("contact")} placeholder="Pessoa de contato" /></div>
+            <div><Label htmlFor="whatsapp">WhatsApp</Label><Input id="whatsapp" {...form.register("phone")} placeholder="(00) 00000-0000" inputMode="tel" /></div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={close}>Cancelar</Button>
               <Button type="submit">Salvar</Button>

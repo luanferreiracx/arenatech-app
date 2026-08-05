@@ -101,32 +101,32 @@ export default function EntradaPage() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label>CPF/CNPJ *</Label>
-              <Input {...form.register("supplierCpfCnpj")} />
+              <Label htmlFor="cpf-cnpj">CPF/CNPJ *</Label>
+              <Input id="cpf-cnpj" {...form.register("supplierCpfCnpj")} />
             </div>
             <div className="space-y-2">
-              <Label>Telefone</Label>
-              <PhoneInput
+              <Label htmlFor="telefone">Telefone</Label>
+              <PhoneInput id="telefone"
                 value={form.watch("supplierPhone") ?? ""}
                 onValueChange={(v: string) => form.setValue("supplierPhone", v)}
               />
             </div>
           </div>
           <div className="space-y-2 mt-4">
-            <Label>Nome / Razao Social *</Label>
-            <Input {...form.register("supplierName")} />
+            <Label htmlFor="nome-razao-social">Nome / Razao Social *</Label>
+            <Input id="nome-razao-social" {...form.register("supplierName")} />
           </div>
           <div className="space-y-2 mt-4">
-            <Label>Email</Label>
-            <Input type="email" {...form.register("supplierEmail")} />
+            <Label htmlFor="email">Email</Label>
+            <Input id="email" type="email" {...form.register("supplierEmail")} />
           </div>
 
           <div className="border-t pt-4 mt-4">
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Endereco</p>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="space-y-2">
-                <Label>CEP *</Label>
-                <CepInput
+                <Label htmlFor="cep">CEP *</Label>
+                <CepInput id="cep"
                   value={form.watch("zipCode") ?? ""}
                   onValueChange={(v: string) => form.setValue("zipCode", v)}
                   onAddressFound={(addr: AddressResult) => {
@@ -138,32 +138,32 @@ export default function EntradaPage() {
                 />
               </div>
               <div className="space-y-2 sm:col-span-2">
-                <Label>Logradouro *</Label>
-                <Input {...form.register("street")} />
+                <Label htmlFor="logradouro">Logradouro *</Label>
+                <Input id="logradouro" {...form.register("street")} />
               </div>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-3">
               <div className="space-y-2">
-                <Label>Numero *</Label>
-                <Input {...form.register("number")} />
+                <Label htmlFor="numero">Numero *</Label>
+                <Input id="numero" {...form.register("number")} />
               </div>
               <div className="space-y-2">
-                <Label>Complemento</Label>
-                <Input {...form.register("complement")} />
+                <Label htmlFor="complemento">Complemento</Label>
+                <Input id="complemento" {...form.register("complement")} />
               </div>
               <div className="space-y-2">
-                <Label>Bairro *</Label>
-                <Input {...form.register("neighborhood")} />
+                <Label htmlFor="bairro">Bairro *</Label>
+                <Input id="bairro" {...form.register("neighborhood")} />
               </div>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-3">
               <div className="space-y-2 sm:col-span-2">
-                <Label>Cidade *</Label>
-                <Input {...form.register("city")} />
+                <Label htmlFor="cidade">Cidade *</Label>
+                <Input id="cidade" {...form.register("city")} />
               </div>
               <div className="space-y-2">
-                <Label>UF *</Label>
-                <Input {...form.register("state")} maxLength={2} className="uppercase" />
+                <Label htmlFor="uf">UF *</Label>
+                <Input id="uf" {...form.register("state")} maxLength={2} className="uppercase" />
               </div>
             </div>
           </div>
@@ -172,12 +172,12 @@ export default function EntradaPage() {
         <FormSection title="Dados da Operacao">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label>Modalidade do Frete</Label>
+              <Label htmlFor="modalidade-do-frete">Modalidade do Frete</Label>
               <Select
                 value={form.watch("freightMode") ?? "9"}
                 onValueChange={(v) => form.setValue("freightMode", v)}
               >
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger id="modalidade-do-frete"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="9">Sem Frete</SelectItem>
                   <SelectItem value="0">Por conta do Emitente (Loja)</SelectItem>
@@ -187,30 +187,30 @@ export default function EntradaPage() {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Valor do Frete</Label>
-              <MoneyInput
+              <Label htmlFor="valor-do-frete">Valor do Frete</Label>
+              <MoneyInput id="valor-do-frete"
                 value={form.watch("freightAmount") ?? 0}
                 onChange={(v) => form.setValue("freightAmount", v)}
               />
             </div>
             <div className="space-y-2">
-              <Label>Valor do Seguro</Label>
-              <MoneyInput
+              <Label htmlFor="valor-do-seguro">Valor do Seguro</Label>
+              <MoneyInput id="valor-do-seguro"
                 value={form.watch("insuranceAmount") ?? 0}
                 onChange={(v) => form.setValue("insuranceAmount", v)}
               />
             </div>
             <div className="space-y-2">
-              <Label>Outras Despesas</Label>
-              <MoneyInput
+              <Label htmlFor="outras-despesas">Outras Despesas</Label>
+              <MoneyInput id="outras-despesas"
                 value={form.watch("otherExpenses") ?? 0}
                 onChange={(v) => form.setValue("otherExpenses", v)}
               />
             </div>
           </div>
           <div className="space-y-2 mt-4">
-            <Label>Informacoes Complementares</Label>
-            <Textarea {...form.register("additionalInfo")} rows={3} placeholder="Detalhes adicionais..." />
+            <Label htmlFor="informacoes-complementares">Informacoes Complementares</Label>
+            <Textarea id="informacoes-complementares" {...form.register("additionalInfo")} rows={3} placeholder="Detalhes adicionais..." />
           </div>
         </FormSection>
 

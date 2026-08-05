@@ -126,8 +126,8 @@ export default function SimulatorRatesPage() {
         <FormSection title="Pagamentos a vista">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label>Taxa Credito a vista (%)</Label>
-              <Input
+              <Label htmlFor="taxa-credito-a-vista">Taxa Credito a vista (%)</Label>
+              <Input id="taxa-credito-a-vista"
                 type="number"
                 min={0}
                 max={99.99}
@@ -138,8 +138,8 @@ export default function SimulatorRatesPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label>Taxa Debito (%)</Label>
-              <Input
+              <Label htmlFor="taxa-debito">Taxa Debito (%)</Label>
+              <Input id="taxa-debito"
                 type="number"
                 min={0}
                 max={99.99}
@@ -152,7 +152,7 @@ export default function SimulatorRatesPage() {
 
         <FormSection title="Prazo maximo de parcelamento">
           <div className="space-y-2 max-w-xs">
-            <Label>Numero maximo de parcelas (2 a 36)</Label>
+            <Label htmlFor="numero-maximo-de-parcelas-2-a-36">Numero maximo de parcelas (2 a 36)</Label>
             <Select
               value={String(maxInstallments)}
               onValueChange={(v) =>
@@ -161,7 +161,7 @@ export default function SimulatorRatesPage() {
                 })
               }
             >
-              <SelectTrigger>
+              <SelectTrigger id="numero-maximo-de-parcelas-2-a-36">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

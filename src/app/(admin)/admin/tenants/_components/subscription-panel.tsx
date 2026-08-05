@@ -220,9 +220,9 @@ export function SubscriptionPanel({ tenantId }: { tenantId: string }) {
           <p className="text-sm font-medium">{subscription ? "Trocar plano / renovar" : "Ativar tenant"}</p>
           <div className="grid gap-4 sm:grid-cols-3">
             <div className="space-y-1.5">
-              <Label>Plano</Label>
+              <Label htmlFor="plano">Plano</Label>
               <Select value={planId ?? ""} onValueChange={setPlanId}>
-                <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                <SelectTrigger id="plano"><SelectValue placeholder="Selecione" /></SelectTrigger>
                 <SelectContent>
                   {plans.map((plan) => (
                     <SelectItem key={plan.id} value={plan.id}>{plan.name}</SelectItem>
@@ -231,9 +231,9 @@ export function SubscriptionPanel({ tenantId }: { tenantId: string }) {
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label>Ciclo</Label>
+              <Label htmlFor="ciclo">Ciclo</Label>
               <Select value={cycle} onValueChange={(v) => setCycle(v as BillingCycle)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger id="ciclo"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {BILLING_CYCLES.map((value) => (
                     <SelectItem key={value} value={value}>{BILLING_CYCLE_LABELS[value]}</SelectItem>
@@ -242,8 +242,8 @@ export function SubscriptionPanel({ tenantId }: { tenantId: string }) {
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label>Valor (R$)</Label>
-              <Input
+              <Label htmlFor="valor-r">Valor (R$)</Label>
+              <Input id="valor-r"
                 inputMode="decimal"
                 placeholder={suggestedCents != null ? formatCents(suggestedCents) : "do plano"}
                 value={amountReais}

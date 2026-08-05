@@ -202,8 +202,8 @@ export function StockItemsPanel({ productId }: { productId: string }) {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
-            <Label>Motivo da baixa *</Label>
-            <Textarea
+            <Label htmlFor="motivo-da-baixa">Motivo da baixa *</Label>
+            <Textarea id="motivo-da-baixa"
               value={disposeReason}
               onChange={(e) => setDisposeReason(e.target.value)}
               placeholder="Ex.: Perda total por queda, roubo, inutilizado."

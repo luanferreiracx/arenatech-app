@@ -143,8 +143,8 @@ export function OpenSessionsManager() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
-            <Label>Motivo *</Label>
-            <Input value={forceReason} onChange={(e) => setForceReason(e.target.value)} placeholder="Ex: operador ausente" maxLength={200} />
+            <Label htmlFor="motivo">Motivo *</Label>
+            <Input id="motivo" value={forceReason} onChange={(e) => setForceReason(e.target.value)} placeholder="Ex: operador ausente" maxLength={200} />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setForceTarget(null)}>Cancelar</Button>
@@ -170,9 +170,9 @@ export function OpenSessionsManager() {
           </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1">
-              <Label>Tipo *</Label>
+              <Label htmlFor="tipo">Tipo *</Label>
               <Select value={adjustNature} onValueChange={(v) => setAdjustNature(v as "INCOME" | "OUTCOME")}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger id="tipo"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="INCOME">Entrada (+)</SelectItem>
                   <SelectItem value="OUTCOME">Saída (−)</SelectItem>
@@ -180,12 +180,12 @@ export function OpenSessionsManager() {
               </Select>
             </div>
             <div className="space-y-1">
-              <Label>Valor *</Label>
-              <MoneyInput value={adjustAmount} onChange={setAdjustAmount} autoFocus />
+              <Label htmlFor="valor">Valor *</Label>
+              <MoneyInput id="valor" value={adjustAmount} onChange={setAdjustAmount} autoFocus />
             </div>
             <div className="space-y-1">
-              <Label>Descrição *</Label>
-              <Input value={adjustDescription} onChange={(e) => setAdjustDescription(e.target.value)} placeholder="Ex: correção de troco" maxLength={500} />
+              <Label htmlFor="descricao">Descrição *</Label>
+              <Input id="descricao" value={adjustDescription} onChange={(e) => setAdjustDescription(e.target.value)} placeholder="Ex: correção de troco" maxLength={500} />
             </div>
           </div>
           <DialogFooter>

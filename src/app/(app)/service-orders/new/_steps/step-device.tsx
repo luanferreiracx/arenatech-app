@@ -102,7 +102,7 @@ export function StepDevice({ data, onChange }: Props) {
         {data.isWarranty && data.customerId && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="space-y-2">
-              <Label>Tipo de servico a ser realizado *</Label>
+              <Label htmlFor="tipo-de-servico-a-ser-realizado">Tipo de servico a ser realizado *</Label>
               <Select
                 value={data.warrantyType ?? "return"}
                 onValueChange={(v) =>
@@ -112,7 +112,7 @@ export function StepDevice({ data, onChange }: Props) {
                   })
                 }
               >
-                <SelectTrigger>
+                <SelectTrigger id="tipo-de-servico-a-ser-realizado">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -197,13 +197,13 @@ export function StepDevice({ data, onChange }: Props) {
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="space-y-2">
-            <Label>Tipo de Equipamento</Label>
+            <Label htmlFor="tipo-de-equipamento">Tipo de Equipamento</Label>
             <Select
               value={data.deviceType ?? ""}
               onValueChange={(v) => onChange({ deviceType: v || null })}
               disabled={equipmentLocked}
             >
-              <SelectTrigger>
+              <SelectTrigger id="tipo-de-equipamento">
                 <SelectValue placeholder="Selecione o tipo" />
               </SelectTrigger>
               <SelectContent>
@@ -219,8 +219,8 @@ export function StepDevice({ data, onChange }: Props) {
           {/* "Marca" foi removida — a marca cabe no proprio nome do item
               (ex.: "Apple iPhone 15 Pro"). Campo renomeado para "Item". */}
           <div className="space-y-2 md:col-span-2">
-            <Label>Item</Label>
-            <Input
+            <Label htmlFor="item">Item</Label>
+            <Input id="item"
               value={data.deviceModel ?? ""}
               onChange={(e) => onChange({ deviceModel: e.target.value || null })}
               placeholder="Ex: Apple iPhone 15 Pro, Samsung S23..."
@@ -229,8 +229,8 @@ export function StepDevice({ data, onChange }: Props) {
           </div>
 
           <div className="space-y-2">
-            <Label>Numero de Serie</Label>
-            <Input
+            <Label htmlFor="numero-de-serie">Numero de Serie</Label>
+            <Input id="numero-de-serie"
               value={data.serialNumber ?? ""}
               onChange={(e) => onChange({ serialNumber: e.target.value || null })}
               placeholder="Numero de serie"
@@ -239,8 +239,8 @@ export function StepDevice({ data, onChange }: Props) {
           </div>
 
           <div className="space-y-2">
-            <Label>IMEI</Label>
-            <ImeiInput
+            <Label htmlFor="imei">IMEI</Label>
+            <ImeiInput id="imei"
               value={data.imei ?? ""}
               onValueChange={(raw) => onChange({ imei: raw || null })}
               readOnly={equipmentLocked}
@@ -248,8 +248,8 @@ export function StepDevice({ data, onChange }: Props) {
           </div>
 
           <div className="space-y-2">
-            <Label>Senha do Equipamento</Label>
-            <Input
+            <Label htmlFor="senha-do-equipamento">Senha do Equipamento</Label>
+            <Input id="senha-do-equipamento"
               value={data.devicePassword ?? ""}
               onChange={(e) => onChange({ devicePassword: e.target.value || null })}
               placeholder="Senha / padrao de desbloqueio"
@@ -258,8 +258,8 @@ export function StepDevice({ data, onChange }: Props) {
           </div>
 
           <div className="space-y-2 md:col-span-3">
-            <Label>Acessorios</Label>
-            <Textarea
+            <Label htmlFor="acessorios">Acessorios</Label>
+            <Textarea id="acessorios"
               value={data.accessories ?? ""}
               onChange={(e) => onChange({ accessories: e.target.value || null })}
               placeholder="Capa, pelicula, carregador, chip..."

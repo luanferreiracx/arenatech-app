@@ -104,8 +104,8 @@ export function CashFlowReport() {
         <CardContent className="pt-6">
           <div className="flex flex-wrap gap-4 items-end">
             <div>
-              <Label>Data Inicial</Label>
-              <DateInput
+              <Label htmlFor="data-inicial">Data Inicial</Label>
+              <DateInput id="data-inicial"
                 value={dateFrom}
                 onChange={setDateFrom}
                 className="w-[160px]"
@@ -113,8 +113,8 @@ export function CashFlowReport() {
               />
             </div>
             <div>
-              <Label>Data Final</Label>
-              <DateInput
+              <Label htmlFor="data-final">Data Final</Label>
+              <DateInput id="data-final"
                 value={dateTo}
                 onChange={setDateTo}
                 className="w-[160px]"
@@ -122,9 +122,9 @@ export function CashFlowReport() {
               />
             </div>
             <div>
-              <Label>Agrupar por</Label>
+              <Label htmlFor="agrupar-por">Agrupar por</Label>
               <Select value={groupBy} onValueChange={(v) => setGroupBy(v as "day" | "week" | "month")}>
-                <SelectTrigger className="w-[140px]">
+                <SelectTrigger id="agrupar-por" className="w-[140px]">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

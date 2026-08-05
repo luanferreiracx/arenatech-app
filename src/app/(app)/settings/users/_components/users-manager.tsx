@@ -338,9 +338,9 @@ export function UsersManager() {
               </p>
             </div>
             <div className="space-y-1.5">
-              <Label>Perfil</Label>
+              <Label htmlFor="perfil">Perfil</Label>
               <Select value={form.role} onValueChange={(v) => setForm((f) => ({ ...f, role: v }))}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger id="perfil"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {ROLES.map((r) => (
                     <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>

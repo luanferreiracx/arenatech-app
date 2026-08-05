@@ -328,16 +328,16 @@ export default function AddonsPage() {
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <Label>Nome</Label>
-              <Input
+              <Label htmlFor="nome">Nome</Label>
+              <Input id="nome"
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 required
               />
             </div>
             <div>
-              <Label>Descricao</Label>
-              <Textarea
+              <Label htmlFor="descricao">Descricao</Label>
+              <Textarea id="descricao"
                 value={form.description}
                 onChange={(e) =>
                   setForm({ ...form, description: e.target.value })
@@ -347,8 +347,8 @@ export default function AddonsPage() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label>Qtd. Consultas</Label>
-                <Input
+                <Label htmlFor="qtd-consultas">Qtd. Consultas</Label>
+                <Input id="qtd-consultas"
                   type="number"
                   value={form.queryCount}
                   onChange={(e) =>
@@ -359,8 +359,8 @@ export default function AddonsPage() {
                 />
               </div>
               <div>
-                <Label>Preco (R$)</Label>
-                <Input
+                <Label htmlFor="preco-r">Preco (R$)</Label>
+                <Input id="preco-r"
                   type="number"
                   step="0.01"
                   value={(form.price / 100).toFixed(2)}
@@ -377,8 +377,8 @@ export default function AddonsPage() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label>Validade (dias)</Label>
-                <Input
+                <Label htmlFor="validade-dias">Validade (dias)</Label>
+                <Input id="validade-dias"
                   type="number"
                   value={form.validityDays}
                   onChange={(e) =>
@@ -393,8 +393,8 @@ export default function AddonsPage() {
                 />
               </div>
               <div>
-                <Label>Ordem</Label>
-                <Input
+                <Label htmlFor="ordem">Ordem</Label>
+                <Input id="ordem"
                   type="number"
                   value={form.sortOrder}
                   onChange={(e) =>

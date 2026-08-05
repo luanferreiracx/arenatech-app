@@ -246,8 +246,8 @@ export default function BulkAdjustStockPage() {
 
         <FormSection title="Motivo">
           <div className="space-y-2">
-            <Label>Motivo do ajuste *</Label>
-            <Textarea
+            <Label htmlFor="motivo-do-ajuste">Motivo do ajuste *</Label>
+            <Textarea id="motivo-do-ajuste"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               placeholder="Ex.: Contagem fisica do mes, correcao de divergencia, etc."

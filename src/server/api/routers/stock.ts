@@ -115,6 +115,17 @@ import { getAppBaseUrl } from "@/lib/utils/app-url";
 import { saleGoodsRevenueCents } from "@/lib/sales/sale-revenue";
 
 /**
+ * Teto de linhas do relatório de inventário. Os TOTAIS continuam calculados
+ * sobre a base inteira; só a LISTA é cortada, e a tela declara o corte.
+ *
+ * Sem teto, um tenant com 5.000 produtos manda 5.000 linhas para uma tabela
+ * sem virtualização e a tela engasga. 1.000 cobre com folga o caso real (a
+ * maior loja medida tem ~2.300 produtos) e quem precisa de tudo exporta.
+ * Auditoria de frontend 2026-08-04.
+ */
+const INVENTORY_REPORT_MAX_ROWS = 1000;
+
+/**
  * Libera o StockItem criado por essa compra: BLOCKED -> AVAILABLE.
  * Chamado quando termo de responsabilidade eh assinado (fisica ou Autentique).
  * Match por (productId, imei OU serialNumber) — o StockItem foi criado com esses
@@ -2141,8 +2152,19 @@ export const stockRouter = createTRPCRouter({
       ).length;
       const outOfStockCount = productsWithStock.filter((p) => p.currentStock <= 0).length;
 
+      // Teto de LINHAS renderizadas. Os totais acima são calculados sobre TUDO
+      // — só a lista é cortada. Cortar antes contaminaria o resumo, que é o
+      // dado que o dono realmente usa.
+      //
+      // Sem o teto, um tenant com 5.000 produtos manda 5.000 linhas para um
+      // `<table>` sem virtualização: o DOM engasga e a tela trava.
+      // Auditoria de frontend 2026-08-04, P1-12.
+      const visible = productsWithStock.slice(0, INVENTORY_REPORT_MAX_ROWS);
       return {
-        products: productsWithStock,
+        products: visible,
+        // Truncamento DECLARADO: a tela avisa em vez de mentir que acabou.
+        truncated: productsWithStock.length > visible.length,
+        totalRows: productsWithStock.length,
         summary: {
           totalProducts,
           totalItems,

@@ -145,15 +145,15 @@ export function PlansList() {
             <DialogDescription>Configure os parametros do plano</DialogDescription>
           </DialogHeader>
           <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
-            <div><Label>Nome</Label><Input {...form.register("name")} /></div>
-            {!editingId && <div><Label>Slug</Label><Input {...form.register("slug")} placeholder="basico, profissional..." /></div>}
+            <div><Label htmlFor="nome">Nome</Label><Input id="nome" {...form.register("name")} /></div>
+            {!editingId && <div><Label htmlFor="slug">Slug</Label><Input id="slug" {...form.register("slug")} placeholder="basico, profissional..." /></div>}
             <div>
-              <Label>Preco Mensal</Label>
-              <MoneyInput value={form.watch("monthlyPrice")} onChange={(v) => form.setValue("monthlyPrice", v)} />
+              <Label htmlFor="preco-mensal">Preco Mensal</Label>
+              <MoneyInput id="preco-mensal" value={form.watch("monthlyPrice")} onChange={(v) => form.setValue("monthlyPrice", v)} />
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <div><Label>Max Usuarios</Label><Input type="number" {...form.register("maxUsers", { valueAsNumber: true })} min={1} /></div>
-              <div><Label>Max Consultas IMEI</Label><Input type="number" {...form.register("maxImeiQueries", { valueAsNumber: true })} min={0} /></div>
+              <div><Label htmlFor="max-usuarios">Max Usuarios</Label><Input id="max-usuarios" type="number" {...form.register("maxUsers", { valueAsNumber: true })} min={1} /></div>
+              <div><Label htmlFor="max-consultas-imei">Max Consultas IMEI</Label><Input id="max-consultas-imei" type="number" {...form.register("maxImeiQueries", { valueAsNumber: true })} min={0} /></div>
             </div>
             <div>
               <Label>Modulos liberados</Label>

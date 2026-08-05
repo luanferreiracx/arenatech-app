@@ -266,18 +266,18 @@ function EditForm({ order, onSubmit, onAttachNfse, attachNfsePending, onDetachNf
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="space-y-2">
-              <Label>Tipo</Label>
+              <Label htmlFor="tipo">Tipo</Label>
               <Select value={watch("deviceType")} onValueChange={(v) => setValue("deviceType", v)} disabled={isSigned}>
-                <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                <SelectTrigger id="tipo"><SelectValue placeholder="Selecione" /></SelectTrigger>
                 <SelectContent>{deviceTypeEnum.options.map((t) => (<SelectItem key={t} value={t}>{t}</SelectItem>))}</SelectContent>
               </Select>
             </div>
             {/* "Marca" removida — vai no proprio nome do item. Campo renomeado p/ "Item". */}
-            <div className="space-y-2 md:col-span-2"><Label>Item</Label><Input {...register("deviceModel")} readOnly={isSigned} /></div>
-            <div className="space-y-2"><Label>Serial</Label><Input {...register("serialNumber")} readOnly={isSigned} /></div>
-            <div className="space-y-2"><Label>IMEI</Label><Input {...register("imei")} readOnly={isSigned} /></div>
-            <div className="space-y-2"><Label>Senha</Label><Input {...register("devicePassword")} readOnly={isSigned} /></div>
-            <div className="space-y-2 md:col-span-3"><Label>Acessorios</Label><Textarea {...register("accessories")} rows={2} readOnly={isSigned} /></div>
+            <div className="space-y-2 md:col-span-2"><Label htmlFor="item">Item</Label><Input id="item" {...register("deviceModel")} readOnly={isSigned} /></div>
+            <div className="space-y-2"><Label htmlFor="serial">Serial</Label><Input id="serial" {...register("serialNumber")} readOnly={isSigned} /></div>
+            <div className="space-y-2"><Label htmlFor="imei">IMEI</Label><Input id="imei" {...register("imei")} readOnly={isSigned} /></div>
+            <div className="space-y-2"><Label htmlFor="senha">Senha</Label><Input id="senha" {...register("devicePassword")} readOnly={isSigned} /></div>
+            <div className="space-y-2 md:col-span-3"><Label htmlFor="acessorios">Acessorios</Label><Textarea id="acessorios" {...register("accessories")} rows={2} readOnly={isSigned} /></div>
           </div>
         </div>
 
@@ -291,10 +291,10 @@ function EditForm({ order, onSubmit, onAttachNfse, attachNfsePending, onDetachNf
             </div>
           </div>
           <div className="space-y-4">
-            <div className="space-y-2"><Label>Problema Relatado</Label><Textarea {...register("reportedProblem")} rows={3} readOnly={isSigned} /></div>
-            <div className="space-y-2"><Label>Defeito Constatado</Label><Textarea {...register("diagnosedProblem")} rows={3} readOnly={isCompleted} /></div>
-            <div className="space-y-2"><Label>Observacoes Internas</Label><Textarea {...register("internalNotes")} rows={3} readOnly={isCompleted} /></div>
-            <div className="space-y-2"><Label>Observacoes para o Cliente</Label><Textarea {...register("customerNotes")} rows={2} /></div>
+            <div className="space-y-2"><Label htmlFor="problema-relatado">Problema Relatado</Label><Textarea id="problema-relatado" {...register("reportedProblem")} rows={3} readOnly={isSigned} /></div>
+            <div className="space-y-2"><Label htmlFor="defeito-constatado">Defeito Constatado</Label><Textarea id="defeito-constatado" {...register("diagnosedProblem")} rows={3} readOnly={isCompleted} /></div>
+            <div className="space-y-2"><Label htmlFor="observacoes-internas">Observacoes Internas</Label><Textarea id="observacoes-internas" {...register("internalNotes")} rows={3} readOnly={isCompleted} /></div>
+            <div className="space-y-2"><Label htmlFor="observacoes-para-o-cliente">Observacoes para o Cliente</Label><Textarea id="observacoes-para-o-cliente" {...register("customerNotes")} rows={2} /></div>
           </div>
         </div>
 
@@ -311,7 +311,7 @@ function EditForm({ order, onSubmit, onAttachNfse, attachNfsePending, onDetachNf
               <Checkbox id="isWarranty" checked={watch("isWarranty")} onCheckedChange={(v) => setValue("isWarranty", !!v)} />
               <Label htmlFor="isWarranty">OS de Garantia</Label>
             </div>
-            <div className="space-y-2"><Label>Prazo Garantia (meses)</Label><Input type="number" min={0} max={120} {...register("warrantyMonths", { valueAsNumber: true })} readOnly={isCompleted} /></div>
+            <div className="space-y-2"><Label htmlFor="prazo-garantia-meses">Prazo Garantia (meses)</Label><Input id="prazo-garantia-meses" type="number" min={0} max={120} {...register("warrantyMonths", { valueAsNumber: true })} readOnly={isCompleted} /></div>
             <div className="space-y-2">
               <Label>Data Prevista</Label>
               <Controller
@@ -396,7 +396,7 @@ function EditForm({ order, onSubmit, onAttachNfse, attachNfsePending, onDetachNf
               <Checkbox id="nfseIssued" checked={watch("nfseIssued")} onCheckedChange={(v) => setValue("nfseIssued", !!v)} />
               <Label htmlFor="nfseIssued">NFS-e Emitida</Label>
             </div>
-            <div className="space-y-2"><Label>Numero NFS-e</Label><Input {...register("nfseNumber")} placeholder="Numero da nota" /></div>
+            <div className="space-y-2"><Label htmlFor="numero-nfs-e">Numero NFS-e</Label><Input id="numero-nfs-e" {...register("nfseNumber")} placeholder="Numero da nota" /></div>
           </div>
           <div className="mt-4 space-y-2">
             <Label htmlFor="nfse-file">Anexar PDF/imagem da NFS-e</Label>

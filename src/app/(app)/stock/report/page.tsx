@@ -114,6 +114,16 @@ export default function StockReportPage() {
           <CardTitle className="text-base">Posicao de Estoque</CardTitle>
         </CardHeader>
         <CardContent>
+          {/* Truncamento DECLARADO. Uma lista cortada em silêncio parece
+              completa, e o operador conclui que o produto que falta não existe.
+              Os totais acima seguem sobre a base inteira. */}
+          {data.truncated && (
+            <p className="mb-3 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm">
+              Mostrando os primeiros {products.length} de {data.totalRows} produtos. Os
+              totais acima consideram todos. Use os filtros ou exporte para ver o
+              restante.
+            </p>
+          )}
           <Table>
             <TableHeader>
               <TableRow>

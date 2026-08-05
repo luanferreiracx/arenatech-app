@@ -784,8 +784,8 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
             <DialogDescription>Esta acao nao pode ser desfeita</DialogDescription>
           </DialogHeader>
           <div>
-            <Label>Motivo do cancelamento</Label>
-            <Textarea
+            <Label htmlFor="motivo-do-cancelamento">Motivo do cancelamento</Label>
+            <Textarea id="motivo-do-cancelamento"
               value={cancelReason}
               onChange={(e) => setCancelReason(e.target.value)}
               placeholder="Informe o motivo..."
@@ -851,8 +851,8 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
               </div>
             )}
             <div>
-              <Label>Motivo do estorno</Label>
-              <Textarea
+              <Label htmlFor="motivo-do-estorno">Motivo do estorno</Label>
+              <Textarea id="motivo-do-estorno"
                 value={refundReason}
                 onChange={(e) => setRefundReason(e.target.value)}
                 placeholder="Informe o motivo..."
@@ -979,9 +979,9 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
               <p className="text-sm text-muted-foreground">{sale.sellerName}</p>
             </div>
             <div className="space-y-2">
-              <Label>Novo vendedor *</Label>
+              <Label htmlFor="novo-vendedor">Novo vendedor *</Label>
               <Select value={newSellerId} onValueChange={setNewSellerId}>
-                <SelectTrigger>
+                <SelectTrigger id="novo-vendedor">
                   <SelectValue placeholder={sellersQuery.isLoading ? "Carregando..." : "Selecione o vendedor"} />
                 </SelectTrigger>
                 <SelectContent>
@@ -996,8 +996,8 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Motivo *</Label>
-              <Textarea
+              <Label htmlFor="motivo">Motivo *</Label>
+              <Textarea id="motivo"
                 value={sellerReason}
                 onChange={(e) => setSellerReason(e.target.value)}
                 placeholder="Ex.: vendedor lancado errado no fechamento da venda."
@@ -1030,12 +1030,12 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label>Nova data *</Label>
-              <DateInput value={newDate} onChange={setNewDate} />
+              <Label htmlFor="nova-data">Nova data *</Label>
+              <DateInput id="nova-data" value={newDate} onChange={setNewDate} />
             </div>
             <div className="space-y-2">
-              <Label>Motivo *</Label>
-              <Textarea
+              <Label htmlFor="motivo-2">Motivo *</Label>
+              <Textarea id="motivo-2"
                 value={dateReason}
                 onChange={(e) => setDateReason(e.target.value)}
                 placeholder="Ex.: venda lancada no dia seguinte por falha de sistema."

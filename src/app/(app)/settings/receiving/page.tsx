@@ -63,8 +63,8 @@ export default function ReceivingSettingsPage() {
         <FormSection title="Regras de venda">
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div className="space-y-2">
-              <Label>Valor mínimo para parcelamento</Label>
-              <MoneyInput
+              <Label htmlFor="valor-minimo-para-parcelamento">Valor mínimo para parcelamento</Label>
+              <MoneyInput id="valor-minimo-para-parcelamento"
                 value={form.watch("minInstallmentAmount")}
                 onChange={(v: number) => form.setValue("minInstallmentAmount", v)}
               />
@@ -74,8 +74,8 @@ export default function ReceivingSettingsPage() {
               </p>
             </div>
             <div className="space-y-2">
-              <Label>Desconto máximo (não-administradores)</Label>
-              <Input
+              <Label htmlFor="desconto-maximo-nao-administradores">Desconto máximo (não-administradores)</Label>
+              <Input id="desconto-maximo-nao-administradores"
                 type="number"
                 min={0}
                 max={100}
