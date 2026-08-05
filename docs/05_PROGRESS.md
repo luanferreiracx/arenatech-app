@@ -2038,6 +2038,32 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-08-04 — Guards do PDV, carrinho em duas abas e MODO BANCADA (#811)
+
+Fecha os P1 restantes da auditoria de frontend. Duas decisoes do dono nesta rodada.
+
+- **Guards do PDV:** `addItem` ganhou trava de reentrada (5 cliques rapidos liam o mesmo saldo velho
+  e furavam o estoque); reiniciar venda passou de `onSuccess` para `onSettled` (abandon falho deixava
+  a tela sem rascunho E sem erro); selecionar/remover cliente agora REVERTE no erro — o remover nem
+  tratava erro, falhava em silencio.
+- **Carrinho em duas abas (decisao do dono):** `abandonDraft` apaga TODOS os rascunhos do vendedor e
+  o mount do PDV sempre o chama, entao abrir o PDV numa 2a aba matava o carrinho da 1a — e com
+  `refetchOnWindowFocus: false` a aba orfa nunca descobria. Agora revalida ao focar e o NOT_FOUND
+  vira tela especifica ("Esta venda foi encerrada / aberto em outra aba") com "Comecar nova venda".
+- **Modo bancada (decisao do dono: CONFIGURAVEL por usuario):** `isTechnician` existia, virava badge
+  e nao era lido por NENHUMA tela — o tecnico via a superficie inteira do balconista. Campo PROPRIO
+  `benchModeOnly`, nao derivado de `isTechnician`, porque em loja pequena o tecnico as vezes tambem
+  atende o balcao. Esconde cancelar/estornar/pagamento/comunicacao; mantem diagnostico, itens,
+  status. NAO e permissao — o servidor segue barrando quem nao pode; aqui e carga cognitiva.
+- **Bug que so o navegador pegou:** o refresh do JWT nao remapeava `benchModeOnly` (e o cast do
+  callback de sessao o omitia). O login trazia a flag e o 1o refresh a apagava. Typecheck passava,
+  porque o campo e opcional no tipo.
+- **CI pegou um teste flaky sem relacao com o diff:** `reward-balance-non-negative` afirmava QUAL
+  guarda disparou na corrida (implementacao) em vez do comportamento. `lockBalance` tem dois guards
+  e o perdedor cai num ou noutro conforme o momento da leitura — ambos corretos. Corrigido e
+  verificado 6x seguidas. A checagem que importa (nao vazar "check constraint") continua.
+- 2312 unit + 423 integracao verdes. Migration `bench_mode_only` aplicada em banco limpo do zero.
+
 ### 2026-08-04 — Auditoria de FRONTEND (a 1a do projeto): 4 P0 corrigidos
 
 As 15 auditorias anteriores olharam backend, dinheiro e dominio. Nenhuma tinha perguntado se o

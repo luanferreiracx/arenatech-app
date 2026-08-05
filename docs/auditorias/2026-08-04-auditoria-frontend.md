@@ -284,8 +284,9 @@ sem nome; clicar no rótulo não foca. Piores: `service-order-detail.tsx` (23),
    doía**: a linha de item da OS (que escondia os botões de ação) e os três
    campos de texto livre do diagnóstico. As outras ~30 caixas seguem pendentes.
 9. ~~Preview de efeitos no estorno de OS~~ **FEITO**, em paridade com o da venda.
-10. Guard de `isPending` no `addItem`; `onSettled` no reiniciar venda; reverter
-    `setCustomerId` no erro. **PENDENTE** (os três são do PDV, P1-8/9/10).
+10. ~~Guard de `isPending` no `addItem`; `onSettled` no reiniciar venda;
+    reverter `setCustomerId` no erro~~ **FEITO** (PR #811). O remover cliente
+    nem tratava erro — agora reverte os três campos.
 11. `take` + aviso de truncamento nos relatórios de estoque. **PENDENTE.**
 12. ~~Paginação em categorias~~ **FEITO**. Em MARCAS não era preciso: verifiquei
     que `listBrands` não pagina (sem `take`), então nada ficava escondido — a
@@ -298,11 +299,54 @@ sem nome; clicar no rótulo não foca. Piores: `service-order-detail.tsx` (23),
   reversibilidade (dizem "não pode ser desfeita", mas o servidor faz soft
   delete). Agora nomeiam o registro e descrevem o efeito real.
 
-**Perigosas (exigem decisão do dono)**
-14. **Revalidar o draft ao focar a aba** no PDV. Fecha o P1-7, mas muda
-    comportamento de uma tela crítica — precisa ser testado com a loja.
-15. **Usar `isTechnician` para reduzir a superfície do técnico.** É decisão de
-    produto: o que o técnico pode e não pode ver.
+**Perigosas — DECIDIDAS E FEITAS (PR #811)**
+14. ~~Revalidar o draft ao focar a aba~~ **FEITO** (decisão do dono). O
+    NOT_FOUND virou tela específica: "Esta venda foi encerrada / o PDV foi
+    aberto em outra aba", com botão **Começar nova venda** — em vez de um
+    "tentar novamente" que nunca funcionaria, porque o rascunho não volta.
+15. ~~Reduzir a superfície do técnico~~ **FEITO como MODO BANCADA** (decisão do
+    dono: configurável por usuário). Campo próprio `benchModeOnly`, **não**
+    derivado de `isTechnician` — em loja pequena o técnico às vezes também
+    atende o balcão. Nasce desligado; o admin liga por usuário, e a opção só
+    aparece para quem é técnico. Esconde cancelar, estornar, o passo de
+    pagamento e o bloco de comunicação; mantém diagnóstico, itens e status.
+    **Não é permissão** — o servidor continua barrando quem não pode.
+
+## Ainda pendente (backlog consciente)
+
+Nada aqui bloqueia comercialização; são melhorias de acabamento.
+
+- **147 `<Label>` órfãos** sem `htmlFor` (leitor de tela anuncia campo sem nome).
+  É codemod mecânico, mas mexe em ~20 arquivos de formulário.
+- **~30 caixas de texto livre** ainda sem estratégia de overflow. As que
+  escondiam botão foram corrigidas; as restantes só esticam layout.
+- **Relatórios de estoque sem `take`** e sem virtualização: com 5.000 produtos o
+  DOM cresce muito. As LISTAS estão paginadas; o problema é só nos relatórios.
+- **Alvos de toque do carrinho do PDV** (28px, mínimo recomendado 44px). Os da
+  OS já foram para 36px.
+- **Sem rascunho/autosave** nos formulários longos (compra de aparelho, wizard
+  de OS): fechar a aba no meio perde o preenchimento.
+- **NF-e ignora produto serializado em silêncio** e ainda o conta como importado.
+
+## Lições de processo desta rodada
+
+Três defeitos passaram pela leitura do código e só apareceram ao abrir a tela ou
+rodar o CI. Vale registrar o padrão:
+
+1. **`w-[11rem]`** — troquei um valor arbitrário por outro arbitrário na própria
+   auto-revisão. Pegou no grep de frame-integrity, não na leitura.
+2. **Item da OS quebrando com uma letra por linha a 320px** — o primeiro
+   conserto (`min-w-0` + `shrink-0`) deixou o texto sem largura. Overflow media
+   0; a tela estava absurda. **Medir não basta: é preciso olhar.**
+3. **`benchModeOnly` sumindo no refresh do JWT** — o login trazia a flag, o
+   refresh não a remapeava. Typecheck passava (campo opcional). Só apareceu
+   logado como técnico, vendo o botão "Cancelar" que deveria ter sumido.
+
+E um quarto, no CI: um teste de concorrência de cashback falhou **sem relação
+com o diff**. Era flaky por construção — afirmava QUAL guarda disparou
+(implementação) em vez do comportamento. Corrigido para aceitar as duas formas
+corretas de o perdedor da corrida terminar, mantendo a checagem que importa
+(não vazar erro de banco). Verificado 6x seguidas.
 
 ## Baixa confiança / perguntas em aberto
 
