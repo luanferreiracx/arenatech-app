@@ -2038,6 +2038,49 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-08-05 — Backlog da auditoria de frontend fechado (#817)
+
+Os tres itens que ficaram abertos: rotulos sem associacao, rascunho na compra de
+aparelho e overflow de texto.
+
+**Rotulos (59 -> 2).** Nao era um problema so. `EntitySelector`, `SupplierSelect` e
+`FinancialCategorySelect` nao aceitavam `id` — sem a prop, o `<FormControl>` do shadcn
+injetava o id via `Slot` e ele se perdia na raiz (um `<Popover>`/`<div>` sem DOM), e o
+`htmlFor` do `<FormLabel>` apontava para um id **inexistente**. Pior que nao ter rotulo:
+soa igual para o leitor de tela, mas o codigo parece certo. Rotulos de GRUPO viraram
+`role="group"` + `aria-labelledby`; rotulos sobre valor so de leitura viraram
+`<FieldTitle>` (um `<label>` sem controle e semantica errada, nao falta de `htmlFor`);
+linhas repetidas passaram a tirar id de `useId()`/`field.id` (literal gerava id duplicado
+e o clique focava sempre a primeira linha). Os 2 restantes sao a vitrine
+`/dev/components`, sem uso em producao.
+
+**Rascunho na compra de aparelho.** `useRhfDraft`, irmao do `useFormDraft` para
+formularios de `react-hook-form`. Estado derivado da leitura do storage, sem `setState`
+em efeito.
+
+**Overflow.** Medido em vez de editado no escuro: o scan do fonte deu 310 candidatos,
+medir a 320px com nome longo real em 13 telas deu **uma** quebra (`/painel`, 5px). E a
+causa nao era falta de `truncate` — faltava `min-w-0` num elo do MEIO da cadeia flex, o
+truncate presente sem efeito. As outras ~29 nao quebram nada.
+
+**Decisoes:** (1) nao adicionar `id` a `DatePicker`/`DateRangePicker` — zero uso em
+producao, seria plumbing especulativo; (2) nao editar os 309 containers que nao quebram.
+
+**Redes novas, cada uma verificada FALHANDO ao reverter o fix:**
+`e2e/label-association.spec.ts` (todo htmlFor resolve, nenhum id duplicado),
+`e2e/reflow-320.spec.ts` (mede overflow real e aponta o elemento culpado) e
+`e2e/form-draft.spec.ts` (restaura, limpa, sem erro de hidratacao). Teto do unitario
+59 -> 2, agora ignorando comentarios (a propria documentacao do padrao citava `<Label>`
+em prosa e inflava a contagem).
+
+**Licao:** o teste-teto no fonte nao bastava — conta `<Label>` sem `htmlFor` e nao pega o
+caso pior (`htmlFor` apontando para o vazio), nem prova que um `truncate` faz efeito. Nos
+dois casos a unica evidencia que vale e o DOM renderizado. E: dev server velho na porta
+3000 invalidou tres iteracoes de medicao (o novo subiu na 3001) — escrevi duas explicacoes
+erradas antes de conferir quem atendia a porta.
+
+**Proximo:** auditoria de frontend encerrada; sem pendencias abertas dela.
+
 ### 2026-08-04 — NF-e serializado + rascunho do wizard de OS (#815)
 
 Fecha os dois ultimos itens do backlog da auditoria de frontend.
