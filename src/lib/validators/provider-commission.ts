@@ -143,17 +143,29 @@ export const PRODUCT_CATEGORIES: readonly CommissionCategory[] = [
   "produto_aparelho",
 ];
 
-/** Categorias que aceitam os EIXOS COMPLETOS (tipo fixo/percentual + origem loja):
- *  produtos + `servico_at_loja` (participacao em AT). As demais seguem PERCENT/OWN. */
-export const CATEGORIES_WITH_AXES: readonly CommissionCategory[] = [
+/** Categorias onde o TIPO do valor (percentual vs. R$ fixo por unidade) e
+ *  configuravel. Intermediacao de OS entra aqui: a loja tanto paga um % do
+ *  servico captado quanto um valor fixo por OS captada — os dois modelos existem
+ *  na pratica, e travar em percentual obrigava o admin a inventar uma aliquota.
+ *  As de AT de execucao (sem/com peca) seguem sempre percentual. */
+export const CATEGORIES_WITH_VALUE_TYPE_AXIS: readonly CommissionCategory[] = [
+  "produto_acessorio",
+  "produto_aparelho",
+  "servico_at_loja",
+  "intermediacao_at",
+];
+
+/** Categorias que aceitam a origem STORE (participacao no que OUTROS fizeram):
+ *  produtos + `servico_at_loja`. Intermediacao NAO entra — captar a OS e sempre
+ *  ato proprio do prestador; nao existe "intermediacao de outro". */
+export const CATEGORIES_WITH_STORE_SOURCE: readonly CommissionCategory[] = [
   "produto_acessorio",
   "produto_aparelho",
   "servico_at_loja",
 ];
 
-/** Categorias onde a BASE (lucro/total) e configuravel: as de eixos completos +
- *  as de AT de execucao (AT sem/com peca, intermediacao). Nestas ultimas so a base
- *  e configuravel — tipo e sempre percentual e origem sempre propria. */
+/** Categorias onde a BASE (lucro/total) e configuravel: produtos, participacao em
+ *  AT e as de AT de execucao (AT sem/com peca, intermediacao). */
 export const CATEGORIES_WITH_BASE_AXIS: readonly CommissionCategory[] = [
   "produto_acessorio",
   "produto_aparelho",
@@ -319,13 +331,16 @@ export const updateProviderRulesSchema = z
       if (rule.base === "GROSS_NET" && rule.valueType !== "PERCENT") {
         addIssue(`${label}: base "valor total" so vale para regra percentual.`);
       }
-      // Eixos COMPLETOS (tipo fixo + origem loja) so valem para categorias flexiveis
-      // (produtos + participacao em AT). Demais categorias: sempre percentual, origem
-      // propria. A BASE (lucro/total) e um eixo a parte, liberado tambem para as
-      // categorias de AT de execucao (ver abaixo).
-      const allowsAxes = (CATEGORIES_WITH_AXES as readonly string[]).includes(rule.category);
-      if (!allowsAxes && (rule.source !== "OWN" || rule.valueType !== "PERCENT")) {
-        addIssue(`${label}: esta categoria so aceita percentual, origem propria.`);
+      // Tipo do valor e origem sao eixos INDEPENDENTES (antes vinham colados num
+      // flag so): intermediacao aceita valor fixo por OS captada, mas nao aceita
+      // origem loja. A BASE (lucro/total) e um terceiro eixo (ver abaixo).
+      const allowsValueTypeAxis = (CATEGORIES_WITH_VALUE_TYPE_AXIS as readonly string[]).includes(rule.category);
+      if (!allowsValueTypeAxis && rule.valueType !== "PERCENT") {
+        addIssue(`${label}: esta categoria so aceita comissao percentual.`);
+      }
+      const allowsStoreSource = (CATEGORIES_WITH_STORE_SOURCE as readonly string[]).includes(rule.category);
+      if (!allowsStoreSource && rule.source !== "OWN") {
+        addIssue(`${label}: esta categoria so aceita origem propria.`);
       }
       // A base (lucro/total) so e configuravel nas categorias com eixo de base;
       // nas demais (ex.: comissao de venda por escopo) fica travada em lucro.
