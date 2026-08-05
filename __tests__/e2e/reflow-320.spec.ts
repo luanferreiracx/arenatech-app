@@ -13,6 +13,12 @@ import { loginAs } from "./helpers/cashier.helper";
  *
  * Por isso o teste mede em vez de conferir classe: `truncate` presente não
  * prova nada, e `truncate` ausente nem sempre é defeito.
+ *
+ * O que fica de fora, de propósito: tabela. As listas ficam num wrapper com
+ * `overflow-x: auto`, e scroll horizontal DENTRO de um container é estratégia
+ * válida da 1.4.10 para dado tabular — a página não estoura por causa delas.
+ * Confirmado por controle negativo: `white-space: nowrap` numa célula com nome
+ * de 68 caracteres deixou o overflow do documento em 0.
  */
 
 /** Piso da WCAG 1.4.10: nenhuma tela pode exigir scroll horizontal. */
@@ -35,9 +41,6 @@ async function overflowHorizontal(page: Page): Promise<number> {
     () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
   );
 }
-
-/** Nome comprido de verdade — texto curto de seed não exercita reflow. */
-const NOME_LONGO = "Bartolomeu Maximiliano Vasconcellos Albuquerque Wanderley Nepomuceno";
 
 test.describe("reflow a 320px", () => {
   for (const rota of TELAS) {
@@ -69,23 +72,12 @@ test.describe("reflow a 320px", () => {
     });
   }
 
-  test("@business nome longo de cliente não estoura a lista", async ({ page }) => {
-    await page.setViewportSize(NARROW);
-    await loginAs(page, "operator");
-    await page.goto("/customers/new");
-    await page.waitForLoadState("networkidle");
-
-    // Cria o dado que o teste precisa: no seed os nomes são curtos e a tela
-    // passaria por falta de conteúdo, não por estar correta.
-    await page.getByLabel(/nome/i).first().fill(NOME_LONGO);
-    await page.getByLabel(/telefone|celular/i).first().fill("86999887766");
-    await page.getByRole("button", { name: /salvar|cadastrar|criar/i }).first().click();
-    await page.waitForLoadState("networkidle");
-
-    await page.goto("/customers");
-    await page.waitForLoadState("networkidle");
-    await expect(page.getByText(NOME_LONGO.slice(0, 20)).first()).toBeVisible({ timeout: 10000 });
-
-    expect(await overflowHorizontal(page)).toBeLessThanOrEqual(1);
-  });
+  // NÃO existe aqui um teste de "nome longo estoura a lista". Escrevi um, e o
+  // controle negativo o reprovou: forcei `white-space: nowrap` numa célula com
+  // nome de 68 caracteres e o overflow do documento continuou 0. As tabelas
+  // ficam num wrapper com `overflow-x: auto` — scroll horizontal DENTRO de um
+  // container é estratégia válida da WCAG 1.4.10 para dado tabular, e a página
+  // nunca estoura. Ou seja: o teste não podia falhar, e teste que não falha não
+  // guarda nada. As 8 medições acima cobrem o reflow da página, que é o que
+  // realmente pode quebrar.
 });
