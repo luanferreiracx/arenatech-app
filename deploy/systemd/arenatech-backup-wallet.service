@@ -1,0 +1,13 @@
+[Unit]
+Description=Backup diario da carteira LWK de producao (tar + retencao)
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+# Le direto o volume do Docker; nao chama endpoint HTTP do app nem para o
+# container, entao nao precisa de EnvironmentFile/CRON_SECRET.
+ExecStart=/usr/local/bin/arenatech-backup-wallet.sh
+# O conteudo util da carteira e pequeno (~200 KB sem o cache), mas o teto e
+# folgado para o caso de muitos tenants com carteira propria.
+TimeoutStartSec=600

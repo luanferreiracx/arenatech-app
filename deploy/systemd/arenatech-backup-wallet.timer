@@ -1,0 +1,14 @@
+[Unit]
+Description=Dispara o backup da carteira LWK diariamente as 02:40 BRT
+
+[Timer]
+# 02:40: dez minutos depois do backup do banco (02:30), para os dois nao
+# competirem por I/O, e ainda antes da leva das 03:00.
+OnCalendar=02:40
+AccuracySec=1m
+# Persistent: se a VPS ficou fora no horario, roda assim que voltar. O job e
+# idempotente (cada execucao gera um arquivo novo e poda os antigos).
+Persistent=true
+
+[Install]
+WantedBy=timers.target
