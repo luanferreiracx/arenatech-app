@@ -2038,6 +2038,26 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-08-04 — Backlog de acessibilidade fechado (#813)
+
+Fecha o backlog da auditoria de frontend.
+
+- **Rotulos: 329 orfaos → 59.** A contagem real era 329, nao 147 — o levantamento original olhou so
+  parte do escopo. Ligados por codemod em tres passadas conservadoras (so o caso INEQUIVOCO, um
+  Label seguido de um unico campo sem `id`): `Input` (134), `Textarea` (49), `Select` (42, com o id
+  no `SelectTrigger`, que e quem recebe o foco) e inputs custom que espalham `...props` (45).
+  Os 59 restantes envolvem componentes que ainda nao encaminham `id` (Switch, Checkbox,
+  EntitySelector, Controller) — exigem mudanca de assinatura. Cobertos por teste-teto.
+- **Novo `<Field>`** (`components/domain/forms/field.tsx`): gera o id com `useId()` e entrega ao
+  filho, entao a ligacao nao depende de ninguem lembrar do `htmlFor`. Caminho para campos novos.
+- **Relatorio de inventario com teto** de 1.000 linhas, mas os TOTAIS seguem sobre a base inteira —
+  cortar antes contaminaria o resumo, que e o dado que o dono usa. Truncamento DECLARADO na tela:
+  lista cortada em silencio parece completa.
+- **Alvos de toque do carrinho do PDV**: 28px → 36px, com o input de quantidade acompanhando para
+  nao desalinhar a linha.
+- Validacao no navegador (nao so no grep): `/settings/general` foi a ZERO campos sem nome acessivel;
+  alvos medidos em 36px. 2313 unit + 423 integracao verdes.
+
 ### 2026-08-04 — Guards do PDV, carrinho em duas abas e MODO BANCADA (#811)
 
 Fecha os P1 restantes da auditoria de frontend. Duas decisoes do dono nesta rodada.

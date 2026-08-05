@@ -312,18 +312,35 @@ sem nome; clicar no rótulo não foca. Piores: `service-order-detail.tsx` (23),
     pagamento e o bloco de comunicação; mantém diagnóstico, itens e status.
     **Não é permissão** — o servidor continua barrando quem não pode.
 
-## Ainda pendente (backlog consciente)
+## Backlog — FECHADO no PR #813
 
-Nada aqui bloqueia comercialização; são melhorias de acabamento.
+- ~~**`<Label>` órfãos**~~ **FEITO: 329 → 59.** A contagem real era 329, não 147
+  (o levantamento original olhou só parte do escopo). Ligados por codemod em
+  três passadas conservadoras: `Input` (134), `Textarea` (49), `Select` (42,
+  com o id no `SelectTrigger`, que é quem recebe o foco) e inputs custom que
+  espalham `...props` (45).
 
-- **147 `<Label>` órfãos** sem `htmlFor` (leitor de tela anuncia campo sem nome).
-  É codemod mecânico, mas mexe em ~20 arquivos de formulário.
-- **~30 caixas de texto livre** ainda sem estratégia de overflow. As que
-  escondiam botão foram corrigidas; as restantes só esticam layout.
-- **Relatórios de estoque sem `take`** e sem virtualização: com 5.000 produtos o
-  DOM cresce muito. As LISTAS estão paginadas; o problema é só nos relatórios.
-- **Alvos de toque do carrinho do PDV** (28px, mínimo recomendado 44px). Os da
-  OS já foram para 36px.
+  Os 59 restantes envolvem componentes que ainda **não encaminham `id`**
+  (Switch, Checkbox, EntitySelector, Controller): exigem mudança de assinatura,
+  não codemod. Cobertos por um **teste-teto** que impede o número de subir.
+
+  Criado o `<Field>` (`components/domain/forms/field.tsx`): gera o id com
+  `useId()` e o entrega ao filho, então a ligação não depende de ninguém
+  lembrar do `htmlFor`. É o caminho para campos novos.
+
+  Medido no navegador: `/settings/general` foi a **zero** campos sem nome
+  acessível; `/stock/suppliers/new` e `/stock/exit`, de 2 para 1.
+- ~~**Relatório de estoque sem `take`**~~ **FEITO.** Teto de 1.000 linhas, com
+  os **totais** ainda calculados sobre a base inteira (cortar antes
+  contaminaria o resumo, que é o dado que o dono usa) e o truncamento
+  **declarado** na tela.
+- ~~**Alvos de toque do carrinho do PDV**~~ **FEITO: 28px → 36px**, com o input
+  de quantidade acompanhando para não desalinhar a linha.
+
+**Ainda aberto** (menor severidade, sem prazo):
+
+- **~30 caixas de texto livre** sem estratégia de overflow. As que escondiam
+  botão foram corrigidas; as restantes só esticam layout.
 - **Sem rascunho/autosave** nos formulários longos (compra de aparelho, wizard
   de OS): fechar a aba no meio perde o preenchimento.
 - **NF-e ignora produto serializado em silêncio** e ainda o conta como importado.
