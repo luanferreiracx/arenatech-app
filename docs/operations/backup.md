@@ -1,10 +1,16 @@
-# Backup do banco de produção
+# Backup de produção — banco e carteira
 
-> Instalado em 2026-07-29. **Até essa data produção não tinha backup nenhum.**
+> Banco instalado em 2026-07-29. **Até essa data produção não tinha backup nenhum.**
 > O [RUNBOOK](../RUNBOOK.md) documentava um `pg_dump` noturno em cron que nunca
 > foi instalado: nem cron do root, nem do `deployer`, nem unit systemd, nem um
 > único dump em disco. É a mesma classe do timer de `purge-webhook-events`
 > (achado de 27/07): **doc de operação não se verifica sozinho.**
+>
+> **Carteira instalada em 2026-08-05** (auditoria, P0-A1). A correção de 29/07
+> resolveu o banco e **não foi propagada para a carteira** — até esta data o
+> único backup do volume LWK era um tar manual de 15/06, e três carteiras
+> criadas depois dele (28/07 e 04/08) estavam sem nenhum ponto de restauração.
+> Mesmo padrão do achado original: **a correção fecha a instância, não a classe.**
 
 ## Como funciona
 
@@ -48,6 +54,58 @@ journalctl -u arenatech-backup-db.service -n 20 --no-pager
 ```
 
 Sinal de sucesso no journal: `OK: /home/deployer/backups/db/arenatech_….sql.gz (12M) — N cópias retidas`.
+
+## Carteira LWK (instalada em 2026-08-05)
+
+- Script: `/usr/local/bin/arenatech-backup-wallet.sh` (versionado em [`deploy/scripts/backup-wallet.sh`](../../deploy/scripts/backup-wallet.sh))
+- Units: `arenatech-backup-wallet.{service,timer}` (versionados em [`deploy/systemd/`](../../deploy/systemd/))
+- Horário: **02:40 BRT**, dez minutos depois do banco — não competem por I/O
+- Retenção: **30 cópias** (~54 KB cada)
+- Modo: `0600`, dono root
+
+**O que é copiado e por quê:**
+
+| arquivo | por que é irrecuperável |
+|---|---|
+| `descriptor.txt` | reconstrói a carteira; sem ele não há nem watch-only |
+| `idempotency.json` | **fonte de verdade sobre quais saques foram transmitidos** — foi o que resolveu o pagamento duplicado TXW20260727-00002, quando o banco dizia FAILED e a transação estava na rede |
+| `labels.json` | rótulos de endereço |
+
+**O que NÃO é copiado, de propósito:** `liquid/`, `liquid.bak-*` e `enc_cache`.
+É cache de UTXO do LWK — reconstruível por rescan, responde por quase todo o
+tamanho do volume (121 MB contra 54 KB do que importa), e **já causou incidente
+de saldo inflado justamente por ficar velho**. Restaurar cache antigo seria pior
+que não ter cópia.
+
+**Três guardas**, todas testadas em 2026-08-05 (falham e não gravam nada):
+
+1. **Volume inexistente** → falha antes de criar arquivo
+2. **Piso de tamanho** (20 KB) → tar de carteira vazia é descartado
+3. **Nenhum `descriptor.txt` no tar** → específica da carteira: um backup sem
+   descriptor passa no tamanho e no `gzip -t` e **não restauraria nada**
+
+### Verificar
+
+```bash
+systemctl list-timers --all | grep backup-wallet
+ls -lh /home/deployer/backups/wallet/
+journalctl -u arenatech-backup-wallet.service -n 20 --no-pager
+```
+
+Sinal de sucesso: `OK: /home/deployer/backups/wallet/lwk_wallet_….tar.gz (54K) — 7 carteira(s), N cópias retidas`.
+
+### Restaurar
+
+```bash
+mkdir -p /tmp/wallet-restore
+tar -xzf lwk_wallet_YYYYMMDD_HHMMSS.tar.gz -C /tmp/wallet-restore
+# conferir antes de mexer no volume:
+head -c 60 /tmp/wallet-restore/<tenantId>/descriptor.txt   # deve começar com ct(slip77(
+python3 -c "import json;print(len(json.load(open('/tmp/wallet-restore/<tenantId>/idempotency.json'))))"
+```
+
+Depois de restaurar, o cache precisa ser reconstruído por **rescan** — não
+copie `liquid/` de lugar nenhum.
 
 ## Metade 2 — pull para o PC (WSL2)
 
@@ -128,3 +186,5 @@ Sem reaplicá-los o app loga e toma `permission denied for table users` —
 > | Data | Dump testado | Resultado |
 > |---|---|---|
 > | 2026-07-29 | `prod_20260729` | Restaurado local, 0 erro, app subiu contra a cópia |
+> | 2026-08-05 | `arenatech_20260805_023000` (banco) | Restaurado local do dump **automático**: 0 erro, `gzip -t` OK, dump completo. Contagens idênticas à produção (2571 vendas, 2222 parcelas, 1766 pagamentos, 347 caixas, 7 tenants). RLS ativo em 111 tabelas, integridade financeira 0 divergências. `app_user` toma `permission denied` até reaplicar os GRANTs desta seção — confirmado e resolvido no drill. |
+> | 2026-08-05 | `lwk_wallet_20260805_113548` (carteira) | Extraído e verificado: 7 carteiras, `descriptor.txt` legível (`ct(slip77(…`), `idempotency.json` com 47 entradas válidas. As 3 carteiras que estavam sem cópia (28/07 e 04/08) presentes. As 3 guardas testadas — todas falham sem gravar. |

@@ -58,6 +58,40 @@ function mapEulenWithdrawStatus(
 }
 
 /**
+ * Formas em que o mesmo id de saque da Eulen pode aparecer, para casar com o que
+ * esta gravado em `pixpayDepixId`.
+ *
+ * A Eulen e inconsistente consigo mesma: a resposta de criacao do saque devolve
+ * o id SEM hifens (e e esse que gravamos, via `withdrawResult.id`), mas o
+ * webhook manda o MESMO id COM hifens. A comparacao era string exata, entao os
+ * 83 webhooks de saque entre 26/06 e 03/08 cairam TODOS em `not_found`
+ * (auditoria 2026-08-05, P0-A2) — a confirmacao em tempo real nunca funcionou e
+ * o status do saque passou a depender so do cron de reconciliacao.
+ *
+ * Medido na producao: normalizando os hifens, 83/83 casam com uma transacao
+ * existente; nenhum era saque de terceiro.
+ *
+ * Procura pelas duas formas em vez de so tirar os hifens do payload: hoje as 60
+ * linhas com `pixpayDepixId` estao TODAS sem hifen (medido), mas casar tambem
+ * pela forma crua deixa o handler correto se a Eulen mudar o formato da resposta
+ * de criacao — sem depender de descobrir isso por outro saque nao confirmado.
+ *
+ * Nao ha risco de casar a transacao errada: as duas variantes sao o mesmo id em
+ * grafias diferentes, e o id da Eulen e globalmente unico. Uma linha so pode
+ * bater com uma delas.
+ */
+function withdrawIdVariants(id: string): string[] {
+  const semHifen = id.replace(/-/g, "");
+  return semHifen === id ? [id] : [id, semHifen];
+}
+
+/** `where` do id que casa com qualquer uma das formas gravadas. */
+function pixpayDepixIdMatch(id: string): string | { in: string[] } {
+  const variants = withdrawIdVariants(id);
+  return variants.length === 1 ? variants[0]! : { in: variants };
+}
+
+/**
  * Processa o webhook de SAQUE da Eulen. Confirma o saque na hora (status `sent`
  * -> COMPLETED), liberando a reserva contabil de saldo (saque preso em
  * PROCESSING reservava saldo ate o cron de reconciliacao rodar).
@@ -96,7 +130,11 @@ export async function handleEulenWithdrawWebhook(
     if (receiptUrl) {
       await withAdmin((tx) =>
         tx.tenantDepixTransaction.updateMany({
-          where: { pixpayDepixId: withdrawalId, kind: "WITHDRAW", pixpayReceiptUrl: null },
+          where: {
+            pixpayDepixId: pixpayDepixIdMatch(withdrawalId),
+            kind: "WITHDRAW",
+            pixpayReceiptUrl: null,
+          },
           data: { pixpayReceiptUrl: receiptUrl, apiResponse: payload as never },
         }),
       );
@@ -107,7 +145,7 @@ export async function handleEulenWithdrawWebhook(
 
   const txRow = await withAdmin((tx) =>
     tx.tenantDepixTransaction.findFirst({
-      where: { pixpayDepixId: withdrawalId, kind: "WITHDRAW" },
+      where: { pixpayDepixId: pixpayDepixIdMatch(withdrawalId), kind: "WITHDRAW" },
       select: { id: true, status: true, tenantId: true },
     }),
   );

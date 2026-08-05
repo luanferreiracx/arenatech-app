@@ -114,3 +114,91 @@ describe("handleEulenWithdrawWebhook", () => {
     expect(res.body).toMatchObject({ skipped: expect.stringContaining("weird") });
   });
 });
+
+/**
+ * Auditoria 2026-08-05 (P0-A2). Os testes acima mockam `findFirst` para SEMPRE
+ * devolver a transacao — entao passavam mesmo com o casamento quebrado. Estes
+ * exercitam o `where` de verdade.
+ *
+ * O defeito: a Eulen devolve o id do saque SEM hifens na resposta de criacao
+ * (`withdrawResult.id`, que gravamos em `pixpayDepixId`) e manda o MESMO id COM
+ * hifens no webhook. A comparacao era string exata, entao os 83 webhooks de
+ * saque entre 26/06 e 03/08 cairam TODOS em `not_found`: a confirmacao em tempo
+ * real nunca funcionou e o status passou a depender so do cron de reconciliacao.
+ *
+ * Medido em producao: normalizando os hifens, 83/83 casam com uma transacao
+ * existente — nenhum era saque de terceiro.
+ */
+describe("handleEulenWithdrawWebhook — casamento do id (P0-A2)", () => {
+  /** Como a Eulen manda no webhook. */
+  const ID_COM_HIFEN = "019fc800-315f-7616-9d11-239c33294ea6";
+  /** Como gravamos, vindo de `withdrawResult.id` na criacao. */
+  const ID_SEM_HIFEN = "019fc800315f76169d11239c33294ea6";
+
+  /** So encontra a linha se o `where` procurar pela forma gravada no banco. */
+  function bancoTemApenas(idGravado: string) {
+    findFirst.mockImplementation((args: { where: { pixpayDepixId?: unknown } }) => {
+      const cond = args.where.pixpayDepixId;
+      const procurados =
+        cond && typeof cond === "object" && "in" in cond
+          ? (cond as { in: string[] }).in
+          : [cond as string];
+      return Promise.resolve(
+        procurados.includes(idGravado)
+          ? { id: "tx-h", status: "PROCESSING", tenantId: TENANT }
+          : null,
+      );
+    });
+  }
+
+  it("webhook COM hifen casa com o saque gravado SEM hifen", async () => {
+    bancoTemApenas(ID_SEM_HIFEN);
+    const res = await handleEulenWithdrawWebhook(
+      { webhookType: "withdraw", id: ID_COM_HIFEN, status: "sent" },
+      null,
+    );
+    expect(res.body).toMatchObject({ matched: true, status: "COMPLETED" });
+    // O efeito que nunca acontecia: liberar a reserva contabil do saque.
+    expect(onWithdrawCompleted).toHaveBeenCalledWith(TENANT, "tx-h");
+  });
+
+  // Nao ha teste do caso inverso (webhook sem hifen x linha gravada com hifen)
+  // porque ele nao existe: medido em producao, os 60 saques com
+  // `pixpayDepixId` estao TODOS sem hifen — e sempre estarao, porque o valor vem
+  // de `withdrawResult.id` da resposta de criacao. Reinserir hifens de UUID as
+  // cegas seria normalizacao especulativa para um cenario que nao ocorre.
+  it("webhook SEM hifen continua casando (formato ja igual ao gravado)", async () => {
+    bancoTemApenas(ID_SEM_HIFEN);
+    const res = await handleEulenWithdrawWebhook(
+      { webhookType: "withdraw", id: ID_SEM_HIFEN, status: "sent" },
+      null,
+    );
+    expect(res.body).toMatchObject({ matched: true, status: "COMPLETED" });
+  });
+
+  it("id que nao e nosso continua not_found (nao casa por acidente)", async () => {
+    bancoTemApenas(ID_SEM_HIFEN);
+    const res = await handleEulenWithdrawWebhook(
+      { webhookType: "withdraw", id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", status: "sent" },
+      null,
+    );
+    expect(res.body).toMatchObject({ matched: false });
+    expect(markWebhookProcessed).toHaveBeenCalledWith(
+      "eulen_withdraw",
+      expect.any(String),
+      expect.objectContaining({ ok: false, errorMessage: "not_found" }),
+    );
+    expect(onWithdrawCompleted).not.toHaveBeenCalled();
+  });
+
+  it("a chave de idempotencia usa o id CRU do webhook (nao muda o dedup)", async () => {
+    bancoTemApenas(ID_SEM_HIFEN);
+    await handleEulenWithdrawWebhook(
+      { webhookType: "withdraw", id: ID_COM_HIFEN, status: "sent" },
+      null,
+    );
+    expect(recordWebhookEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ eventId: `${ID_COM_HIFEN}:sent` }),
+    );
+  });
+});
