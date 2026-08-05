@@ -78,10 +78,11 @@ export function StepSummary({ data, onChange }: Props) {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Technician — obrigatório (técnico interno ou prestador externo) */}
         <div className="space-y-2">
-          <Label>
+          <Label htmlFor="os-tecnico-responsavel">
             Tecnico Responsavel <span className="text-destructive">*</span>
           </Label>
           <EntitySelector<AssigneeOption>
+            id="os-tecnico-responsavel"
             value={selectedAssignee}
             onChange={(val) => {
               if (!val) {
@@ -111,8 +112,8 @@ export function StepSummary({ data, onChange }: Props) {
 
         {/* Vendor */}
         <div className="space-y-2">
-          <Label>Vendedor Intermediador</Label>
-          <EntitySelector<UserOption>
+          <Label htmlFor="vendedor-intermediador">Vendedor Intermediador</Label>
+          <EntitySelector<UserOption> id="vendedor-intermediador"
             value={data.vendorId ?? undefined}
             onChange={(val) => onChange({ vendorId: val })}
             searchFn={searchVendors}

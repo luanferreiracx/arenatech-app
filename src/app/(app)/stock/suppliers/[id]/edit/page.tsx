@@ -135,8 +135,8 @@ export default function EditSupplierPage({ params }: { params: Promise<{ id: str
             </div>
           </div>
           <div className="flex items-center gap-3 mt-4">
-            <Switch checked={form.watch("active") ?? true} onCheckedChange={(v) => form.setValue("active", v)} />
-            <Label>Fornecedor ativo</Label>
+            <Switch id="fornecedor-ativo" checked={form.watch("active") ?? true} onCheckedChange={(v) => form.setValue("active", v)} />
+            <Label htmlFor="fornecedor-ativo">Fornecedor ativo</Label>
           </div>
         </FormSection>
 

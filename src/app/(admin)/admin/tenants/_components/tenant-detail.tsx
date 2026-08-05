@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { FieldTitle } from "@/components/domain/forms/field";
 import { useTRPC } from "@/trpc/react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm, useWatch } from "react-hook-form";
@@ -316,7 +317,7 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
           <div className="space-y-4">
             <div><Label htmlFor="nome">Nome</Label><Input id="nome" {...tenantForm.register("name")} /></div>
             <div>
-              <Label>Status</Label>
+              <FieldTitle>Status</FieldTitle>
               {/* Somente leitura: a mudança de acesso passa pelo Painel de Assinatura,
                   que sincroniza billing + acesso (fonte única). */}
               <div className="mt-1.5 flex items-center gap-2">
@@ -331,13 +332,15 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
           </div>
           <div className="flex items-start justify-between gap-4 rounded-md border p-3">
             <div className="min-w-0">
-              <Label>API externa (parceiros)</Label>
-              <p className="text-xs text-muted-foreground mt-0.5">
+              <Label htmlFor="tenant-api-access">API externa (parceiros)</Label>
+              <p id="tenant-api-access-ajuda" className="text-xs text-muted-foreground mt-0.5">
                 Libera o admin deste tenant a emitir e usar API-keys de parceiro (ADR 0057).
                 Desligado, a aba &quot;API de Parceiros&quot; não aparece e as keys param de funcionar.
               </p>
             </div>
             <Switch
+              id="tenant-api-access"
+              aria-describedby="tenant-api-access-ajuda"
               checked={tenantApiAccess === true}
               onCheckedChange={(v) => tenantForm.setValue("apiAccessEnabled", v)}
             />
@@ -364,7 +367,7 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
             />
           </div>
           <div className="rounded-md border p-3">
-            <Label>Tetos de saque por 24h</Label>
+            <FieldTitle>Tetos de saque por 24h</FieldTitle>
             <p className="mt-0.5 text-xs text-muted-foreground break-words">
               Deixe zerado para usar o padrão do sistema. Vale por tenant — subir aqui
               não afeta os demais.
@@ -787,9 +790,9 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
-            <Label>Senha</Label>
+            <Label htmlFor="senha">Senha</Label>
             <div className="flex flex-col gap-2 sm:flex-row">
-              <Input value={passwordResult?.tempPassword ?? ""} readOnly className="font-mono" />
+              <Input id="senha" value={passwordResult?.tempPassword ?? ""} readOnly className="font-mono" />
               <Button type="button" variant="outline" onClick={copyTemporaryPassword} className="sm:w-auto">
                 <Copy className="mr-2 h-4 w-4" />
                 Copiar

@@ -1,5 +1,6 @@
 "use client";
 import { formatCentsBRL as formatCurrency } from "@/lib/format";
+import { FieldTitle } from "@/components/domain/forms/field";
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
@@ -813,8 +814,8 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
           <div className="space-y-4">
             {items.length > 1 && (
               <div className="space-y-2">
-                <Label>Itens a estornar</Label>
-                <div className="max-h-48 space-y-1.5 overflow-y-auto rounded-md border border-border p-2">
+                <Label id="estorno-itens-label">Itens a estornar</Label>
+                <div role="group" aria-labelledby="estorno-itens-label" className="max-h-48 space-y-1.5 overflow-y-auto rounded-md border border-border p-2">
                   {items.map((it) => {
                     const checked = refundItemIds.has(it.id);
                     return (
@@ -975,7 +976,7 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label>Vendedor atual</Label>
+              <FieldTitle>Vendedor atual</FieldTitle>
               <p className="text-sm text-muted-foreground">{sale.sellerName}</p>
             </div>
             <div className="space-y-2">
@@ -1067,8 +1068,8 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
-            <Label>Cliente</Label>
-            <EntitySelector<{ id: string; name: string; cpf?: string | null; cnpj?: string | null }>
+            <Label htmlFor="cliente">Cliente</Label>
+            <EntitySelector<{ id: string; name: string; cpf?: string | null; cnpj?: string | null }> id="cliente"
               value={undefined}
               onChange={() => {}}
               onSelect={(item) => handleLinkCustomer(item.id)}

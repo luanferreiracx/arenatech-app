@@ -149,8 +149,8 @@ export function BotScheduleForm() {
         </div>
 
         <div className="space-y-2">
-          <Label>Dias de atendimento</Label>
-          <div className="flex flex-wrap gap-2">
+          <Label id="bot-dias-atendimento-label">Dias de atendimento</Label>
+          <div role="group" aria-labelledby="bot-dias-atendimento-label" className="flex flex-wrap gap-2">
             {WEEKDAY_LABELS.map((day) => {
               const active = openWeekdays.includes(day.value);
               return (

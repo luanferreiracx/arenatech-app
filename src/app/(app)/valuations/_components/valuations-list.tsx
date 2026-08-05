@@ -713,8 +713,8 @@ export function ValuationsList() {
               />
             </div>
             <div>
-              <Label>Nome do cliente <span className="text-muted-foreground">(opcional)</span></Label>
-              <Input
+              <Label htmlFor="nome-do-cliente-opcional">Nome do cliente <span className="text-muted-foreground">(opcional)</span></Label>
+              <Input id="nome-do-cliente-opcional"
                 value={whatsAppName}
                 onChange={(e) => setWhatsAppName(e.target.value)}
                 placeholder="Ex: João"

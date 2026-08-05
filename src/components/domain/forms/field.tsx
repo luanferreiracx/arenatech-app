@@ -25,6 +25,39 @@ import { cn } from "@/lib/utils";
  *
  * Para `Select` do Radix, o id vai no `SelectTrigger`.
  */
+/**
+ * Título de um valor só de leitura, ou de um GRUPO de controles.
+ *
+ * `<Label>` sem `htmlFor` era usado nos dois casos, e nos dois está errado:
+ * `<label>` do HTML nomeia UM controle de formulário. Sobre um valor exibido
+ * (`Subtotal`, `Vendedor atual`) não há controle nenhum; sobre um grupo, o
+ * certo é `role="group"` + `aria-labelledby` no container.
+ *
+ * Este componente é o mesmo texto, sem a semântica errada. Passe `id` quando
+ * for rótulo de grupo, para o container referenciar via `aria-labelledby`.
+ */
+export function FieldTitle({
+  id,
+  className,
+  children,
+}: {
+  id?: string;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <span
+      id={id}
+      className={cn(
+        "flex items-center gap-2 text-sm leading-none font-medium select-none",
+        className,
+      )}
+    >
+      {children}
+    </span>
+  );
+}
+
 export function Field({
   label,
   hint,

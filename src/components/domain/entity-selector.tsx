@@ -27,6 +27,19 @@ interface EntitySelectorProps<T> {
   className?: string;
   /** Rotulo inicial para exibir quando o `value` ja existe mas o entity ainda nao foi carregado. */
   initialLabel?: string | null;
+  /**
+   * Id do gatilho, para o `<Label htmlFor>` associar. Sem isto o leitor de
+   * tela anuncia o seletor sem nome. Auditoria de frontend 2026-08-04.
+   */
+  id?: string;
+  /**
+   * O `<FormControl>` do shadcn injeta `id`/`aria-*` no filho via `Slot`, mas
+   * a raiz aqui é `<Popover>` — um provider sem DOM — então tudo isso sumia e o
+   * `htmlFor` do `<FormLabel>` apontava para um id inexistente. Declarar as
+   * props e repassá-las ao gatilho é o que faz a associação existir de fato.
+   */
+  "aria-describedby"?: string;
+  "aria-invalid"?: boolean;
 }
 
 export function EntitySelector<T>({
@@ -40,6 +53,9 @@ export function EntitySelector<T>({
   emptyMessage = "Nenhum resultado.",
   className,
   initialLabel,
+  id,
+  "aria-describedby": ariaDescribedBy,
+  "aria-invalid": ariaInvalid,
 }: EntitySelectorProps<T>) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -85,7 +101,20 @@ export function EntitySelector<T>({
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
+      {/*
+        `id`/`aria-*` no gatilho, não na raiz: a raiz é o `<Popover>`, um
+        provider sem DOM. Enquanto este componente não declarava `id`, o
+        `<FormControl>` do shadcn injetava o id via `Slot` e ele se perdia — o
+        `htmlFor` do `<FormLabel>` apontava para um id inexistente e o leitor de
+        tela anunciava o campo sem nome. Typecheck e lint passavam; só apareceu
+        medindo o DOM renderizado. Guardado por `e2e/label-association.spec.ts`.
+      */}
+      <PopoverTrigger
+        asChild
+        id={id}
+        aria-describedby={ariaDescribedBy}
+        aria-invalid={ariaInvalid}
+      >
         <Button
           variant="outline"
           role="combobox"

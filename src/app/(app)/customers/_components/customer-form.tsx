@@ -140,8 +140,15 @@ export function CustomerForm({ mode, customerId, defaultValues, onSuccess, onCan
       {/* Tipo de pessoa */}
       <FormSection title="Tipo de pessoa">
         <div className="space-y-2">
-          <Label>Tipo</Label>
+          {/*
+            Rótulo de GRUPO, não de campo: nomeia o conjunto de opções, não um
+            controle único. `htmlFor` seria errado aqui — o alvo certo é o
+            container com `role`/`aria-labelledby`. O RadioGroup do Radix já
+            expõe `role="radiogroup"`; só faltava o nome acessível.
+          */}
+          <Label id="cliente-tipo-label">Tipo</Label>
           <RadioGroup
+            aria-labelledby="cliente-tipo-label"
             value={watchType}
             onValueChange={(v: string) => {
               const next = v as "PF" | "PJ";

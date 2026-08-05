@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useState } from "react";
+import { FieldTitle } from "@/components/domain/forms/field";
 import Link from "next/link";
 import { format } from "date-fns";
 import { useTRPC } from "@/trpc/react";
@@ -1361,7 +1362,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
             {newItemType === "PRODUCT" && !newItemProductId && pendingVariationProduct && (
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <Label>Variacao de {pendingVariationProduct.name}</Label>
+                  <FieldTitle>Variacao de {pendingVariationProduct.name}</FieldTitle>
                   <Button variant="ghost" size="sm" onClick={() => setPendingVariationProduct(null)}>Voltar</Button>
                 </div>
                 <div className="border border-border rounded-md max-h-48 overflow-y-auto bg-background">

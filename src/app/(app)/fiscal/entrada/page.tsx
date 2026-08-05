@@ -84,8 +84,8 @@ export default function EntradaPage() {
       <form onSubmit={form.handleSubmit((data) => createMutation.mutate(data))} className="space-y-6">
         <FormSection title="Remetente / Fornecedor">
           <div className="space-y-2 mb-4">
-            <Label>Buscar Fornecedor</Label>
-            <EntitySelector
+            <Label htmlFor="buscar-fornecedor">Buscar Fornecedor</Label>
+            <EntitySelector id="buscar-fornecedor"
               value={form.watch("supplierId") ?? ""}
               onChange={(v) => form.setValue("supplierId", v || null)}
               searchFn={async (search) => {

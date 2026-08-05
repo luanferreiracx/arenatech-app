@@ -104,8 +104,8 @@ export default function StockExitPage() {
       <form onSubmit={submit} onKeyDown={blockEnterSubmit} className="space-y-6">
         <FormSection title="Produto">
           <div className="space-y-2">
-            <Label>Produto *</Label>
-            <EntitySelector<ProductSearchResult>
+            <Label htmlFor="produto">Produto *</Label>
+            <EntitySelector<ProductSearchResult> id="produto"
               value={form.watch("productId")}
               onChange={(v) => {
                 form.setValue("productId", v ?? "", { shouldValidate: true });

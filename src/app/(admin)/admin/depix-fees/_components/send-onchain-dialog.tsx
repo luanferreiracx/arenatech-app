@@ -106,11 +106,11 @@ export function SendOnchainDialog({ balanceCents }: { balanceCents: number }) {
           </div>
 
           <div>
-            <Label>Valor</Label>
-            <p className="text-xs text-muted-foreground mt-0.5 mb-2">
+            <Label htmlFor="onchain-valor">Valor</Label>
+            <p id="onchain-saldo" className="text-xs text-muted-foreground mt-0.5 mb-2">
               Disponível: {(balanceCents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
             </p>
-            <MoneyInput value={amount} onChange={setAmount} placeholder="R$ 0,00" className="!font-mono tabular-nums" />
+            <MoneyInput id="onchain-valor" aria-describedby="onchain-saldo" value={amount} onChange={setAmount} placeholder="R$ 0,00" className="!font-mono tabular-nums" />
             {amount > balanceCents && <p className="text-xs text-destructive mt-1.5">Saldo insuficiente.</p>}
           </div>
 

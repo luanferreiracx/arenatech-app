@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { FieldTitle } from "@/components/domain/forms/field";
 import { useFormContext, useFieldArray } from "react-hook-form";
 import { useTRPC } from "@/trpc/react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -59,7 +60,8 @@ export function VariationsEditor() {
 
       {/* Step 1: atributos do produto */}
       <div className="space-y-2 mb-6">
-        <Label>Atributos do produto</Label>
+        {/* Rótulo de grupo dos toggles de atributo. */}
+        <Label id="variacoes-atributos-label">Atributos do produto</Label>
         {attributes.length === 0 ? (
           <p className="text-sm text-muted-foreground italic">
             Nenhum atributo cadastrado.{" "}
@@ -69,7 +71,7 @@ export function VariationsEditor() {
             .
           </p>
         ) : (
-          <div className="flex flex-wrap gap-2">
+          <div role="group" aria-labelledby="variacoes-atributos-label" className="flex flex-wrap gap-2">
             {attributes.map((attr) => {
               const selected = selectedAttrIds.includes(attr.id);
               return (
@@ -93,7 +95,7 @@ export function VariationsEditor() {
       {usedAttributes.length > 0 && (
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <Label>Variacoes ({fields.length})</Label>
+            <FieldTitle>Variacoes ({fields.length})</FieldTitle>
             <Button
               type="button"
               variant="outline"

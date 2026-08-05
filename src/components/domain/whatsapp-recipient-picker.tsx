@@ -101,8 +101,8 @@ export function WhatsappRecipientPicker({
 
   return (
     <div className="space-y-2">
-      <Label>Enviar para</Label>
-      <div className="space-y-1.5">
+      <Label id="wa-enviar-para-label">Enviar para</Label>
+      <div role="radiogroup" aria-labelledby="wa-enviar-para-label" className="space-y-1.5">
         {dedupedOptions.map((opt) => (
           <label
             key={opt.value}

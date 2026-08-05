@@ -181,8 +181,8 @@ export function ComponentsCatalog() {
           </div>
 
           <div className="space-y-1.5">
-            <Label>CNPJ</Label>
-            <CnpjInput value={cnpjValue} onValueChange={setCnpjValue} />
+            <Label htmlFor="cnpj">CNPJ</Label>
+            <CnpjInput id="cnpj" value={cnpjValue} onValueChange={setCnpjValue} />
           </div>
 
           <div className="space-y-1.5">

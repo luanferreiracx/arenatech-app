@@ -518,8 +518,8 @@ export function DeviceCatalogAdmin() {
 
           <div className="space-y-4 max-h-[65vh] overflow-y-auto pr-1">
             <div>
-              <Label>Nome do aparelho <span className="text-destructive">*</span></Label>
-              <Input
+              <Label htmlFor="nome-do-aparelho">Nome do aparelho <span className="text-destructive">*</span></Label>
+              <Input id="nome-do-aparelho"
                 autoFocus
                 value={deviceDialog?.name ?? ""}
                 onChange={(e) => setDeviceDialog((d) => d ? { ...d, name: e.target.value } : d)}
@@ -559,8 +559,8 @@ export function DeviceCatalogAdmin() {
                 />
               </div>
               <div>
-                <Label>Preço PIX <span className="text-xs text-primary">(bot usa este)</span></Label>
-                <Input
+                <Label htmlFor="preco-pix-bot-usa-este">Preço PIX <span className="text-xs text-primary">(bot usa este)</span></Label>
+                <Input id="preco-pix-bot-usa-este"
                   type="number"
                   step="0.01"
                   min="0"

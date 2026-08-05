@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useId } from "react";
+import { FieldTitle } from "@/components/domain/forms/field";
 import { Trash2, Plus } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTRPC } from "@/trpc/react";
@@ -53,6 +54,9 @@ function ItemRow({
 }) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
+  // A linha se repete (um ItemRow por item da OS), então o id do campo não pode
+  // ser literal. `index` também não serve: muda quando um item é removido.
+  const rowId = useId();
   // Default = busca no catalogo (paridade com Laravel). Usuario pode alternar
   // para "Digitar manual" se nao encontrar o item. Itens carregados de OS
   // existente que tem description mas nao tem serviceId/productId mantem
@@ -142,7 +146,7 @@ function ItemRow({
           {!manualMode ? (
             <div>
               <div className="flex items-center justify-between mb-1">
-                <Label>{isProduct ? "Peca/Produto" : "Servico"}</Label>
+                <Label htmlFor={`${rowId}-catalogo`}>{isProduct ? "Peca/Produto" : "Servico"}</Label>
                 <button
                   type="button"
                   onClick={() => setManualMode(true)}
@@ -152,6 +156,7 @@ function ItemRow({
                 </button>
               </div>
               <EntitySelector<ServiceOption>
+                id={`${rowId}-catalogo`}
                 // A chave forca remontagem ao trocar o tipo — limpa o valor
                 // selecionado de um catalogo ao alternar para o outro.
                 key={item.type}
@@ -177,7 +182,7 @@ function ItemRow({
           ) : (
             <div>
               <div className="flex items-center justify-between mb-1">
-                <Label>Descricao</Label>
+                <Label htmlFor={`${rowId}-descricao`}>Descricao</Label>
                 <button
                   type="button"
                   onClick={() => setManualMode(false)}
@@ -187,6 +192,7 @@ function ItemRow({
                 </button>
               </div>
               <Input
+                id={`${rowId}-descricao`}
                 value={item.description}
                 onChange={(e) => onUpdate(index, { description: e.target.value })}
                 placeholder="Descricao do servico/produto"
@@ -216,7 +222,7 @@ function ItemRow({
           />
         </div>
         <div className="space-y-2">
-          <Label>Subtotal</Label>
+          <FieldTitle>Subtotal</FieldTitle>
           <div className="h-9 flex items-center px-3 rounded-md border border-border bg-muted/50 font-mono text-sm">
             {formatMoney(item.unitPrice * item.quantity)}
           </div>

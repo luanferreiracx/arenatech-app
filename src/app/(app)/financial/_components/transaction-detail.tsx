@@ -602,8 +602,8 @@ export function TransactionDetail({ transactionId }: TransactionDetailProps) {
               <Input id="descricao" value={editFields.description} onChange={(e) => setEditFields((f) => ({ ...f, description: e.target.value }))} />
             </div>
             <div className="space-y-1">
-              <Label>Categoria</Label>
-              <FinancialCategorySelect
+              <Label htmlFor="categoria">Categoria</Label>
+              <FinancialCategorySelect id="categoria"
                 value={editFields.category}
                 onChange={(category) => setEditFields((f) => ({ ...f, category }))}
                 transactionType={isReceivable ? "RECEIVABLE" : "PAYABLE"}

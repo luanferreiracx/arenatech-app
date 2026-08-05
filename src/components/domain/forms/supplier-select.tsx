@@ -13,6 +13,15 @@ type SupplierSelectProps = {
   /** Fornecedor selecionado (id) ou null. */
   value: string | null;
   onChange: (supplierId: string | null) => void;
+  /** Id do <select>, para o `<Label htmlFor>` associar. Auditoria 2026-08-04. */
+  id?: string;
+  /**
+   * O `<FormControl>` do shadcn injeta `id`/`aria-*` via `Slot`, e a raiz aqui
+   * é um `<div>` — então o `htmlFor` do `<FormLabel>` apontava para o div, não
+   * para o campo. Repassar ao `<select>` é o que torna a associação real.
+   */
+  "aria-describedby"?: string;
+  "aria-invalid"?: boolean;
 };
 
 /**
@@ -21,7 +30,7 @@ type SupplierSelectProps = {
  * (find-or-create dedup no servidor), invalida a lista e já seleciona o novo.
  * Substitui o antigo <Input> de texto livre em contas a pagar (auditoria 2026-07-13).
  */
-export function SupplierSelect({ value, onChange }: SupplierSelectProps) {
+export function SupplierSelect({ value, onChange, id, "aria-describedby": ariaDescribedBy, "aria-invalid": ariaInvalid }: SupplierSelectProps) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const [creating, setCreating] = useState(false);
@@ -57,6 +66,9 @@ export function SupplierSelect({ value, onChange }: SupplierSelectProps) {
   return (
     <div className="space-y-2">
       <select
+        id={id}
+        aria-describedby={ariaDescribedBy}
+        aria-invalid={ariaInvalid}
         className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
         value={creating ? NEW_SUPPLIER_OPTION : value ?? ""}
         onChange={(e) => {
