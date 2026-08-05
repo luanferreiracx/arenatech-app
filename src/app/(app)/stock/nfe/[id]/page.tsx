@@ -89,8 +89,20 @@ export default function NfeDetailPage({ params }: PageProps) {
 
   const importMutation = useMutation(
     trpc.nfeImport.importToInventory.mutationOptions({
-      onSuccess: () => {
-        toast.success("NF-e importada para o estoque");
+      onSuccess: (res) => {
+        // Aparelho com IMEI/série NÃO entra por quantidade da nota: cada
+        // unidade vira um StockItem próprio, pelo fluxo de compra. Antes o
+        // item era contado como importado e o operador só descobria conferindo
+        // o estoque e não achando nada. Agora o aviso é explícito e diz o que
+        // fazer. Auditoria de frontend 2026-08-04.
+        if (res.skippedSerialized > 0) {
+          toast.warning(
+            `${res.imported} item(ns) importado(s). ${res.skippedSerialized} produto(s) com IMEI/serie NAO entraram: registre cada aparelho em Estoque > Compras, para vincular o identificador.`,
+            { duration: 12000 },
+          );
+        } else {
+          toast.success("NF-e importada para o estoque");
+        }
         queryClient.invalidateQueries({ queryKey: trpc.nfeImport.getById.queryKey({ id }) });
         router.push("/stock/nfe");
       },

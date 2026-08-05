@@ -422,6 +422,8 @@ export const nfeImportRouter = createTRPCRouter({
           const variationMap = new Map(variations.map((v) => [v.id, v]))
 
           let importedCount = 0
+          /** Itens serializados pulados — reportados à parte, nunca como importados. */
+          let skippedSerializedCount = 0
           // Acumulamos updates em memoria para emitir poucos comandos SQL.
           // currentStock e atualizado em-memory para a mensagem de movement
           // refletir o valor correto entre items repetidos do mesmo product.
@@ -504,6 +506,20 @@ export const nfeImportRouter = createTRPCRouter({
               costUpdates.set(item.productId, item.totalUnitCost)
             }
 
+            // Serializado NÃO entra por quantidade: cada unidade vira um
+            // StockItem com IMEI/série própria, pelo fluxo de compra. O pulo
+            // acima está certo — errado era marcar IMPORTED e somar na
+            // contagem. O operador lia "3 itens importados", conferia o estoque
+            // e não achava nada, sem erro nem pista.
+            //
+            // Agora o item fica PENDING (segue vinculado, esperando a entrada
+            // correta) e é reportado à parte, para a tela poder dizer o que
+            // falta fazer. Auditoria de frontend 2026-08-04.
+            if (product.isSerialized) {
+              skippedSerializedCount++
+              continue
+            }
+
             importedItemIds.push(item.id)
             importedCount++
           }
@@ -575,7 +591,7 @@ export const nfeImportRouter = createTRPCRouter({
           })
 
           logger.info("NF-e import completed", { nfeImportId: input.nfeImportId, importedCount })
-          return { success: true, importedCount }
+          return { success: true, importedCount, imported: importedCount, skippedSerialized: skippedSerializedCount }
         } catch (err) {
           await tx.nfeImport.update({
             where: { id: input.nfeImportId },
