@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
+import { useFormDraft } from "@/hooks/use-form-draft";
 import { useRouter } from "next/navigation";
 import { useTRPC } from "@/trpc/react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -31,7 +32,16 @@ export default function NewServiceOrderPage() {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const [step, setStep] = useState(0);
-  const [data, setData] = useState<WizardData>({
+  // Rascunho local: o wizard guarda os 5 passos em um estado só, e fechar a aba
+  // no passo 4 perdia cliente, aparelho, checklist e itens. Agora sobrevive a
+  // F5, fechamento acidental e troca de app no celular.
+  // Auditoria de frontend 2026-08-04.
+  const {
+    value: data,
+    setValue: setData,
+    restored: draftRestored,
+    clear: clearDraft,
+  } = useFormDraft<WizardData>("os-nova", {
     items: [],
     isWarranty: false,
     warrantyMonths: 3,
@@ -53,6 +63,7 @@ export default function NewServiceOrderPage() {
     trpc.serviceOrder.create.mutationOptions({
       onSuccess: (result) => {
         toast.success(`OS ${result.number} criada com sucesso!`);
+        clearDraft();
         void queryClient.invalidateQueries({ queryKey: [["serviceOrder"]] });
         // Abre o modal de confirmacao de envio do rastreamento ao cliente; o
         // redirecionamento para o detalhe acontece apos enviar ou pular.
@@ -127,6 +138,28 @@ export default function NewServiceOrderPage() {
         title="Nova Ordem de Servico"
         subtitle="Preencha os dados do equipamento e problema relatado"
       />
+
+      {/* Rascunho restaurado. Avisar é obrigatório: um formulário que reaparece
+          preenchido sem explicação faz o operador achar que abriu a OS errada.
+          E precisa haver saída — daí o "Começar do zero". */}
+      {draftRestored && (
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-md border border-info/40 bg-info/10 px-3 py-2 text-sm">
+          <span className="min-w-0">
+            Retomamos o preenchimento que você tinha começado nesta sessão.
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              clearDraft();
+              setData({ items: [], isWarranty: false, warrantyMonths: 3 });
+              setStep(0);
+            }}
+          >
+            Começar do zero
+          </Button>
+        </div>
+      )}
 
       {/* Stepper */}
       <div className="flex items-center gap-2 mb-8 overflow-x-auto pb-2">
