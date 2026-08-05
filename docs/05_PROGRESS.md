@@ -2038,6 +2038,34 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-08-04 — NF-e serializado + rascunho do wizard de OS (#815)
+
+Fecha os dois ultimos itens do backlog da auditoria de frontend.
+
+**NF-e contava como importado o que nao entrou.** `importToInventory` pulava o produto serializado
+mas seguia marcando IMPORTED e somando no `importedCount`: o operador lia "3 itens importados",
+conferia o estoque e nao achava nada — sem erro nem pista. O PULO esta certo (aparelho com IMEI
+entra unidade a unidade, cada uma virando StockItem com identificador proprio, pelo fluxo de
+compra); errado era dizer que importou. Agora fica PENDING, e contado a parte
+(`skippedSerialized`) e a tela avisa o que fazer. Diagnostico pelo protocolo do /diagnose: loop de
+feedback primeiro, reproducao, depois o fix.
+
+**Wizard de OS perdia tudo ao fechar a aba.** Os 5 passos viviam num `useState` so. Novo
+`useFormDraft` guarda em `sessionStorage` (nao `localStorage` — o rascunho e da SESSAO; reabrir o
+de ontem seria pior que perder), expira em 12h e salva no `visibilitychange`, unico evento
+confiavel em mobile. Restauracao AVISADA, com botao "Comecar do zero".
+
+**Duas correcoes que so o navegador pegou** (typecheck e lint passavam nas duas):
+1. Ler `sessionStorage` no `useState` inicial QUEBRA A HIDRATACAO — servidor renderiza vazio,
+   cliente renderiza restaurado, React descarta a arvore. So apareceu no log do dev server.
+2. Mover para `useEffect` resolvia a hidratacao mas disparava `react-hooks/set-state-in-effect`.
+
+`useSyncExternalStore` resolve os dois: e o primitivo do React para ler estado EXTERNO, e o
+`getServerSnapshot` deixa explicito que a diferenca servidor/cliente e esperada. Verificado em
+servidor NOVO: zero "Hydration failed".
+
+- 2318 unit + 425 integracao verdes.
+
 ### 2026-08-04 — Backlog de acessibilidade fechado (#813)
 
 Fecha o backlog da auditoria de frontend.
