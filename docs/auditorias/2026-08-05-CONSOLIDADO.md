@@ -39,14 +39,14 @@ custo de reverter. Não por etapa.
 |---|---|---|---|
 | ~~**B1**~~ | ~~3 CVEs críticas em `next-auth`/`@auth/core` + bypass de proxy no Next~~ | 4 | ✅ **PR #821**. `next` 16.2.11, `next-auth` beta.32, `@auth/prisma-adapter` 2.11.3 (esta era necessária: sozinha a beta.32 deixava um `@auth/core@0.41.2` entrando pelo adapter), `js-yaml` 4.3.1. **3 críticas → 0**. Verificado em produção: login, `/api/auth/session` e o gate do tRPC intactos |
 | ~~**B2**~~ | ~~HSTS ausente em `pdvdepix.app` e no wildcard~~ | 3 | ✅ **PR #821**. A investigação achou algo maior: o PR #76 (12/06) **já tinha** versionado a config com HSTS — a produção divergiu depois e nada detectava (2 dos 3 vhosts divergiam). Além do header: wildcard versionado, repo sincronizado, `check-nginx-drift.sh` (verificado que **detecta** drift), e o redirect de `http://www.pdvdepix.app`, que respondia 404 |
-| **B3** | App sem healthcheck e `/api/health` que não existe | 3 | Rota está na allowlist e nunca foi criada (404). Nada monitora se o app está vivo |
+| ~~**B3**~~ | ~~App sem healthcheck e `/api/health` que não existe~~ | 3 | ✅ **PR #823**. Rota criada tocando o banco (a dependência sem a qual nada funciona); `HEALTHCHECK` no container. Validado com o postgres PARADO: devolve **503 degraded** de verdade. Em produção: `200 {status:ok,db:up}` e container `healthy` |
 | **B4** | `/api/storage` serve o bucket inteiro sem auth | 1 | Latente (0 NFS-e hoje); certificado A1 está cifrado. Allowlist de prefixos |
 | **B5** | Tabela de incidente com CPF/chave PIX fora do RLS | 1 | 1 linha, legível por `app_user` sem filtro de tenant |
 | **B6** | Guarda anti-alucinação de dinheiro não pega o caso que a motivou | 5 | Regex exige equação literal; 4 fraseados naturais passam, inclusive o do incidente documentado |
 | **B7** | Falha de entrega do bot nunca é marcada | 5 | Filtra por `body.status`, campo que o Chatwoot não envia. Reenvio automático é código morto |
 | **B8** | 54 FKs sem `tenant_id` composto | 2 | Provado: escrita cross-tenant passa no banco. App não expõe, mas `forceClose` depende só do RLS |
 | **B9** | Corrida fechar-caixa × finalizar-venda | 1 | 0 ocorrências em 1.796 movimentos; sobe de risco com múltiplos caixas |
-| **B10** | L-BTC a 113 sats do piso, alertando 45×/dia | 2 | **Pendência sua** — abastecer a carteira central |
+| **B10** | L-BTC **abaixo** do piso | 2 | **Pendência sua, ATIVA** — 9.992 contra piso de 10.000 (confirmado 05/08 18:00). O alerta subiu de `warn` para `error`: *"repasses/saques podem travar"*. Era 10.113 na Etapa 2 |
 | **B11** | Esplora de terceiro falhou 172× | 4 | **Em andamento por você** — Esplora própria |
 
 ### Bloco C — Backlog datado (P2/P3)
@@ -131,14 +131,12 @@ Registro porque o método importa mais que o placar:
 
 ## Estado da implementação (2026-08-05)
 
-**Entregue e em produção:** os 2 P0 (PR #820) e 2 P1 (PR #821).
+**Entregue e em produção:** os 2 P0 (PR #820) e 3 P1 (PRs #821, #823).
 
-**Restam 9 P1** do Bloco B — dos quais 2 são pendências suas (L-BTC, Esplora).
-Os 7 técnicos, em ordem sugerida:
+**Restam 8 P1** do Bloco B — dos quais 2 são pendências suas (L-BTC, Esplora).
+Os 6 técnicos, em ordem sugerida:
 
-1. **B3** — `/api/health` que não existe + app sem healthcheck (nada monitora se
-   o app está vivo)
-2. **B6** — guarda de preço do bot que não pega o caso que a motivou
+1. **B6** — guarda de preço do bot que não pega o caso que a motivou
 3. **B7** — falha de entrega do bot nunca marcada (filtra por um campo que o
    Chatwoot não envia)
 4. **B4** — `/api/storage` sem allowlist de prefixo
