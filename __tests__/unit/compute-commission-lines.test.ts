@@ -91,6 +91,59 @@ describe("computeCommissionLines", () => {
     expect(lines[0]!.source).toBe("OWN");
     expect(grossCommission).toBe(10);
   });
+
+  // Intermediacao de OS aceita valor fixo (antes so percentual). O evento de
+  // intermediacao entra com qty=1, entao o fixo paga R$ rate por OS captada —
+  // independente do valor do servico.
+  it("valor fixo em intermediacao paga por OS captada, nao pelo valor do servico", () => {
+    const intermediacao = (id: string, overrides: Partial<CommissionEvent> = {}) =>
+      makeEvent({
+        tipo: "servico_intermediacao",
+        referencia_id: id,
+        categoria: "intermediacao_at",
+        category: "intermediacao_at",
+        qty: 1,
+        ...overrides,
+      });
+    const fixedRule: CommissionRuleNumeric = {
+      category: "intermediacao_at",
+      scope: "normal",
+      source: "OWN",
+      valueType: "FIXED_PER_UNIT",
+      base: "PROFIT",
+      rangeMin: 0,
+      rangeMax: null,
+      rate: 25,
+    };
+
+    // Duas OS captadas com valores MUITO diferentes: cada uma paga os mesmos R$ 25.
+    const { lines, grossCommission } = computeCommissionLines(
+      [
+        intermediacao("os-1", { baseProfit: 80, baseGrossNet: 120 }),
+        intermediacao("os-2", { baseProfit: 4000, baseGrossNet: 9000 }),
+      ],
+      [fixedRule],
+    );
+    expect(lines.map((l) => l.comissao)).toEqual([25, 25]);
+    expect(lines[0]!.tipo_valor).toBe("FIXED_PER_UNIT");
+    expect(grossCommission).toBe(50);
+  });
+
+  it("intermediacao percentual segue rateando pela base (comportamento historico)", () => {
+    const intermediacao = makeEvent({
+      tipo: "servico_intermediacao",
+      referencia_id: "os-1",
+      categoria: "intermediacao_at",
+      category: "intermediacao_at",
+      baseProfit: 200,
+    });
+    const { grossCommission } = computeCommissionLines(
+      [intermediacao],
+      [percentProfit({ category: "intermediacao_at", rate: 3 })],
+    );
+    // 3% sobre lucro 200 = 6
+    expect(grossCommission).toBe(6);
+  });
 });
 
 describe("summarizeCommissionLines", () => {

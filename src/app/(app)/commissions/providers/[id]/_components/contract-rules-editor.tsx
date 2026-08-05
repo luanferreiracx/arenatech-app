@@ -28,7 +28,8 @@ import {
   COMMISSION_BASE_LABELS,
   COMMISSION_SOURCE_LABELS,
   CATEGORIES_WITH_SCOPE,
-  CATEGORIES_WITH_AXES,
+  CATEGORIES_WITH_VALUE_TYPE_AXIS,
+  CATEGORIES_WITH_STORE_SOURCE,
   CATEGORIES_WITH_BASE_AXIS,
   DEFAULT_BASE_BY_CATEGORY,
   STORE_ONLY_CATEGORIES,
@@ -78,13 +79,25 @@ type CurrentContract = {
 
 const CATEGORIES = commissionCategoryEnum.options;
 
-/** Categoria aceita os eixos COMPLETOS (tipo fixo/percentual + origem loja):
- *  produtos + participacao em AT (servico_at_loja). */
-function categoryAllowsAxes(category: CommissionCategory): boolean {
-  return (CATEGORIES_WITH_AXES as readonly string[]).includes(category);
+/** Rotulo do campo de valor fixo — a unidade cobrada muda por categoria. */
+const FIXED_RATE_LABELS: Record<string, string> = {
+  servico_at_loja: "Valor por servico (R$)",
+  intermediacao_at: "Valor por OS captada (R$)",
+};
+
+/** Categoria permite escolher o TIPO do valor (percentual ou R$ fixo por unidade):
+ *  produtos + participacao em AT + intermediacao de OS. */
+function categoryAllowsValueTypeAxis(category: CommissionCategory): boolean {
+  return (CATEGORIES_WITH_VALUE_TYPE_AXIS as readonly string[]).includes(category);
 }
 
-/** Categoria permite escolher a BASE (lucro/total): eixos completos + AT de execucao. */
+/** Categoria aceita a origem STORE (participacao no que outros fizeram). */
+function categoryAllowsStoreSource(category: CommissionCategory): boolean {
+  return (CATEGORIES_WITH_STORE_SOURCE as readonly string[]).includes(category);
+}
+
+/** Categoria permite escolher a BASE (lucro/total): produtos, participacao em AT
+ *  e as de AT de execucao (incl. intermediacao). */
 function categoryAllowsBaseAxis(category: CommissionCategory): boolean {
   return (CATEGORIES_WITH_BASE_AXIS as readonly string[]).includes(category);
 }
@@ -113,7 +126,7 @@ function scopesFor(category: CommissionCategory): CommissionScope[] {
 /** Origens disponiveis. Participacao em AT: so STORE. Produtos: OWN+STORE. Demais: OWN. */
 function sourcesFor(category: CommissionCategory): CommissionSource[] {
   if (isStoreOnlyCategory(category)) return ["STORE"];
-  return categoryAllowsAxes(category) ? ["OWN", "STORE"] : ["OWN"];
+  return categoryAllowsStoreSource(category) ? ["OWN", "STORE"] : ["OWN"];
 }
 
 /** Chave do grupo (mesmo balde do calculo): categoria × escopo × origem. */
@@ -387,7 +400,7 @@ function CategoryRules({
 }) {
   const scopes = scopesFor(category);
   const sources = sourcesFor(category);
-  const allowsAxes = categoryAllowsAxes(category);
+  const allowsValueTypeAxis = categoryAllowsValueTypeAxis(category);
   const allowsBaseAxis = categoryAllowsBaseAxis(category);
 
   return (
@@ -406,7 +419,7 @@ function CategoryRules({
               source={source}
               showScope={scopes.length > 1}
               showSource={sources.length > 1}
-              allowsAxes={allowsAxes}
+              allowsValueTypeAxis={allowsValueTypeAxis}
               allowsBaseAxis={allowsBaseAxis}
               rules={rules}
               onAdd={onAdd}
@@ -427,7 +440,7 @@ function RuleGroup({
   source,
   showScope,
   showSource,
-  allowsAxes,
+  allowsValueTypeAxis,
   allowsBaseAxis,
   rules,
   onAdd,
@@ -440,7 +453,7 @@ function RuleGroup({
   source: CommissionSource;
   showScope: boolean;
   showSource: boolean;
-  allowsAxes: boolean;
+  allowsValueTypeAxis: boolean;
   allowsBaseAxis: boolean;
   rules: RuleRow[];
   onAdd: (category: CommissionCategory, scope: CommissionScope, source: CommissionSource) => void;
@@ -457,9 +470,9 @@ function RuleGroup({
   const valueType: CommissionValueType = mode?.valueType ?? "PERCENT";
   const base: CommissionBase = mode?.base ?? defaultBaseFor(category);
   const isFixed = valueType === "FIXED_PER_UNIT";
-  // Rotulo do valor fixo: "por servico" para participacao em AT; "por unidade" p/ produtos.
-  const isServiceParticipation = category === "servico_at_loja";
-  const fixedLabel = isServiceParticipation ? "Valor por servico (R$)" : "Valor por unidade (R$)";
+  // Rotulo do valor fixo por categoria: participacao em AT paga por servico,
+  // intermediacao por OS captada, produtos por unidade vendida.
+  const fixedLabel = FIXED_RATE_LABELS[category] ?? "Valor por unidade (R$)";
 
   const subtitleParts = [
     showScope ? COMMISSION_SCOPE_LABELS[scope] : null,
@@ -472,11 +485,11 @@ function RuleGroup({
         <p className="text-[11px] uppercase text-muted-foreground mb-1">{subtitleParts.join(" · ")}</p>
       )}
 
-      {/* Modo do grupo: Tipo (so categorias de eixos completos) e Base (categorias
-          com eixo de base, incl. AT de execucao). */}
-      {(allowsAxes || allowsBaseAxis) && groupIndexes.length > 0 && (
+      {/* Modo do grupo: Tipo (percentual/valor fixo) e Base (lucro/total). Cada
+          eixo aparece so nas categorias que o aceitam — sao independentes. */}
+      {(allowsValueTypeAxis || allowsBaseAxis) && groupIndexes.length > 0 && (
         <div className="flex flex-wrap gap-2 mb-2">
-          {allowsAxes && (
+          {allowsValueTypeAxis && (
             <div>
               <Label className="text-[10px] text-muted-foreground">Tipo</Label>
               <Select

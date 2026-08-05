@@ -502,6 +502,61 @@ describe("provider-commission validators", () => {
         }),
       ).toThrow();
     });
+
+    // ── Intermediacao de OS: percentual OU valor fixo (como as demais) ──
+
+    it("aceita intermediacao_at com valor fixo por OS captada", () => {
+      const r = updateProviderRulesSchema.parse({
+        contractId: validUuid,
+        rules: [
+          { category: "intermediacao_at", scope: "normal", valueType: "FIXED_PER_UNIT", rangeMin: 0, rate: 25 },
+        ],
+      });
+      expect(r.rules[0]!.valueType).toBe("FIXED_PER_UNIT");
+      expect(r.rules[0]!.rate).toBe(25);
+    });
+
+    it("aceita intermediacao_at com valor fixo acima de 100 (R$, nao e aliquota)", () => {
+      const r = updateProviderRulesSchema.parse({
+        contractId: validUuid,
+        rules: [
+          { category: "intermediacao_at", scope: "normal", valueType: "FIXED_PER_UNIT", rangeMin: 0, rate: 150 },
+        ],
+      });
+      expect(r.rules[0]!.rate).toBe(150);
+    });
+
+    it("aceita intermediacao_at percentual (comportamento historico preservado)", () => {
+      const r = updateProviderRulesSchema.parse({
+        contractId: validUuid,
+        rules: [
+          { category: "intermediacao_at", scope: "normal", rangeMin: 0, rangeMax: null, rate: 3 },
+        ],
+      });
+      expect(r.rules[0]!.valueType).toBe("PERCENT");
+    });
+
+    it("rejeita intermediacao_at com origem loja (captar a OS e ato proprio)", () => {
+      expect(() =>
+        updateProviderRulesSchema.parse({
+          contractId: validUuid,
+          rules: [
+            { category: "intermediacao_at", scope: "normal", source: "STORE", rangeMin: 0, rangeMax: null, rate: 3 },
+          ],
+        }),
+      ).toThrow();
+    });
+
+    it("segue rejeitando valor fixo nas categorias de AT de execucao", () => {
+      expect(() =>
+        updateProviderRulesSchema.parse({
+          contractId: validUuid,
+          rules: [
+            { category: "servico_at_sem_peca", scope: "normal", valueType: "FIXED_PER_UNIT", rangeMin: 0, rate: 20 },
+          ],
+        }),
+      ).toThrow();
+    });
   });
 
   // ── Apuracao ──
