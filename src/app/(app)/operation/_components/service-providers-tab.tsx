@@ -111,10 +111,10 @@ export function ServiceProvidersTab() {
             <DialogDescription>Dados do prestador de servico</DialogDescription>
           </DialogHeader>
           <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
-            <div><Label>Nome</Label><Input {...form.register("name")} /></div>
-            <div><Label>Tipo</Label><Input {...form.register("type")} placeholder="Ex: Tecnico, Eletricista..." /></div>
-            <div><Label>Telefone</Label><Input {...form.register("phone")} /></div>
-            <div><Label>Email</Label><Input {...form.register("email")} /></div>
+            <div><Label htmlFor="nome">Nome</Label><Input id="nome" {...form.register("name")} /></div>
+            <div><Label htmlFor="tipo">Tipo</Label><Input id="tipo" {...form.register("type")} placeholder="Ex: Tecnico, Eletricista..." /></div>
+            <div><Label htmlFor="telefone">Telefone</Label><Input id="telefone" {...form.register("phone")} /></div>
+            <div><Label htmlFor="email">Email</Label><Input id="email" {...form.register("email")} /></div>
             <label className="flex items-center gap-2 text-sm cursor-pointer">
               <input type="checkbox" {...form.register("isTechnician")} className="accent-primary" />
               É técnico (aparece no seletor de técnico responsável da OS)

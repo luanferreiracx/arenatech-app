@@ -148,16 +148,16 @@ export function StepSummary({ data, onChange }: Props) {
       {/* Notes & Estimated Date */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label>Data Prevista de Entrega</Label>
-          <DateInput
+          <Label htmlFor="data-prevista-de-entrega">Data Prevista de Entrega</Label>
+          <DateInput id="data-prevista-de-entrega"
             value={data.estimatedDate ?? ""}
             onChange={(v) => onChange({ estimatedDate: v || null })}
             aria-label="Data prevista de entrega"
           />
         </div>
         <div className="space-y-2">
-          <Label>Observacoes para o Cliente</Label>
-          <Textarea
+          <Label htmlFor="observacoes-para-o-cliente">Observacoes para o Cliente</Label>
+          <Textarea id="observacoes-para-o-cliente"
             value={data.customerNotes ?? ""}
             onChange={(e) => onChange({ customerNotes: e.target.value || null })}
             placeholder="Informacoes visiveis na pagina publica..."

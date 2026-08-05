@@ -246,8 +246,8 @@ export function InvoiceDetail({ invoiceId }: { invoiceId: string }) {
             <DialogDescription>Informe o motivo do cancelamento (min. 15 caracteres)</DialogDescription>
           </DialogHeader>
           <div>
-            <Label>Motivo</Label>
-            <Textarea value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} rows={3} />
+            <Label htmlFor="motivo">Motivo</Label>
+            <Textarea id="motivo" value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} rows={3} />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowCancelDialog(false)}>Voltar</Button>
@@ -266,8 +266,8 @@ export function InvoiceDetail({ invoiceId }: { invoiceId: string }) {
             <DialogDescription>Descreva a correcao necessaria (min. 15 caracteres)</DialogDescription>
           </DialogHeader>
           <div>
-            <Label>Correcao</Label>
-            <Textarea value={correctionReason} onChange={(e) => setCorrectionReason(e.target.value)} rows={3} />
+            <Label htmlFor="correcao">Correcao</Label>
+            <Textarea id="correcao" value={correctionReason} onChange={(e) => setCorrectionReason(e.target.value)} rows={3} />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowCorrectionDialog(false)}>Voltar</Button>
@@ -286,8 +286,8 @@ export function InvoiceDetail({ invoiceId }: { invoiceId: string }) {
             <DialogDescription>Informe o email do destinatario</DialogDescription>
           </DialogHeader>
           <div>
-            <Label>Email</Label>
-            <Input
+            <Label htmlFor="email">Email</Label>
+            <Input id="email"
               type="email"
               placeholder="email@exemplo.com"
               value={emailAddress}

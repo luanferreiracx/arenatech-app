@@ -314,7 +314,7 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
       <form onSubmit={tenantForm.handleSubmit(onTenantSubmit)} className="space-y-4">
         <FormSection title="Dados do Tenant">
           <div className="space-y-4">
-            <div><Label>Nome</Label><Input {...tenantForm.register("name")} /></div>
+            <div><Label htmlFor="nome">Nome</Label><Input id="nome" {...tenantForm.register("name")} /></div>
             <div>
               <Label>Status</Label>
               {/* Somente leitura: a mudança de acesso passa pelo Painel de Assinatura,

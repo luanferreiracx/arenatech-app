@@ -1126,7 +1126,7 @@ export function PdvScreen() {
                           <Button
                             variant="outline"
                             size="icon"
-                            className="h-7 w-7"
+                            className="h-9 w-9"
                             aria-label={`Diminuir quantidade de ${item.description}`}
                             onClick={() =>
                               item.quantity > 1
@@ -1149,7 +1149,7 @@ export function PdvScreen() {
                             inputMode="numeric"
                             defaultValue={item.quantity}
                             aria-label={`Quantidade de ${item.description}`}
-                            className="w-12 h-7 rounded-md border border-input bg-background text-center text-sm font-medium tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                            className="w-12 h-9 rounded-md border border-input bg-background text-center text-sm font-medium tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                             onFocus={(e) => e.currentTarget.select()}
                             onKeyDown={(e) => {
                               if (e.key === "Enter") {
@@ -1174,7 +1174,7 @@ export function PdvScreen() {
                           <Button
                             variant="outline"
                             size="icon"
-                            className="h-7 w-7"
+                            className="h-9 w-9"
                             aria-label={`Aumentar quantidade de ${item.description}`}
                             onClick={() =>
                               handleUpdateQuantity(item.id, item.quantity + 1)
@@ -1220,7 +1220,7 @@ export function PdvScreen() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-7 w-7 text-destructive hover:text-destructive"
+                          className="h-9 w-9 text-destructive hover:text-destructive"
                           aria-label={`Remover ${item.description} do carrinho`}
                           onClick={() =>
                             handleRemoveItem(item.id, item.description)
@@ -1271,7 +1271,7 @@ export function PdvScreen() {
                       onClick={handleRemoveCustomer}
                       aria-label="Remover cliente da venda"
                       title="Remover cliente"
-                      className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                      className="h-9 w-9 text-muted-foreground hover:text-destructive"
                     >
                       <X className="h-3.5 w-3.5" />
                     </Button>

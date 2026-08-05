@@ -229,9 +229,9 @@ export function CardReceivablesClient() {
       {/* Filtros */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div className="space-y-1.5">
-          <Label>Adquirente</Label>
+          <Label htmlFor="adquirente">Adquirente</Label>
           <Select value={acquirerId} onValueChange={setAcquirerId}>
-            <SelectTrigger>
+            <SelectTrigger id="adquirente">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -245,12 +245,12 @@ export function CardReceivablesClient() {
           </Select>
         </div>
         <div className="space-y-1.5">
-          <Label>Liquidação de</Label>
-          <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+          <Label htmlFor="liquidacao-de">Liquidação de</Label>
+          <Input id="liquidacao-de" type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
         </div>
         <div className="space-y-1.5">
-          <Label>Liquidação até</Label>
-          <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+          <Label htmlFor="liquidacao-ate">Liquidação até</Label>
+          <Input id="liquidacao-ate" type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
         </div>
       </div>
 
@@ -483,12 +483,12 @@ export function CardReceivablesClient() {
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label>Data de liquidação</Label>
-              <Input type="date" value={settleDate} onChange={(e) => setSettleDate(e.target.value)} />
+              <Label htmlFor="data-de-liquidacao">Data de liquidação</Label>
+              <Input id="data-de-liquidacao" type="date" value={settleDate} onChange={(e) => setSettleDate(e.target.value)} />
             </div>
             <div className="space-y-1.5">
-              <Label>Observação (opcional)</Label>
-              <Input value={settleNote} onChange={(e) => setSettleNote(e.target.value)} />
+              <Label htmlFor="observacao-opcional">Observação (opcional)</Label>
+              <Input id="observacao-opcional" value={settleNote} onChange={(e) => setSettleNote(e.target.value)} />
             </div>
           </div>
 

@@ -105,7 +105,7 @@ export function PendingTable() {
         <CardContent className="pt-6">
           <div className="flex flex-wrap gap-4 items-end">
             <div>
-              <Label>Status</Label>
+              <Label htmlFor="status">Status</Label>
               <Select
                 value={status}
                 onValueChange={(v) => {
@@ -113,7 +113,7 @@ export function PendingTable() {
                   setPage(0);
                 }}
               >
-                <SelectTrigger className="w-[180px]">
+                <SelectTrigger id="status" className="w-[180px]">
                   <SelectValue placeholder="Todos" />
                 </SelectTrigger>
                 <SelectContent>

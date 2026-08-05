@@ -42,9 +42,9 @@ export function SendMessageForm() {
       <FormSection title="Dados da Mensagem">
         <div className="space-y-4">
           <div>
-            <Label>Canal</Label>
+            <Label htmlFor="canal">Canal</Label>
             <Select value={channel} onValueChange={(v) => form.setValue("channel", v as "WHATSAPP" | "EMAIL")}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger id="canal"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="WHATSAPP">WhatsApp</SelectItem>
                 <SelectItem value="EMAIL">E-mail</SelectItem>
@@ -52,30 +52,30 @@ export function SendMessageForm() {
             </Select>
           </div>
           <div>
-            <Label>Nome do Destinatario</Label>
-            <Input {...form.register("recipientName")} placeholder="Nome" />
+            <Label htmlFor="nome-do-destinatario">Nome do Destinatario</Label>
+            <Input id="nome-do-destinatario" {...form.register("recipientName")} placeholder="Nome" />
           </div>
           {channel === "WHATSAPP" && (
             <div>
-              <Label>Telefone</Label>
-              <Input {...form.register("recipientPhone")} placeholder="(99) 99999-9999" />
+              <Label htmlFor="telefone">Telefone</Label>
+              <Input id="telefone" {...form.register("recipientPhone")} placeholder="(99) 99999-9999" />
             </div>
           )}
           {channel === "EMAIL" && (
             <>
               <div>
-                <Label>E-mail</Label>
-                <Input {...form.register("recipientEmail")} placeholder="email@exemplo.com" />
+                <Label htmlFor="e-mail">E-mail</Label>
+                <Input id="e-mail" {...form.register("recipientEmail")} placeholder="email@exemplo.com" />
               </div>
               <div>
-                <Label>Assunto</Label>
-                <Input {...form.register("subject")} placeholder="Assunto do e-mail" />
+                <Label htmlFor="assunto">Assunto</Label>
+                <Input id="assunto" {...form.register("subject")} placeholder="Assunto do e-mail" />
               </div>
             </>
           )}
           <div>
-            <Label>Mensagem</Label>
-            <Textarea {...form.register("body")} rows={5} placeholder="Digite sua mensagem..." />
+            <Label htmlFor="mensagem">Mensagem</Label>
+            <Textarea id="mensagem" {...form.register("body")} rows={5} placeholder="Digite sua mensagem..." />
             {form.formState.errors.body && (
               <p className="text-xs text-destructive mt-1">{form.formState.errors.body.message}</p>
             )}

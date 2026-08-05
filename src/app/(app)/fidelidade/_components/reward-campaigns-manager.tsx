@@ -226,18 +226,18 @@ export function RewardCampaignsManager() {
           </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1">
-              <Label>Nome *</Label>
-              <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Ex.: Poste e ganhe 5% de cashback" />
+              <Label htmlFor="nome">Nome *</Label>
+              <Input id="nome" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Ex.: Poste e ganhe 5% de cashback" />
             </div>
             <div className="space-y-1">
-              <Label>Descrição</Label>
-              <Textarea rows={2} value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} />
+              <Label htmlFor="descricao">Descrição</Label>
+              <Textarea id="descricao" rows={2} value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <Label>Tipo de publicação</Label>
+                <Label htmlFor="tipo-de-publicacao">Tipo de publicação</Label>
                 <Select value={form.publicationType} onValueChange={(v) => setForm((f) => ({ ...f, publicationType: v }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger id="tipo-de-publicacao"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="story">Story</SelectItem>
                     <SelectItem value="reel">Reel</SelectItem>
@@ -246,9 +246,9 @@ export function RewardCampaignsManager() {
                 </Select>
               </div>
               <div className="space-y-1">
-                <Label>Recompensa</Label>
+                <Label htmlFor="recompensa">Recompensa</Label>
                 <Select value={form.rewardType} onValueChange={(v) => setForm((f) => ({ ...f, rewardType: v as RewardType }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger id="recompensa"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {(Object.keys(REWARD_TYPE_LABELS) as RewardType[]).map((t) => (
                       <SelectItem key={t} value={t}>{REWARD_TYPE_LABELS[t]}</SelectItem>
@@ -260,8 +260,8 @@ export function RewardCampaignsManager() {
             <div className="grid grid-cols-2 gap-3">
               {isPercent ? (
                 <div className="space-y-1">
-                  <Label>Percentual (%)</Label>
-                  <Input type="number" min={0} max={100} value={form.percentage} onChange={(e) => setForm((f) => ({ ...f, percentage: Number(e.target.value) }))} />
+                  <Label htmlFor="percentual">Percentual (%)</Label>
+                  <Input id="percentual" type="number" min={0} max={100} value={form.percentage} onChange={(e) => setForm((f) => ({ ...f, percentage: Number(e.target.value) }))} />
                 </div>
               ) : (
                 <div className="space-y-1">
@@ -270,24 +270,24 @@ export function RewardCampaignsManager() {
                 </div>
               )}
               <div className="space-y-1">
-                <Label>Validade (dias)</Label>
-                <Input type="number" min={1} max={365} value={form.validityDays} onChange={(e) => setForm((f) => ({ ...f, validityDays: Number(e.target.value) }))} />
+                <Label htmlFor="validade-dias">Validade (dias)</Label>
+                <Input id="validade-dias" type="number" min={1} max={365} value={form.validityDays} onChange={(e) => setForm((f) => ({ ...f, validityDays: Number(e.target.value) }))} />
               </div>
             </div>
             {isPercent && (
               <div className="space-y-1">
-                <Label>Teto do desconto (opcional)</Label>
-                <MoneyInput value={form.maxCap} onChange={(v) => setForm((f) => ({ ...f, maxCap: v }))} />
+                <Label htmlFor="teto-do-desconto-opcional">Teto do desconto (opcional)</Label>
+                <MoneyInput id="teto-do-desconto-opcional" value={form.maxCap} onChange={(v) => setForm((f) => ({ ...f, maxCap: v }))} />
               </div>
             )}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <Label>Limite de participantes</Label>
-                <Input type="number" min={1} placeholder="ilimitado" value={form.participantLimit} onChange={(e) => setForm((f) => ({ ...f, participantLimit: e.target.value }))} />
+                <Label htmlFor="limite-de-participantes">Limite de participantes</Label>
+                <Input id="limite-de-participantes" type="number" min={1} placeholder="ilimitado" value={form.participantLimit} onChange={(e) => setForm((f) => ({ ...f, participantLimit: e.target.value }))} />
               </div>
               <div className="space-y-1">
-                <Label>Limite de recompensas</Label>
-                <Input type="number" min={1} placeholder="ilimitado" value={form.rewardLimit} onChange={(e) => setForm((f) => ({ ...f, rewardLimit: e.target.value }))} />
+                <Label htmlFor="limite-de-recompensas">Limite de recompensas</Label>
+                <Input id="limite-de-recompensas" type="number" min={1} placeholder="ilimitado" value={form.rewardLimit} onChange={(e) => setForm((f) => ({ ...f, rewardLimit: e.target.value }))} />
               </div>
             </div>
           </div>

@@ -175,8 +175,8 @@ export function BulkActionDialog({ action, onClose }: BulkActionDialogProps) {
         <div className="space-y-4 py-2">
           {(action.action === "adjust-up" || action.action === "adjust-down") && (
             <div className="space-y-2">
-              <Label>Valor do ajuste</Label>
-              <MoneyInput value={adjustValue} onChange={setAdjustValue} />
+              <Label htmlFor="valor-do-ajuste">Valor do ajuste</Label>
+              <MoneyInput id="valor-do-ajuste" value={adjustValue} onChange={setAdjustValue} />
             </div>
           )}
 

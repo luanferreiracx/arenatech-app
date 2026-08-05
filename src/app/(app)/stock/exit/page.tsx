@@ -161,8 +161,8 @@ export default function StockExitPage() {
         <FormSection title="Detalhes da Baixa">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label>Quantidade *</Label>
-              <Input type="number" min={1} {...form.register("quantity", { valueAsNumber: true })} />
+              <Label htmlFor="quantidade">Quantidade *</Label>
+              <Input id="quantidade" type="number" min={1} {...form.register("quantity", { valueAsNumber: true })} />
               {form.formState.errors.quantity && (
                 <p className="text-sm text-destructive">
                   {form.formState.errors.quantity.message}
@@ -170,9 +170,9 @@ export default function StockExitPage() {
               )}
             </div>
             <div className="space-y-2">
-              <Label>Motivo da baixa *</Label>
+              <Label htmlFor="motivo-da-baixa">Motivo da baixa *</Label>
               <Select value={reasonCode} onValueChange={setReasonCode}>
-                <SelectTrigger>
+                <SelectTrigger id="motivo-da-baixa">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -186,8 +186,8 @@ export default function StockExitPage() {
             </div>
           </div>
           <div className="space-y-2">
-            <Label>Detalhes (opcional)</Label>
-            <Textarea
+            <Label htmlFor="detalhes-opcional">Detalhes (opcional)</Label>
+            <Textarea id="detalhes-opcional"
               value={reasonDetail}
               onChange={(e) => setReasonDetail(e.target.value)}
               placeholder="Numero da NF de devolucao, descricao do dano, etc."

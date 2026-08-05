@@ -266,7 +266,7 @@ export function PreRegistrationDetail({ preRegId }: { preRegId: string }) {
             <DialogTitle>Rejeitar Pre-cadastro</DialogTitle>
             <DialogDescription>Informe o motivo da rejeicao</DialogDescription>
           </DialogHeader>
-          <div><Label>Motivo</Label><Textarea value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} rows={3} /></div>
+          <div><Label htmlFor="motivo">Motivo</Label><Textarea id="motivo" value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} rows={3} /></div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowRejectDialog(false)}>Cancelar</Button>
             <Button variant="destructive" onClick={handleReject} disabled={rejectReason.length < 1 || rejectMutation.isPending}>Rejeitar</Button>

@@ -113,7 +113,7 @@ function ItemRow({
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
         <div className="space-y-2">
-          <Label>Tipo</Label>
+          <Label htmlFor="tipo">Tipo</Label>
           <Select
             value={item.type}
             onValueChange={(v) =>
@@ -128,7 +128,7 @@ function ItemRow({
               })
             }
           >
-            <SelectTrigger>
+            <SelectTrigger id="tipo">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -198,8 +198,8 @@ function ItemRow({
 
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         <div className="space-y-2">
-          <Label>Quantidade</Label>
-          <Input
+          <Label htmlFor="quantidade">Quantidade</Label>
+          <Input id="quantidade"
             type="number"
             min={1}
             value={item.quantity}
@@ -209,8 +209,8 @@ function ItemRow({
           />
         </div>
         <div className="space-y-2">
-          <Label>Valor Unitario</Label>
-          <MoneyInput
+          <Label htmlFor="valor-unitario">Valor Unitario</Label>
+          <MoneyInput id="valor-unitario"
             value={item.unitPrice}
             onChange={(v) => onUpdate(index, { unitPrice: v })}
           />

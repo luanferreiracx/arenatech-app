@@ -471,16 +471,16 @@ export function TransactionDetail({ transactionId }: TransactionDetailProps) {
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div>
-              <Label>Valor Pago (R$) *</Label>
-              <MoneyInput value={payAmount} onChange={setPayAmount} autoFocus />
+              <Label htmlFor="valor-pago-r">Valor Pago (R$) *</Label>
+              <MoneyInput id="valor-pago-r" value={payAmount} onChange={setPayAmount} autoFocus />
               <p className="text-xs text-muted-foreground mt-1">
                 Saldo: {formatCents((selectedInstallment?.amount ?? 0) - (selectedInstallment?.paidAmount ?? 0))}
               </p>
             </div>
             <div>
-              <Label>Forma de Pagamento</Label>
+              <Label htmlFor="forma-de-pagamento">Forma de Pagamento</Label>
               <Select value={payMethod} onValueChange={setPayMethod}>
-                <SelectTrigger>
+                <SelectTrigger id="forma-de-pagamento">
                   <SelectValue placeholder="Selecione" />
                 </SelectTrigger>
                 <SelectContent>
@@ -493,8 +493,8 @@ export function TransactionDetail({ transactionId }: TransactionDetailProps) {
               </Select>
             </div>
             <div>
-              <Label>Observacoes</Label>
-              <Textarea
+              <Label htmlFor="observacoes">Observacoes</Label>
+              <Textarea id="observacoes"
                 value={payNotes}
                 onChange={(e) => setPayNotes(e.target.value)}
                 placeholder="Observacoes (opcional)"
@@ -542,8 +542,8 @@ export function TransactionDetail({ transactionId }: TransactionDetailProps) {
               O valor sera lancado como {isReceivable ? "saida" : "entrada"} no seu caixa aberto (se houver).
             </p>
             <div>
-              <Label>Motivo do Estorno *</Label>
-              <Textarea
+              <Label htmlFor="motivo-do-estorno">Motivo do Estorno *</Label>
+              <Textarea id="motivo-do-estorno"
                 value={reverseReason}
                 onChange={(e) => setReverseReason(e.target.value)}
                 placeholder="Informe o motivo (min. 3 caracteres)"
@@ -598,8 +598,8 @@ export function TransactionDetail({ transactionId }: TransactionDetailProps) {
           <DialogHeader><DialogTitle>Editar transação</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1">
-              <Label>Descrição</Label>
-              <Input value={editFields.description} onChange={(e) => setEditFields((f) => ({ ...f, description: e.target.value }))} />
+              <Label htmlFor="descricao">Descrição</Label>
+              <Input id="descricao" value={editFields.description} onChange={(e) => setEditFields((f) => ({ ...f, description: e.target.value }))} />
             </div>
             <div className="space-y-1">
               <Label>Categoria</Label>
@@ -613,13 +613,13 @@ export function TransactionDetail({ transactionId }: TransactionDetailProps) {
             {t.referenceType !== "sale" && t.referenceType !== "service_order" && (
               isReceivable ? (
                 <div className="space-y-1">
-                  <Label>Cliente</Label>
-                  <Input value={editFields.customerName} onChange={(e) => setEditFields((f) => ({ ...f, customerName: e.target.value }))} />
+                  <Label htmlFor="cliente">Cliente</Label>
+                  <Input id="cliente" value={editFields.customerName} onChange={(e) => setEditFields((f) => ({ ...f, customerName: e.target.value }))} />
                 </div>
               ) : (
                 <div className="space-y-1">
-                  <Label>Fornecedor</Label>
-                  <Input value={editFields.supplier} onChange={(e) => setEditFields((f) => ({ ...f, supplier: e.target.value }))} />
+                  <Label htmlFor="fornecedor">Fornecedor</Label>
+                  <Input id="fornecedor" value={editFields.supplier} onChange={(e) => setEditFields((f) => ({ ...f, supplier: e.target.value }))} />
                 </div>
               )
             )}
@@ -635,15 +635,15 @@ export function TransactionDetail({ transactionId }: TransactionDetailProps) {
                     Corrigir valor / vencimento (conta pendente)
                   </div>
                   <div className="space-y-1">
-                    <Label>Valor total</Label>
-                    <MoneyInput
+                    <Label htmlFor="valor-total">Valor total</Label>
+                    <MoneyInput id="valor-total"
                       value={editFields.totalAmount}
                       onChange={(v) => setEditFields((f) => ({ ...f, totalAmount: v }))}
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label>Parcelas</Label>
-                    <Input
+                    <Label htmlFor="parcelas">Parcelas</Label>
+                    <Input id="parcelas"
                       type="number"
                       min={1}
                       max={36}
@@ -654,8 +654,8 @@ export function TransactionDetail({ transactionId }: TransactionDetailProps) {
                     />
                   </div>
                   <div className="col-span-2 space-y-1">
-                    <Label>Primeiro vencimento</Label>
-                    <Input
+                    <Label htmlFor="primeiro-vencimento">Primeiro vencimento</Label>
+                    <Input id="primeiro-vencimento"
                       type="date"
                       value={editFields.firstDueDate}
                       onChange={(e) => setEditFields((f) => ({ ...f, firstDueDate: e.target.value }))}
@@ -664,8 +664,8 @@ export function TransactionDetail({ transactionId }: TransactionDetailProps) {
                 </div>
               )}
             <div className="space-y-1">
-              <Label>Observações</Label>
-              <Textarea rows={3} value={editFields.notes} onChange={(e) => setEditFields((f) => ({ ...f, notes: e.target.value }))} />
+              <Label htmlFor="observacoes-2">Observações</Label>
+              <Textarea id="observacoes-2" rows={3} value={editFields.notes} onChange={(e) => setEditFields((f) => ({ ...f, notes: e.target.value }))} />
             </div>
           </div>
           <DialogFooter>

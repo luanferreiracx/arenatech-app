@@ -95,16 +95,16 @@ export function ReceivablesTable() {
               </div>
             </div>
             <div>
-              <Label>Data Inicio</Label>
-              <DateInput
+              <Label htmlFor="data-inicio">Data Inicio</Label>
+              <DateInput id="data-inicio"
                 value={dateFrom}
                 onChange={(v) => { setDateFrom(v); setPage(0); }}
                 aria-label="Data de inicio"
               />
             </div>
             <div>
-              <Label>Data Fim</Label>
-              <DateInput
+              <Label htmlFor="data-fim">Data Fim</Label>
+              <DateInput id="data-fim"
                 value={dateTo}
                 onChange={(v) => { setDateTo(v); setPage(0); }}
                 aria-label="Data de fim"

@@ -1277,7 +1277,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
         <DialogContent>
           <DialogHeader><DialogTitle>Adicionar Item</DialogTitle></DialogHeader>
           <div className="space-y-4">
-            <div><Label>Tipo</Label>
+            <div><Label htmlFor="tipo">Tipo</Label>
               <Select value={newItemType} onValueChange={(v) => {
                 setNewItemType(v as "SERVICE" | "PRODUCT");
                 setNewItemProductId(null);
@@ -1290,15 +1290,15 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                 setPartsSearch("");
                 setPartsDebounced("");
               }}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger id="tipo"><SelectValue /></SelectTrigger>
                 <SelectContent><SelectItem value="SERVICE">Servico</SelectItem><SelectItem value="PRODUCT">Produto/Peca</SelectItem></SelectContent>
               </Select>
             </div>
 
             {newItemType === "PRODUCT" && !newItemProductId && (
               <div className="space-y-2">
-                <Label>Buscar peca no estoque</Label>
-                <Input
+                <Label htmlFor="buscar-peca-no-estoque">Buscar peca no estoque</Label>
+                <Input id="buscar-peca-no-estoque"
                   value={partsSearch}
                   onChange={(e) => setPartsSearch(e.target.value)}
                   placeholder="Nome, SKU ou marca..."
@@ -1416,8 +1416,8 @@ export function ServiceOrderDetail({ id }: { id: string }) {
             {/* Busca de serviço no catálogo (paridade com a criação da OS). */}
             {newItemType === "SERVICE" && !newItemServiceId && (
               <div className="space-y-2">
-                <Label>Buscar servico no catalogo</Label>
-                <Input
+                <Label htmlFor="buscar-servico-no-catalogo">Buscar servico no catalogo</Label>
+                <Input id="buscar-servico-no-catalogo"
                   value={partsSearch}
                   onChange={(e) => setPartsSearch(e.target.value)}
                   placeholder="Nome, tipo ou modelo..."
@@ -1476,16 +1476,16 @@ export function ServiceOrderDetail({ id }: { id: string }) {
             )}
 
             <div>
-              <Label>Descricao</Label>
-              <Input
+              <Label htmlFor="descricao">Descricao</Label>
+              <Input id="descricao"
                 value={newItemDesc}
                 onChange={(e) => setNewItemDesc(e.target.value)}
                 disabled={!!newItemProductId || !!newItemServiceId}
               />
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <div><Label>Quantidade</Label><Input type="number" min={1} value={newItemQty} onChange={(e) => setNewItemQty(parseInt(e.target.value) || 1)} /></div>
-              <div><Label>Valor Unitario</Label><MoneyInput value={newItemPrice} onChange={setNewItemPrice} /></div>
+              <div><Label htmlFor="quantidade">Quantidade</Label><Input id="quantidade" type="number" min={1} value={newItemQty} onChange={(e) => setNewItemQty(parseInt(e.target.value) || 1)} /></div>
+              <div><Label htmlFor="valor-unitario">Valor Unitario</Label><MoneyInput id="valor-unitario" value={newItemPrice} onChange={setNewItemPrice} /></div>
             </div>
           </div>
           <DialogFooter>
@@ -1604,8 +1604,8 @@ export function ServiceOrderDetail({ id }: { id: string }) {
               </div>
             )}
             <div>
-              <Label>Motivo do Cancelamento</Label>
-              <Textarea value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} placeholder="Informe o motivo..." rows={3} />
+              <Label htmlFor="motivo-do-cancelamento">Motivo do Cancelamento</Label>
+              <Textarea id="motivo-do-cancelamento" value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} placeholder="Informe o motivo..." rows={3} />
             </div>
           </div>
           <DialogFooter>
@@ -1701,7 +1701,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
       <Dialog {...dialog.props("uncancel")}>
         <DialogContent>
           <DialogHeader><DialogTitle>Descancelar OS</DialogTitle></DialogHeader>
-          <div><Label>Motivo</Label><Textarea value={uncancelReason} onChange={(e) => setUncancelReason(e.target.value)} rows={3} /></div>
+          <div><Label htmlFor="motivo">Motivo</Label><Textarea id="motivo" value={uncancelReason} onChange={(e) => setUncancelReason(e.target.value)} rows={3} /></div>
           <DialogFooter>
             <Button variant="outline" onClick={() => dialog.close()}>Voltar</Button>
             <Button disabled={!uncancelReason || uncancelMut.isPending} onClick={() => uncancelMut.mutate({ id, reason: uncancelReason })}>{uncancelMut.isPending ? "Descancelando..." : "Descancelar"}</Button>
@@ -1751,9 +1751,9 @@ export function ServiceOrderDetail({ id }: { id: string }) {
               responsavel e disparando uma mensagem via WhatsApp.
             </p>
             <div>
-              <Label>Entregador *</Label>
+              <Label htmlFor="entregador">Entregador *</Label>
               <Select value={labDeliveryPersonId} onValueChange={setLabDeliveryPersonId}>
-                <SelectTrigger><SelectValue placeholder="Selecione o entregador" /></SelectTrigger>
+                <SelectTrigger id="entregador"><SelectValue placeholder="Selecione o entregador" /></SelectTrigger>
                 <SelectContent>
                   {deliveryPersons.map((p) => (
                     <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
@@ -1762,8 +1762,8 @@ export function ServiceOrderDetail({ id }: { id: string }) {
               </Select>
             </div>
             <div>
-              <Label>Mensagem WhatsApp ao entregador *</Label>
-              <Textarea
+              <Label htmlFor="mensagem-whatsapp-ao-entregador">Mensagem WhatsApp ao entregador *</Label>
+              <Textarea id="mensagem-whatsapp-ao-entregador"
                 value={notifyDeliveryMessage}
                 onChange={(e) => setNotifyDeliveryMessage(e.target.value)}
                 placeholder={`Ex.: Por favor, levar a OS ${order.number} ao laboratorio X.`}
@@ -1795,9 +1795,9 @@ export function ServiceOrderDetail({ id }: { id: string }) {
           <DialogHeader><DialogTitle>Notificar Entregador via WhatsApp</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <div>
-              <Label>Entregador *</Label>
+              <Label htmlFor="entregador-2">Entregador *</Label>
               <Select value={labDeliveryPersonId} onValueChange={setLabDeliveryPersonId}>
-                <SelectTrigger><SelectValue placeholder="Selecione um entregador" /></SelectTrigger>
+                <SelectTrigger id="entregador-2"><SelectValue placeholder="Selecione um entregador" /></SelectTrigger>
                 <SelectContent>
                   {deliveryPersons.map((p) => (
                     <SelectItem key={p.id} value={p.id}>{p.name}{p.phone ? ` — ${p.phone}` : " (sem WhatsApp)"}</SelectItem>
@@ -1806,8 +1806,8 @@ export function ServiceOrderDetail({ id }: { id: string }) {
               </Select>
             </div>
             <div>
-              <Label>Mensagem</Label>
-              <Textarea
+              <Label htmlFor="mensagem">Mensagem</Label>
+              <Textarea id="mensagem"
                 value={notifyDeliveryMessage}
                 onChange={(e) => setNotifyDeliveryMessage(e.target.value)}
                 rows={4}
@@ -1902,8 +1902,8 @@ export function ServiceOrderDetail({ id }: { id: string }) {
         }}
       >
         <div>
-          <Label>Motivo da Devolucao</Label>
-          <Textarea value={returnTermReason} onChange={(e) => setReturnTermReason(e.target.value)} rows={2} />
+          <Label htmlFor="motivo-da-devolucao">Motivo da Devolucao</Label>
+          <Textarea id="motivo-da-devolucao" value={returnTermReason} onChange={(e) => setReturnTermReason(e.target.value)} rows={2} />
         </div>
       </WhatsAppSendDialog>
 
@@ -1912,8 +1912,8 @@ export function ServiceOrderDetail({ id }: { id: string }) {
         <DialogContent>
           <DialogHeader><DialogTitle>Informacoes Tecnicas</DialogTitle></DialogHeader>
           <div className="space-y-4">
-            <div><Label>Defeito Constatado</Label><Textarea value={techDiagnosed} onChange={(e) => setTechDiagnosed(e.target.value)} rows={3} placeholder="Descreva o defeito encontrado..." /></div>
-            <div><Label>Observacoes Internas</Label><Textarea value={techNotes} onChange={(e) => setTechNotes(e.target.value)} rows={3} placeholder="Observacoes internas da equipe..." /></div>
+            <div><Label htmlFor="defeito-constatado">Defeito Constatado</Label><Textarea id="defeito-constatado" value={techDiagnosed} onChange={(e) => setTechDiagnosed(e.target.value)} rows={3} placeholder="Descreva o defeito encontrado..." /></div>
+            <div><Label htmlFor="observacoes-internas">Observacoes Internas</Label><Textarea id="observacoes-internas" value={techNotes} onChange={(e) => setTechNotes(e.target.value)} rows={3} placeholder="Observacoes internas da equipe..." /></div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => dialog.close()}>Cancelar</Button>
@@ -1928,9 +1928,9 @@ export function ServiceOrderDetail({ id }: { id: string }) {
           <DialogHeader><DialogTitle>Alterar Tecnico Responsavel</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <div>
-              <Label>Tecnico</Label>
+              <Label htmlFor="tecnico">Tecnico</Label>
               <Select value={selectedTechId} onValueChange={setSelectedTechId}>
-                <SelectTrigger><SelectValue placeholder="Selecione um tecnico" /></SelectTrigger>
+                <SelectTrigger id="tecnico"><SelectValue placeholder="Selecione um tecnico" /></SelectTrigger>
                 <SelectContent>
                   {(techniciansQuery.data ?? []).map((t: { id: string; name: string; role: string | null; kind: "user" | "provider" }) => (
                     <SelectItem key={`${t.kind}:${t.id}`} value={`${t.kind}:${t.id}`}>

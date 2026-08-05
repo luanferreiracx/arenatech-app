@@ -294,8 +294,8 @@ export default function CloseCashierPage() {
               </div>
 
               <div>
-                <Label>Saldo Contado (Informado por Voce) *</Label>
-                <MoneyInput
+                <Label htmlFor="saldo-contado-informado-por-voce">Saldo Contado (Informado por Voce) *</Label>
+                <MoneyInput id="saldo-contado-informado-por-voce"
                   value={reportedBalance}
                   onChange={setReportedBalance}
                   autoFocus
@@ -425,8 +425,8 @@ export default function CloseCashierPage() {
           <Card>
             <CardContent className="pt-6 space-y-4">
               <div>
-                <Label>Observacao (opcional)</Label>
-                <Textarea
+                <Label htmlFor="observacao-opcional">Observacao (opcional)</Label>
+                <Textarea id="observacao-opcional"
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   placeholder="Justificativa em caso de diferenca..."

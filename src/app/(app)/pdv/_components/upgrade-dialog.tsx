@@ -380,8 +380,8 @@ function UpgradeDialogInner({ open, onOpenChange, saleId, upgrades, cartTotal }:
             {/* IMEI + S/N */}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
-                <Label>IMEI</Label>
-                <ImeiInput value={imei} onValueChange={setImei} ref={imeiRef} />
+                <Label htmlFor="imei">IMEI</Label>
+                <ImeiInput id="imei" value={imei} onValueChange={setImei} ref={imeiRef} />
                 {historico && (
                   <div
                     className={
@@ -409,8 +409,8 @@ function UpgradeDialogInner({ open, onOpenChange, saleId, upgrades, cartTotal }:
                 )}
               </div>
               <div className="space-y-2">
-                <Label>Numero de Serie</Label>
-                <Input
+                <Label htmlFor="numero-de-serie">Numero de Serie</Label>
+                <Input id="numero-de-serie"
                   value={serialNumber}
                   onChange={(e) => setSerialNumber(e.target.value)}
                   placeholder="S/N (opcional se IMEI informado)"
@@ -422,8 +422,8 @@ function UpgradeDialogInner({ open, onOpenChange, saleId, upgrades, cartTotal }:
             {/* Capacidade + Cor */}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
-                <Label>Capacidade</Label>
-                <Input
+                <Label htmlFor="capacidade">Capacidade</Label>
+                <Input id="capacidade"
                   value={storage}
                   onChange={(e) => setStorage(e.target.value)}
                   placeholder="Ex.: 128GB, 256GB, 1TB"
@@ -431,8 +431,8 @@ function UpgradeDialogInner({ open, onOpenChange, saleId, upgrades, cartTotal }:
                 />
               </div>
               <div className="space-y-2">
-                <Label>Cor</Label>
-                <Input
+                <Label htmlFor="cor">Cor</Label>
+                <Input id="cor"
                   value={color}
                   onChange={(e) => setColor(e.target.value)}
                   placeholder="Ex.: Preto, Titanio Natural"
@@ -444,9 +444,9 @@ function UpgradeDialogInner({ open, onOpenChange, saleId, upgrades, cartTotal }:
             {/* Condicao + bateria */}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
-                <Label>Condicao</Label>
+                <Label htmlFor="condicao">Condicao</Label>
                 <Select value={condition} onValueChange={(v) => setCondition(v as typeof condition)}>
-                  <SelectTrigger>
+                  <SelectTrigger id="condicao">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -458,8 +458,8 @@ function UpgradeDialogInner({ open, onOpenChange, saleId, upgrades, cartTotal }:
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>Saude da Bateria (%)</Label>
-                <Input
+                <Label htmlFor="saude-da-bateria">Saude da Bateria (%)</Label>
+                <Input id="saude-da-bateria"
                   type="number"
                   min={0}
                   max={100}
@@ -480,8 +480,8 @@ function UpgradeDialogInner({ open, onOpenChange, saleId, upgrades, cartTotal }:
             {/* Valores */}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
-                <Label>Valor Avaliado *</Label>
-                <MoneyInput
+                <Label htmlFor="valor-avaliado">Valor Avaliado *</Label>
+                <MoneyInput id="valor-avaliado"
                   value={appraisedValue}
                   onChange={(v) => {
                     setAppraisedValue(v);
@@ -492,8 +492,8 @@ function UpgradeDialogInner({ open, onOpenChange, saleId, upgrades, cartTotal }:
                 />
               </div>
               <div className="space-y-2">
-                <Label>Valor a Abater *</Label>
-                <MoneyInput
+                <Label htmlFor="valor-a-abater">Valor a Abater *</Label>
+                <MoneyInput id="valor-a-abater"
                   value={abatedValue}
                   onChange={(v) => {
                     setAppraisedTouched(true);
@@ -505,8 +505,8 @@ function UpgradeDialogInner({ open, onOpenChange, saleId, upgrades, cartTotal }:
 
             {/* Observacoes */}
             <div className="space-y-2">
-              <Label>Observacoes</Label>
-              <Textarea
+              <Label htmlFor="observacoes">Observacoes</Label>
+              <Textarea id="observacoes"
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 rows={2}

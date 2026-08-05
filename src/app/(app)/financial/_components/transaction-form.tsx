@@ -173,8 +173,8 @@ export function TransactionForm() {
           </div>
 
           <div>
-            <Label>Descricao *</Label>
-            <Input
+            <Label htmlFor="descricao">Descricao *</Label>
+            <Input id="descricao"
               {...register("description", { required: "Descricao e obrigatoria" })}
               placeholder="Ex: Venda a prazo para cliente X"
               maxLength={200}
@@ -186,8 +186,8 @@ export function TransactionForm() {
 
           {type === "RECEIVABLE" && (
             <div>
-              <Label>Cliente</Label>
-              <Input
+              <Label htmlFor="cliente">Cliente</Label>
+              <Input id="cliente"
                 {...register("customerName")}
                 placeholder="Nome do cliente"
                 maxLength={200}
@@ -267,8 +267,8 @@ export function TransactionForm() {
             </div>
 
             <div>
-              <Label>Numero de Parcelas *</Label>
-              <Input
+              <Label htmlFor="numero-de-parcelas">Numero de Parcelas *</Label>
+              <Input id="numero-de-parcelas"
                 type="number"
                 min={1}
                 max={60}

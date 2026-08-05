@@ -39,9 +39,9 @@ export function SendMessageForm() {
       <CardHeader><CardTitle>Nova Mensagem</CardTitle></CardHeader>
       <CardContent className="space-y-4">
         <div>
-          <Label>Canal</Label>
+          <Label htmlFor="canal">Canal</Label>
           <Select value={form.channel} onValueChange={(v) => setForm({ ...form, channel: v as "WHATSAPP" | "EMAIL" })}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectTrigger id="canal"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="WHATSAPP">WhatsApp</SelectItem>
               <SelectItem value="EMAIL">E-mail</SelectItem>
@@ -49,29 +49,29 @@ export function SendMessageForm() {
           </Select>
         </div>
         <div>
-          <Label>Nome do Destinatario</Label>
-          <Input value={form.recipientName} onChange={(e) => setForm({ ...form, recipientName: e.target.value })} />
+          <Label htmlFor="nome-do-destinatario">Nome do Destinatario</Label>
+          <Input id="nome-do-destinatario" value={form.recipientName} onChange={(e) => setForm({ ...form, recipientName: e.target.value })} />
         </div>
         {form.channel === "WHATSAPP" ? (
           <div>
-            <Label>Telefone</Label>
-            <Input value={form.recipientPhone} onChange={(e) => setForm({ ...form, recipientPhone: e.target.value })} placeholder="(99) 99999-9999" />
+            <Label htmlFor="telefone">Telefone</Label>
+            <Input id="telefone" value={form.recipientPhone} onChange={(e) => setForm({ ...form, recipientPhone: e.target.value })} placeholder="(99) 99999-9999" />
           </div>
         ) : (
           <>
             <div>
-              <Label>E-mail</Label>
-              <Input value={form.recipientEmail} onChange={(e) => setForm({ ...form, recipientEmail: e.target.value })} placeholder="email@exemplo.com" />
+              <Label htmlFor="e-mail">E-mail</Label>
+              <Input id="e-mail" value={form.recipientEmail} onChange={(e) => setForm({ ...form, recipientEmail: e.target.value })} placeholder="email@exemplo.com" />
             </div>
             <div>
-              <Label>Assunto</Label>
-              <Input value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} />
+              <Label htmlFor="assunto">Assunto</Label>
+              <Input id="assunto" value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} />
             </div>
           </>
         )}
         <div>
-          <Label>Mensagem</Label>
-          <Textarea value={form.body} onChange={(e) => setForm({ ...form, body: e.target.value })} rows={5} />
+          <Label htmlFor="mensagem">Mensagem</Label>
+          <Textarea id="mensagem" value={form.body} onChange={(e) => setForm({ ...form, body: e.target.value })} rows={5} />
         </div>
         <div className="flex gap-3 justify-end">
           <Button variant="outline" onClick={() => router.back()}>Cancelar</Button>

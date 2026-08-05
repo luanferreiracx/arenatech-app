@@ -107,8 +107,8 @@ export function DeliveryPersonsTab() {
             <DialogDescription>Preencha os dados do entregador</DialogDescription>
           </DialogHeader>
           <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
-            <div><Label>Nome</Label><Input {...form.register("name")} /></div>
-            <div><Label>WhatsApp</Label><Input {...form.register("phone")} placeholder="(00) 00000-0000" inputMode="tel" /></div>
+            <div><Label htmlFor="nome">Nome</Label><Input id="nome" {...form.register("name")} /></div>
+            <div><Label htmlFor="whatsapp">WhatsApp</Label><Input id="whatsapp" {...form.register("phone")} placeholder="(00) 00000-0000" inputMode="tel" /></div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={close}>Cancelar</Button>
               <Button type="submit">Salvar</Button>

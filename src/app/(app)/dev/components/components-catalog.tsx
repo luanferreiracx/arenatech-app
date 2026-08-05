@@ -170,14 +170,14 @@ export function ComponentsCatalog() {
       <Section title="4. Inputs" description="Inputs especializados do Arena Tech">
         <div className="grid md:grid-cols-2 gap-4">
           <div className="space-y-1.5">
-            <Label>Valor (R$)</Label>
-            <MoneyInput value={moneyValue} onChange={setMoneyValue} />
+            <Label htmlFor="valor-r">Valor (R$)</Label>
+            <MoneyInput id="valor-r" value={moneyValue} onChange={setMoneyValue} />
             <p className="text-xs text-muted-foreground">{moneyValue} centavos</p>
           </div>
 
           <div className="space-y-1.5">
-            <Label>CPF</Label>
-            <CpfInput value={cpfValue} onValueChange={setCpfValue} />
+            <Label htmlFor="cpf-2">CPF</Label>
+            <CpfInput id="cpf-2" value={cpfValue} onValueChange={setCpfValue} />
           </div>
 
           <div className="space-y-1.5">
@@ -186,18 +186,18 @@ export function ComponentsCatalog() {
           </div>
 
           <div className="space-y-1.5">
-            <Label>Telefone</Label>
-            <PhoneInput value={phoneValue} onValueChange={setPhoneValue} />
+            <Label htmlFor="telefone">Telefone</Label>
+            <PhoneInput id="telefone" value={phoneValue} onValueChange={setPhoneValue} />
           </div>
 
           <div className="space-y-1.5">
-            <Label>CEP</Label>
-            <CepInput value={cepValue} onValueChange={setCepValue} />
+            <Label htmlFor="cep">CEP</Label>
+            <CepInput id="cep" value={cepValue} onValueChange={setCepValue} />
           </div>
 
           <div className="space-y-1.5">
-            <Label>Texto padrão</Label>
-            <Input placeholder="Input padrão shadcn" />
+            <Label htmlFor="texto-padrao">Texto padrão</Label>
+            <Input id="texto-padrao" placeholder="Input padrão shadcn" />
           </div>
 
           <div className="space-y-1.5">
@@ -386,12 +386,12 @@ export function ComponentsCatalog() {
           >
             <div className="grid md:grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label>Nome</Label>
-                <Input placeholder="Nome completo" />
+                <Label htmlFor="nome">Nome</Label>
+                <Input id="nome" placeholder="Nome completo" />
               </div>
               <div className="space-y-1.5">
-                <Label>CPF</Label>
-                <Input placeholder="000.000.000-00" />
+                <Label htmlFor="cpf">CPF</Label>
+                <Input id="cpf" placeholder="000.000.000-00" />
               </div>
             </div>
           </FormSection>

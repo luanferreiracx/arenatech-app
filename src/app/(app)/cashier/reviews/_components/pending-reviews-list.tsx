@@ -188,16 +188,16 @@ export function PendingReviewsList() {
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div>
-              <Label>Saldo conferido (contagem em dinheiro) *</Label>
-              <MoneyInput
+              <Label htmlFor="saldo-conferido-contagem-em-dinheiro">Saldo conferido (contagem em dinheiro) *</Label>
+              <MoneyInput id="saldo-conferido-contagem-em-dinheiro"
                 value={reportedBalance}
                 onChange={setReportedBalance}
                 autoFocus
               />
             </div>
             <div>
-              <Label>Observacao (opcional)</Label>
-              <Textarea
+              <Label htmlFor="observacao-opcional">Observacao (opcional)</Label>
+              <Textarea id="observacao-opcional"
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="Observacao sobre a conferencia..."

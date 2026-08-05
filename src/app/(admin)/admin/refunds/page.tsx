@@ -249,8 +249,8 @@ export default function RefundsPage() {
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <Label>Observacoes (opcional)</Label>
-              <Textarea
+              <Label htmlFor="observacoes-opcional">Observacoes (opcional)</Label>
+              <Textarea id="observacoes-opcional"
                 value={processNotes}
                 onChange={(e) => setProcessNotes(e.target.value)}
                 rows={3}
@@ -288,8 +288,8 @@ export default function RefundsPage() {
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <Label>Motivo do cancelamento</Label>
-              <Textarea
+              <Label htmlFor="motivo-do-cancelamento">Motivo do cancelamento</Label>
+              <Textarea id="motivo-do-cancelamento"
                 value={cancelReason}
                 onChange={(e) => setCancelReason(e.target.value)}
                 rows={3}

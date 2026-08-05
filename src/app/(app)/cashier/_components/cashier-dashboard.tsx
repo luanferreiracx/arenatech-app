@@ -484,13 +484,13 @@ export function CashierDashboard() {
               <span className="font-mono">{formatCents(summary.expectedCashBalance)}</span>
             </p>
             <div>
-              <Label>Valor *</Label>
-              <MoneyInput value={expenseAmount} onChange={setExpenseAmount} autoFocus />
+              <Label htmlFor="valor">Valor *</Label>
+              <MoneyInput id="valor" value={expenseAmount} onChange={setExpenseAmount} autoFocus />
             </div>
             <div>
-              <Label>Forma de pagamento *</Label>
+              <Label htmlFor="forma-de-pagamento">Forma de pagamento *</Label>
               <Select value={expenseMethod} onValueChange={setExpenseMethod}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger id="forma-de-pagamento"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="dinheiro">Dinheiro (sai da gaveta)</SelectItem>
                   <SelectItem value="cartao_credito">Cartão de crédito</SelectItem>
@@ -501,8 +501,8 @@ export function CashierDashboard() {
               </Select>
             </div>
             <div>
-              <Label>Descrição *</Label>
-              <Input
+              <Label htmlFor="descricao">Descrição *</Label>
+              <Input id="descricao"
                 value={expenseDescription}
                 onChange={(e) => setExpenseDescription(e.target.value)}
                 placeholder="Ex: Material de limpeza"
@@ -635,16 +635,16 @@ function OpenCashierDialog({
         </DialogHeader>
         <div className="space-y-4 py-2">
           <div>
-            <Label>Saldo Inicial *</Label>
-            <MoneyInput
+            <Label htmlFor="saldo-inicial">Saldo Inicial *</Label>
+            <MoneyInput id="saldo-inicial"
               value={openingBalance}
               onChange={setOpeningBalance}
               autoFocus
             />
           </div>
           <div>
-            <Label>Observacao</Label>
-            <Textarea
+            <Label htmlFor="observacao">Observacao</Label>
+            <Textarea id="observacao"
               value={openingNotes}
               onChange={(e) => setOpeningNotes(e.target.value)}
               placeholder="Observacao (opcional)"
@@ -708,12 +708,12 @@ function WithdrawalDialog({
             </span>
           </p>
           <div>
-            <Label>Valor *</Label>
-            <MoneyInput value={amount} onChange={setAmount} autoFocus />
+            <Label htmlFor="valor-2">Valor *</Label>
+            <MoneyInput id="valor-2" value={amount} onChange={setAmount} autoFocus />
           </div>
           <div>
-            <Label>Motivo *</Label>
-            <Input
+            <Label htmlFor="motivo">Motivo *</Label>
+            <Input id="motivo"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Ex: Transferencia para cofre"
@@ -774,12 +774,12 @@ function DepositDialog({
             troco ou repor valores.
           </p>
           <div>
-            <Label>Valor *</Label>
-            <MoneyInput value={amount} onChange={setAmount} autoFocus />
+            <Label htmlFor="valor-3">Valor *</Label>
+            <MoneyInput id="valor-3" value={amount} onChange={setAmount} autoFocus />
           </div>
           <div>
-            <Label>Motivo *</Label>
-            <Input
+            <Label htmlFor="motivo-2">Motivo *</Label>
+            <Input id="motivo-2"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Ex: Reposicao de troco"

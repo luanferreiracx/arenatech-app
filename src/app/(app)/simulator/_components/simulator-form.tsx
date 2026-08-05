@@ -199,20 +199,20 @@ export function SimulatorForm() {
       <Card className="p-6">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
           <div>
-            <Label>Nome do Cliente (para PDF)</Label>
-            <Input
+            <Label htmlFor="nome-do-cliente-para-pdf">Nome do Cliente (para PDF)</Label>
+            <Input id="nome-do-cliente-para-pdf"
               value={nomeCliente}
               onChange={(e) => setNomeCliente(e.target.value)}
               placeholder="Nome do cliente"
             />
           </div>
           <div>
-            <Label>Valor do Produto</Label>
-            <MoneyInput value={valorProduto} onChange={setValorProduto} placeholder="R$ 0,00" />
+            <Label htmlFor="valor-do-produto">Valor do Produto</Label>
+            <MoneyInput id="valor-do-produto" value={valorProduto} onChange={setValorProduto} placeholder="R$ 0,00" />
           </div>
           <div>
-            <Label>Valor da Entrada (opcional)</Label>
-            <MoneyInput value={valorEntrada} onChange={setValorEntrada} placeholder="R$ 0,00" />
+            <Label htmlFor="valor-da-entrada-opcional">Valor da Entrada (opcional)</Label>
+            <MoneyInput id="valor-da-entrada-opcional" value={valorEntrada} onChange={setValorEntrada} placeholder="R$ 0,00" />
           </div>
           <div className="flex gap-2">
             <Button onClick={handleSimulate} disabled={isCalculating} className="h-10 flex-1">
@@ -323,8 +323,8 @@ export function SimulatorForm() {
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <Label>Telefone do Cliente</Label>
-              <Input
+              <Label htmlFor="telefone-do-cliente">Telefone do Cliente</Label>
+              <Input id="telefone-do-cliente"
                 value={waPhone}
                 onChange={(e) => setWaPhone(e.target.value)}
                 placeholder="(00) 00000-0000"
@@ -332,8 +332,8 @@ export function SimulatorForm() {
               />
             </div>
             <div>
-              <Label>Nome do Cliente (opcional)</Label>
-              <Input
+              <Label htmlFor="nome-do-cliente-opcional">Nome do Cliente (opcional)</Label>
+              <Input id="nome-do-cliente-opcional"
                 value={waName}
                 onChange={(e) => setWaName(e.target.value)}
                 placeholder="Ex: Joao"

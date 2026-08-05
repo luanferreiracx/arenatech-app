@@ -118,9 +118,9 @@ export function RewardActionsQueue() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="space-y-1">
-          <Label>Status</Label>
+          <Label htmlFor="status">Status</Label>
           <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as ActionStatus)}>
-            <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
+            <SelectTrigger id="status" className="w-44"><SelectValue /></SelectTrigger>
             <SelectContent>
               {(Object.keys(STATUS_LABELS) as ActionStatus[]).map((s) => (
                 <SelectItem key={s} value={s}>{STATUS_LABELS[s]}</SelectItem>
@@ -256,8 +256,8 @@ export function RewardActionsQueue() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-1">
-            <Label>Motivo *</Label>
-            <Textarea
+            <Label htmlFor="motivo">Motivo *</Label>
+            <Textarea id="motivo"
               rows={3}
               value={rejectReason}
               onChange={(e) => setRejectReason(e.target.value)}

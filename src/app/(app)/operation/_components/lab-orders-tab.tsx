@@ -149,9 +149,9 @@ export function LabOrdersTab() {
           </DialogHeader>
           <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
             <div>
-              <Label>Laboratorio</Label>
+              <Label htmlFor="laboratorio">Laboratorio</Label>
               <Select value={form.watch("labId")} onValueChange={(v) => form.setValue("labId", v)}>
-                <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                <SelectTrigger id="laboratorio"><SelectValue placeholder="Selecione" /></SelectTrigger>
                 <SelectContent>
                   {labs.map((lab) => (
                     <SelectItem key={lab.id} value={lab.id}>{lab.name}</SelectItem>
@@ -159,11 +159,11 @@ export function LabOrdersTab() {
                 </SelectContent>
               </Select>
             </div>
-            <div><Label>Equipamento</Label><Input {...form.register("deviceDescription")} /></div>
-            <div><Label>Problema</Label><Textarea {...form.register("problem")} rows={2} /></div>
+            <div><Label htmlFor="equipamento">Equipamento</Label><Input id="equipamento" {...form.register("deviceDescription")} /></div>
+            <div><Label htmlFor="problema">Problema</Label><Textarea id="problema" {...form.register("problem")} rows={2} /></div>
             <div>
-              <Label>Custo Estimado</Label>
-              <MoneyInput value={form.watch("estimatedCost") ?? 0} onChange={(v) => form.setValue("estimatedCost", v)} />
+              <Label htmlFor="custo-estimado">Custo Estimado</Label>
+              <MoneyInput id="custo-estimado" value={form.watch("estimatedCost") ?? 0} onChange={(v) => form.setValue("estimatedCost", v)} />
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setShowForm(false)}>Cancelar</Button>

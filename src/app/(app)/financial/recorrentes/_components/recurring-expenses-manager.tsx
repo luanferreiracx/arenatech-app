@@ -223,17 +223,17 @@ export function RecurringExpensesManager() {
               </div>
             )}
             <div className="space-y-1">
-              <Label>Descrição *</Label>
-              <Input value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} placeholder="Ex.: Aluguel da loja" />
+              <Label htmlFor="descricao">Descrição *</Label>
+              <Input id="descricao" value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} placeholder="Ex.: Aluguel da loja" />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <Label>Valor *</Label>
-                <MoneyInput value={form.amountCents} onChange={(v) => setForm((f) => ({ ...f, amountCents: v }))} />
+                <Label htmlFor="valor">Valor *</Label>
+                <MoneyInput id="valor" value={form.amountCents} onChange={(v) => setForm((f) => ({ ...f, amountCents: v }))} />
               </div>
               <div className="space-y-1">
-                <Label>Dia do vencimento</Label>
-                <Input type="number" min={1} max={28} value={form.dayOfMonth} onChange={(e) => setForm((f) => ({ ...f, dayOfMonth: Number(e.target.value) }))} />
+                <Label htmlFor="dia-do-vencimento">Dia do vencimento</Label>
+                <Input id="dia-do-vencimento" type="number" min={1} max={28} value={form.dayOfMonth} onChange={(e) => setForm((f) => ({ ...f, dayOfMonth: Number(e.target.value) }))} />
               </div>
             </div>
             <div className="space-y-1">
@@ -247,8 +247,8 @@ export function RecurringExpensesManager() {
               </div>
             )}
             <div className="space-y-1">
-              <Label>Observações</Label>
-              <Textarea rows={2} value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} />
+              <Label htmlFor="observacoes">Observações</Label>
+              <Textarea id="observacoes" rows={2} value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} />
             </div>
           </div>
           <DialogFooter>

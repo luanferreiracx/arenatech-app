@@ -200,8 +200,8 @@ export default function StockEntryPage() {
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label>Quantidade *</Label>
-                      <Input
+                      <Label htmlFor="quantidade">Quantidade *</Label>
+                      <Input id="quantidade"
                         type="number"
                         min={1}
                         {...form.register(`items.${idx}.quantity`, {
@@ -215,8 +215,8 @@ export default function StockEntryPage() {
                       )}
                     </div>
                     <div className="space-y-2">
-                      <Label>Custo Unitario</Label>
-                      <MoneyInput
+                      <Label htmlFor="custo-unitario">Custo Unitario</Label>
+                      <MoneyInput id="custo-unitario"
                         value={form.watch(`items.${idx}.unitCost`) ?? 0}
                         onChange={(v) =>
                           form.setValue(`items.${idx}.unitCost`, v)

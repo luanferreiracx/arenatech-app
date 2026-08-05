@@ -330,8 +330,8 @@ export function ServiceObservationsManager() {
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label>Titulo *</Label>
-              <Input
+              <Label htmlFor="titulo">Titulo *</Label>
+              <Input id="titulo"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="Ex.: Garantia de 90 dias"
@@ -339,8 +339,8 @@ export function ServiceObservationsManager() {
               />
             </div>
             <div className="space-y-2">
-              <Label>Texto da observacao *</Label>
-              <Textarea
+              <Label htmlFor="texto-da-observacao">Texto da observacao *</Label>
+              <Textarea id="texto-da-observacao"
                 value={observation}
                 onChange={(e) => setObservation(e.target.value)}
                 placeholder="Texto que aparece no orcamento."

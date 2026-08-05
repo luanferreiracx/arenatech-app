@@ -623,8 +623,8 @@ export function PaymentDialog({
           </div>
 
           <div className="mt-4">
-            <Label>Observações</Label>
-            <Textarea
+            <Label htmlFor="observacoes">Observações</Label>
+            <Textarea id="observacoes"
               value={observations}
               onChange={(e) => setObservations(e.target.value)}
               placeholder="Opcional"
@@ -800,8 +800,8 @@ export function PaymentDialog({
 
             <div className="flex gap-3">
               <div className="flex-1">
-                <Label>Valor (R$)</Label>
-                <Input
+                <Label htmlFor="valor-r">Valor (R$)</Label>
+                <Input id="valor-r"
                   type="number"
                   step="0.01"
                   min="0.01"
@@ -818,12 +818,12 @@ export function PaymentDialog({
               </div>
               {showInstallments && (
                 <div className="flex-1">
-                  <Label>Parcelas</Label>
+                  <Label htmlFor="parcelas">Parcelas</Label>
                   <Select
                     value={String(effectiveInstallments)}
                     onValueChange={setFormInstallments}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger id="parcelas">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -853,7 +853,7 @@ export function PaymentDialog({
               <div className="flex gap-3">
                 {activeAcquirers.length > 0 && (
                   <div className="flex-1">
-                    <Label>Adquirente</Label>
+                    <Label htmlFor="adquirente">Adquirente</Label>
                     <Select
                       value={selectedAcquirerId ?? ""}
                       onValueChange={(v) => {
@@ -864,7 +864,7 @@ export function PaymentDialog({
                         setFormInstallments("1");
                       }}
                     >
-                      <SelectTrigger>
+                      <SelectTrigger id="adquirente">
                         <SelectValue placeholder="Maquininha (opcional)" />
                       </SelectTrigger>
                       <SelectContent>
@@ -878,7 +878,7 @@ export function PaymentDialog({
                   </div>
                 )}
                 <div className="flex-1">
-                  <Label>Bandeira</Label>
+                  <Label htmlFor="bandeira">Bandeira</Label>
                   <Select
                     value={selectedCardBrandId ?? ""}
                     onValueChange={(v) => {
@@ -886,7 +886,7 @@ export function PaymentDialog({
                       setFormInstallments("1"); // parcelas dependem da bandeira
                     }}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger id="bandeira">
                       <SelectValue placeholder="Bandeira" />
                     </SelectTrigger>
                     <SelectContent>
@@ -988,8 +988,8 @@ export function PaymentDialog({
 
         {/* Observations */}
         <div>
-          <Label>Observacoes</Label>
-          <Textarea
+          <Label htmlFor="observacoes-2">Observacoes</Label>
+          <Textarea id="observacoes-2"
             rows={2}
             value={observations}
             onChange={(e) => setObservations(e.target.value)}
