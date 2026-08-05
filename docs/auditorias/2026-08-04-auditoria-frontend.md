@@ -348,14 +348,32 @@ sem nome; clicar no rótulo não foca. Piores: `service-order-detail.tsx` (23),
   12h, salva no `visibilitychange` (único evento confiável em mobile). A
   restauração é AVISADA, com botão "Começar do zero".
 
-**Ainda aberto** (menor severidade, sem prazo):
+**Fechado em 2026-08-05** — os três itens que ficaram abertos:
 
-- **~30 caixas de texto livre** sem estratégia de overflow. As que escondiam
-  botão foram corrigidas; as restantes só esticam layout.
-- **59 `<Label>`** ainda sem associação, em componentes que não encaminham `id`
-  (Switch, Checkbox, EntitySelector). Cobertos por teste-teto.
-- **Rascunho na compra de aparelho** — o hook existe, falta aplicar. O wizard de
-  OS era o caso com mais trabalho em risco (5 passos).
+- ~~**~30 caixas de texto livre** sem estratégia de overflow~~ **MEDIDO, não
+  editado no escuro.** A 320px com nome longo de verdade na tela, 13 telas
+  foram medidas e **uma** quebrava: `/painel`, 5px, por *truncate-ghost* — o
+  `truncate` estava lá, faltava `min-w-0` num elo do meio da cadeia flex. As
+  outras ~29 não quebram nada, e mexer nelas seria trabalho especulativo.
+  Zoom 200% (1.4.4) e o bookmarklet de espaçamento (1.4.12) também passam
+  limpos. Guardado por `e2e/reflow-320.spec.ts`, que **mede** em vez de
+  conferir classe (classe presente não prova efeito) e aponta o elemento
+  culpado quando falha.
+- ~~**59 `<Label>`** sem associação~~ **FEITO (59 → 2).** Não era um problema
+  só: `EntitySelector`/`SupplierSelect`/`FinancialCategorySelect` não aceitavam
+  `id`; rótulos de GRUPO viraram `role="group"` + `aria-labelledby`; rótulos
+  sobre valor só de leitura viraram `<FieldTitle>` (um `<label>` sem controle é
+  semântica errada, não falta de `htmlFor`); linhas repetidas passaram a tirar
+  id de `useId()`/`field.id`. Os 2 que restam são a vitrine `/dev/components`,
+  sem uso em produção.
+- ~~**Rascunho na compra de aparelho**~~ **FEITO.** `useRhfDraft`, irmão do
+  `useFormDraft` para formulários de `react-hook-form`.
+
+O teste-teto no fonte não bastava: ele conta `<Label>` sem `htmlFor`, e não
+pega o caso pior — `htmlFor` presente apontando para um id que não existe no
+DOM, que soa igual para o leitor de tela mas parece certo no código. Foi assim
+que o defeito do `EntitySelector` apareceu. `e2e/label-association.spec.ts`
+agora mede o DOM renderizado.
 
 ## Lições de processo desta rodada
 
@@ -376,6 +394,25 @@ com o diff**. Era flaky por construção — afirmava QUAL guarda disparou
 (implementação) em vez do comportamento. Corrigido para aceitar as duas formas
 corretas de o perdedor da corrida terminar, mantendo a checagem que importa
 (não vazar erro de banco). Verificado 6x seguidas.
+
+### Rodada de fechamento (2026-08-05)
+
+5. **Meça antes de editar.** A pendência dizia "~30 caixas de texto sem
+   estratégia de overflow". Um scan do fonte devolveu 310 candidatos; medir a
+   320px com dado longo devolveu **1** quebra real. Corrigir os 310 teria sido
+   trabalho especulativo em 309 lugares — e o defeito verdadeiro não era
+   ausência de `truncate`, era `min-w-0` faltando na cadeia (o `truncate`
+   estava lá, sem efeito). **Contagem de classe no fonte não é medida de
+   layout.**
+6. **Servidor de dev velho invalida toda medição.** Passei três iterações
+   "consertando" um bug que já estava consertado: a porta 3000 respondia por um
+   dev server antigo, e o novo tinha subido na 3001. Cheguei a escrever duas
+   explicações erradas para o comportamento antes de conferir *quem* atendia a
+   porta (`lsof -nP -iTCP:3000 -sTCP:LISTEN`). Antes de teorizar sobre um
+   resultado estranho, **confirme que está medindo o processo certo.**
+7. **Um teste que não vi falhar não vale nada.** Cada rede nova desta rodada
+   (`label-association`, `reflow-320`) foi verificada revertendo o fix e
+   confirmando que ela quebra — e nomeando o culpado certo.
 
 ## Baixa confiança / perguntas em aberto
 
