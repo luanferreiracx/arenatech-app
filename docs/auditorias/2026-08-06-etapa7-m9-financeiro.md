@@ -105,6 +105,66 @@ RBAC.
 
 ---
 
+---
+
+## M9-2 — R$ 754.400 de obrigação cancelada inflando a despesa do DRE — ⚠️ ACHADO
+
+O lucro líquido do DRE de 2026 é **-R$ 1.340.844,09** — implausível para uma
+loja com R$ 1,5 mi de receita. Fui atrás.
+
+As despesas do DRE vêm do **ledger `installment_payments`** de PAYABLE (regime
+de caixa, G-P1-01). O ledger de 2026 soma **R$ 1.543.629,98**. Dentro dele:
+
+| obrigação | valor | paga em | cancelada em |
+|---|---|---|---|
+| Compra de Aparelhos — CPA000006 | R$ 7.000 | 26/03 | 21/05 |
+| **Compra de Aparelhos — CPA000034** | **R$ 740.000** | 29/04 | 21/05 |
+| Compra de Aparelhos — CPA000035 | R$ 7.400 | 29/04 | 21/05 |
+
+**R$ 754.400 — quase metade da despesa do ano** — são obrigações
+**CANCELLED** cujo pagamento continua no ledger. A de R$ 740.000 é claramente um
+erro de digitação (compra de aparelho), corrigida por cancelamento.
+
+Nenhuma das três tem `device_purchase` viva por trás: o cancelamento foi
+legítimo. **O que ficou foi o pagamento.**
+
+### O caminho já foi fechado — o dado antigo ficou
+
+Testei se recorre. Contas `CANCELLED` com `paid_amount > 0`:
+
+| cancelada em | ocorrências | valor |
+|---|---|---|
+| 21/05 | 3 | R$ 754.400 |
+| 05/06 | 1 | R$ 3.199,99 |
+| 30/06 | 1 | R$ 170,00 |
+| 07/07 | 1 | R$ 7.699,99 |
+| **31/07** | 1 | R$ 218,12 |
+
+O `financial.cancel` de hoje **bloqueia** conta PAID e tem CAS ancorado em
+`status` **e** `paidAmount` — endurecido na auditoria de 25/07 exatamente contra
+isto.
+
+A ocorrência de **31/07 é posterior ao fix**, e eu quase a reportei como
+recorrência. Não é: é `VND202602539`, uma venda **REFUNDED** — o estorno cancela
+a FT por outro caminho (`sale.ts:2795`), e a receita sai do DRE pelo lado da
+venda. Comportamento correto.
+
+**Então o caminho está fechado e o passivo histórico continua no relatório.**
+
+### Por que não corrigi
+
+Mexer em ledger de dinheiro é decisão sua, não minha. As opções não são
+equivalentes:
+
+- **Estornar no ledger** (`kind='reversal'`, o mecanismo já existe e nunca
+  rodou em produção): o DRE passa a refletir a realidade, e o histórico
+  registra que houve pagamento e estorno. É o que a contabilidade faria.
+- **Deixar como está:** o DRE de 2026 segue com R$ 754.400 de despesa que não
+  existiu, e todo relatório derivado dele mente junto.
+
+Não fiz nenhuma das duas por conta própria — é dinheiro, é histórico, e a de
+R$ 740.000 pode ter contexto que eu não conheço.
+
 ## Baixa confiança
 
 - **Não testei `cashFlow` e `projectedCashFlow` com os dois perfis** com a mesma
@@ -113,6 +173,6 @@ RBAC.
 - **Não auditei o cálculo do DRE contra o razão.** Confirmei a integridade
   obrigação↔parcela↔pagamento, não que a linha "CUSTO DAS PECAS" do DRE seja a
   soma correta das despesas de peça. O lucro líquido de **-R$ 1,34 milhão**
-  parece implausível para uma loja com R$ 1,5 mi de receita, e as despesas
-  (R$ 1.541.129) incluem os R$ 754.400 de PAYABLE **CANCELLED** que apareceram
-  na medição inicial — vale conferir se o DRE está somando obrigação cancelada.
+  foi investigado e virou o **M9-2** acima: R$ 754.400 de obrigação cancelada
+  inflando a despesa. O que **não** conferi é se o restante (R$ 789 mil) bate
+  com a realidade da loja.
