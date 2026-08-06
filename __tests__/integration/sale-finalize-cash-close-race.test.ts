@@ -103,7 +103,7 @@ describe("B9 — finalizar venda x fechar caixa (ao vivo)", () => {
    * repeticao a chance de pegar sobe, e o custo e baixo — cada rodada e uma
    * venda de um item.
    */
-  const RODADAS = 12;
+  const RODADAS = 25;
 
   it(`nenhum movimento cai numa sessao ja fechada, em ${RODADAS} rodadas`, async () => {
     const sessionIds: string[] = [];
@@ -132,6 +132,21 @@ describe("B9 — finalizar venda x fechar caixa (ao vivo)", () => {
       ).toBe(true);
     }
 
+    // 1) O invariante que importa de verdade: todo movimento de venda esta numa
+    //    sessao que o contabilizou. O CI pegou o caso em que isso parecia
+    //    violado — e a causa era o CARIMBO, nao o dinheiro (o `close` re-le os
+    //    movimentos depois do claim, entao a venda entrava no fechamento).
+    const naoContados = await prisma.$queryRaw<Array<{ n: bigint }>>`
+      SELECT count(*)::bigint AS n
+      FROM cash_movements m
+      WHERE m.cash_session_id = ANY(${sessionIds}::uuid[])
+        AND m.cash_session_id IS NULL
+    `;
+    expect(Number(naoContados[0]!.n), "movimento sem sessao").toBe(0);
+
+    // 2) O carimbo tambem precisa ser honesto: `closed_at` anterior a um
+    //    movimento da propria sessao envenena qualquer auditoria por janela de
+    //    tempo, mesmo com o dinheiro certo.
     const orfaos = await prisma.$queryRaw<Array<{ n: bigint }>>`
       SELECT count(*)::bigint AS n
       FROM cash_movements m
@@ -140,7 +155,7 @@ describe("B9 — finalizar venda x fechar caixa (ao vivo)", () => {
         AND s.closed_at IS NOT NULL
         AND m.created_at > s.closed_at
     `;
-    expect(Number(orfaos[0]!.n), "movimento gravado em sessao ja fechada").toBe(0);
+    expect(Number(orfaos[0]!.n), "movimento com created_at posterior ao closed_at da sessao").toBe(0);
   });
 
   it("uma rodada isolada tambem nao deixa movimento orfao", async () => {
