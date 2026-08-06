@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { monthOfDate } from "@/lib/commission/month-range";
 
 // `any` para suportar PrismaClient e o tx de withTenant — padrao do repo.
 type TxClient = any;
@@ -56,8 +57,9 @@ export async function createProviderReversalForRefund(
   if (!provider) return;
 
   // Apuracao do mes do FATO: so age se ja fechada (senao o re-calculo resolve).
-  const factYear = input.factDate.getFullYear();
-  const factMonth = input.factDate.getMonth() + 1;
+  // Fuso do NEGOCIO, nao do processo: producao roda em UTC e uma venda de
+  // 31/jul 22:00 BRT caia em agosto, fazendo o estorno virar no-op (achado A).
+  const { year: factYear, month: factMonth } = monthOfDate(input.factDate);
   const factApuracao = await tx.providerApuracao.findFirst({
     where: { tenantId, providerId: provider.id, year: factYear, month: factMonth },
     select: { status: true, memoryJson: true },

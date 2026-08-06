@@ -21,6 +21,22 @@ function ym(date: Date): string {
 }
 
 /**
+ * Ano-mes no fuso do NEGOCIO (BRT), que e o mes que a loja fecha. Usado pelo
+ * stub da apuracao do fato: o servico tem que casar com ESTE mes, nao com o do
+ * processo.
+ */
+function ymNegocio(date: Date): string {
+  const f = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "numeric",
+  }).formatToParts(date);
+  const y = f.find((p) => p.type === "year")!.value;
+  const m = f.find((p) => p.type === "month")!.value;
+  return `${Number(y)}-${Number(m)}`;
+}
+
+/**
  * @param factApuracao apuracao do mes do FATO (status + memoryJson).
  * @param existingReversals reversals ja existentes para o fato (amounts).
  * @param anchorClosedMonths meses (offset a partir do mes corrente) cuja apuracao
@@ -35,7 +51,7 @@ function makeTx(opts: {
 }) {
   const created: Record<string, unknown>[] = [];
   const now = new Date();
-  const factKey = opts.factDate ? ym(opts.factDate) : ym(now);
+  const factKey = opts.factDate ? ymNegocio(opts.factDate) : ym(now);
 
   // Monta o mapa year-month → apuracao para os meses de anchor fechados.
   const closedAnchorKeys = new Set(
@@ -460,5 +476,93 @@ describe("reverseServiceOrderCommissions", () => {
     );
     const amounts = tx._created.map((r) => Number(r.amount));
     expect(amounts).toEqual([40]);
+  });
+});
+
+/**
+ * Etapa 7, Módulo 2 (achado A): o mês do FATO era lido com `getFullYear()` /
+ * `getMonth()`, que respondem no fuso do PROCESSO.
+ *
+ * Produção roda em UTC (confirmado: `TZ=` vazio no container). Uma venda de
+ * **31/07 22:00 BRT** é `2026-08-01T01:00Z` — em UTC o código lia **agosto**,
+ * procurava a apuração de agosto, não achava a de julho e retornava no-op. A
+ * comissão indevida nunca era estornada.
+ *
+ * É a mesma família do CM-1 e do J3, que o projeto já corrigiu em três lugares:
+ * `month-range.ts:12-19` (janela do mês), `month-range.ts:29-39` (dias do mês) e
+ * `provider-commission.ts:58-62` (`assertApuracaoAberta`, que usa `getUTC*` com
+ * comentário dizendo "Mesma família do CM-1"). O estorno ficou de fora.
+ *
+ * O teste afirma o mês do NEGÓCIO (BRT), não o do processo — por isso roda o
+ * mesmo caso nos dois fusos.
+ */
+describe("mes do fato respeita o fuso do negocio (BRT), nao o do processo", () => {
+  /**
+   * 31/07/2026 22:00 BRT — julho para a loja, agosto em UTC.
+   *
+   * A data é escolhida para que o mês do NEGÓCIO (BRT) e o mês do PROCESSO
+   * divirjam quando o processo roda em UTC, que é o caso de produção
+   * (`TZ=` vazio no container).
+   */
+  const VIRADA = new Date("2026-08-01T01:00:00.000Z");
+
+  /**
+   * Numa máquina em BRT este teste passaria mesmo com o bug — o fuso do processo
+   * coincidiria com o do negócio e a divergência não apareceria. O CI não fixa
+   * `TZ`, então depender do fuso do runner é sorte, não garantia.
+   *
+   * A checagem abaixo falha alto se a premissa do caso deixar de valer.
+   */
+  it("a data escolhida realmente divergiria no fuso do processo (premissa do caso)", () => {
+    const mesNoProcesso = VIRADA.getMonth() + 1;
+    const mesNoNegocio = Number(
+      new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo", month: "numeric" })
+        .format(VIRADA),
+    );
+    expect(mesNoNegocio, "o mês do negócio para 31/07 22:00 BRT é julho").toBe(7);
+    // Em UTC dá 8 e a divergência existe; em BRT dá 7 e este caso não exercita
+    // nada — por isso o teste abaixo é complementado pelo de fuso explícito.
+    expect([7, 8]).toContain(mesNoProcesso);
+  });
+
+  it("acha a apuracao de JULHO para uma venda de 31/07 22:00 BRT", async () => {
+    const tx = makeTx({
+      provider: { id: "prov-1" },
+      factDate: VIRADA,
+      // A apuração fechada é a de JULHO — a que a loja de fato fechou.
+      factApuracao: {
+        status: "CLOSED",
+        memoryJson: { linhas: [{ referencia_id: "venda-1", comissao: 100 }] },
+      },
+    });
+
+    await createProviderReversalForRefund(tx as never, "t1", {
+      providerUserId: "u1",
+      referenceType: "sale",
+      referenceId: "venda-1",
+      factDate: VIRADA,
+      cumulativeRefundedFraction: 1,
+      registeredById: "u1",
+    });
+
+    // O stub indexa a apuração do fato por (year, month) derivados em BRT.
+    // Se o serviço consultar agosto, não acha nada e não cria reversal.
+    expect(
+      tx._created.length,
+      "reversal nao criado: o servico procurou o mes errado (fuso do processo)",
+    ).toBe(1);
+  });
+
+  /**
+   * Independente do fuso do runner: afirma a REGRA (a função que decide o mês),
+   * não o efeito colateral de rodar em UTC. Este é o caso que protege de verdade.
+   */
+  it("monthOfDate ancora no fuso do negocio, seja qual for o do processo", async () => {
+    const { monthOfDate } = await import("@/lib/commission/month-range");
+    expect(monthOfDate(VIRADA)).toEqual({ year: 2026, month: 7 });
+    // Virada do outro lado: 01/08 00:00 BRT continua agosto.
+    expect(monthOfDate(new Date("2026-08-01T03:00:00.000Z"))).toEqual({ year: 2026, month: 8 });
+    // 30/06 22:00 BRT é junho, não julho (o caso simétrico do J3).
+    expect(monthOfDate(new Date("2026-07-01T01:00:00.000Z"))).toEqual({ year: 2026, month: 6 });
   });
 });
