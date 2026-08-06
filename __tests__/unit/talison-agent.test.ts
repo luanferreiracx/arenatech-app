@@ -130,6 +130,63 @@ describe("runTalison", () => {
     expect(result.computedMath).toBe(false);
   });
 
+  /**
+   * Auditoria 2026-08-05 (P1-B6). O teste acima usa a equação LITERAL
+   * ("R$ 7.799 - R$ 3.150 ="), que é o que a regex procura — então ele passava
+   * enquanto a guarda não pegava o caso que a motivou.
+   *
+   * O incidente do Caio Marques, descrito no comentário acima, foi o bot
+   * dizendo a diferença **em prosa**. Medido em produção: as duas guardas
+   * dispararam ZERO vezes em 7 dias. Não era bot comportado — era guarda que
+   * quase não pega nada.
+   *
+   * Cada fraseado abaixo veio da medição, não de imaginação.
+   */
+  describe("conta de cabeça em prosa (o caso real do incidente)", () => {
+    const FRASEADOS = [
+      "A diferença fica em R$ 4.649,99",
+      "Você paga R$ 4.649,99 de diferença",
+      "Sobrando R$ 4.649,99 para você",
+      "Dando seu aparelho na troca, fica R$ 4.649,99",
+      "Fica R$ 4.649,99 de entrada e o resto a gente parcela",
+    ];
+
+    for (const texto of FRASEADOS) {
+      it(`pega: "${texto.slice(0, 40)}…"`, async () => {
+        const provider = fakeProvider([
+          { text: "", toolCalls: [{ id: "t1", name: "calcular_avaliacao", arguments: {} }] },
+          { text: texto, toolCalls: [] },
+        ]);
+
+        const result = await runTalison(baseArgs(provider));
+
+        expect(result.computedMath).toBe(true);
+      });
+    }
+
+    it("NÃO marca quando simular_parcelamento rodou (a tool é a fonte)", async () => {
+      const provider = fakeProvider([
+        { text: "", toolCalls: [{ id: "t1", name: "simular_parcelamento", arguments: {} }] },
+        { text: "A diferença fica em R$ 4.649,99", toolCalls: [] },
+      ]);
+
+      const result = await runTalison(baseArgs(provider));
+
+      expect(result.computedMath).toBe(false);
+    });
+
+    it("NÃO marca valor solto sem contexto de diferença/troca (evita falso positivo)", async () => {
+      const provider = fakeProvider([
+        { text: "", toolCalls: [{ id: "t1", name: "buscar_aparelho", arguments: {} }] },
+        { text: "O iPhone 15 Pro Max 256GB está R$ 4.649,99 no PIX", toolCalls: [] },
+      ]);
+
+      const result = await runTalison(baseArgs(provider));
+
+      expect(result.computedMath).toBe(false);
+    });
+  });
+
   it("executa a tool pedida e usa o resultado na resposta final", async () => {
     const provider = fakeProvider([
       {

@@ -5,6 +5,7 @@ import { timingSafeEqualBearer } from "@/lib/utils/timing-safe"
 import { recordWebhookEvent, extractSourceIp } from "@/lib/webhooks/replay-guard"
 import { scheduleTalisonRun } from "@/lib/talison/scheduler"
 import { sendBotMessage } from "@/lib/talison/chatwoot-client"
+import { recordTalisonMetric } from "@/lib/talison/metrics"
 
 /**
  * Prefixo da chave de contato para Instagram (Channel::Api), que não tem telefone.
@@ -338,9 +339,28 @@ export async function POST(req: NextRequest) {
         //  - marca a ChatbotMessage como deliveryFailed (não conta como resposta);
         //  - se for mensagem do BOT, reenvia UMA vez (falhas da Meta são
         //    transitórias) — sem reenviar um reenvio (evita loop).
+        //
+        // A falha vem em `content_attributes.external_error`, NÃO em `status`.
+        // O `webhook_data` do Chatwoot (app/models/message.rb) não inclui
+        // `status` — este bloco filtrava por `body.status === "failed"`, que era
+        // sempre `undefined`, e portanto NUNCA rodava (auditoria 2026-08-05,
+        // P1-B7). Medido: 4 mensagens falharam no Chatwoot em 30 dias e 0 foram
+        // marcadas do nosso lado, em 15.424 — nem a flag, nem o reenvio.
+        //
+        // `status` continua sendo aceito para o caso de o Chatwoot passar a
+        // enviá-lo: os dois sinais valem, e o que existir dispara.
         const messageId = String(body.id ?? "")
         const status = String(body.status ?? "").toLowerCase()
-        if (!messageId || status !== "failed") break
+        const contentAttributes =
+          body.content_attributes && typeof body.content_attributes === "object"
+            ? (body.content_attributes as Record<string, unknown>)
+            : null
+        const externalError =
+          typeof contentAttributes?.external_error === "string"
+            ? contentAttributes.external_error.trim()
+            : ""
+        const failed = status === "failed" || externalError.length > 0
+        if (!messageId || !failed) break
 
         const retry = await withAdmin(async (tx) => {
           const msg = await tx.chatbotMessage.findFirst({
@@ -349,6 +369,15 @@ export async function POST(req: NextRequest) {
           })
           if (!msg || msg.deliveryFailed) return null
           await tx.chatbotMessage.update({ where: { id: msg.id }, data: { deliveryFailed: true } })
+
+          // A falha em si passava em branco: só o reenvio era logado, e o
+          // reenvio só acontece para mensagem do bot. Falha de atendente humano
+          // ou de um reenvio não deixava rastro nenhum.
+          recordTalisonMetric("delivery_failed", {
+            messageId: msg.id,
+            senderType: msg.senderType,
+            externalError: externalError || null,
+          })
 
           const isRetry =
             !!msg.metadata && typeof msg.metadata === "object" &&
