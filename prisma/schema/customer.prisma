@@ -74,6 +74,11 @@ model Interest {
   desiredModel String?        @map("desired_model") @db.VarChar(200)
   notes        String?        @db.Text
   status       InterestStatus @default(WAITING)
+  /// Opt-out de LGPD do PROPRIO lead. O `Customer.unsubscribed` so alcanca quem
+  /// ja e cliente — 114 dos 119 leads de producao nao tem Customer, e nao havia
+  /// onde registrar um "PARE" vindo deles (auditoria 2026-08-06, M4-1).
+  unsubscribed   Boolean   @default(false)
+  unsubscribedAt DateTime? @map("unsubscribed_at")
   // Tracking de conversao: quando interesse vira venda ou OS, registrar timestamp + ref
   convertedAt        DateTime? @map("converted_at")
   convertedToSaleId  String?   @map("converted_to_sale_id") @db.Uuid
