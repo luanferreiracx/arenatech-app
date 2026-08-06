@@ -107,6 +107,58 @@ RBAC.
 
 ---
 
+## M9-3 — "Contas a Pagar" mostrando recebimentos — ✅ CORRIGIDO
+
+A ADR 0032 é respeitada em 5 pontos, mas de **duas maneiras diferentes**:
+
+- `getById` (linha 253): **nega** com `FORBIDDEN`.
+- `list` (linha 190): **troca o filtro em silêncio** —
+  `type: role === "operator" ? "RECEIVABLE" : input.type`.
+
+O menu levava o operador a "Contas a Pagar", o resolver devolvia contas a
+**receber**, e a tela exibia:
+
+```
+R$ 49.599,99
+8 conta(s)
+Contas a Pagar
+```
+
+Produção tem **3 PAYABLE pendentes (R$ 13.850)** e **73 RECEIVABLE
+(R$ 109.449)** — nem contagem nem valor batiam com o rótulo. O operador
+concluiria que a loja deve R$ 49,6 mil.
+
+**Trocar o dado sob um rótulo errado não protege ninguém e desinforma.** Negar é
+o que o irmão já fazia.
+
+### O fix, nas três camadas
+
+| camada | antes | depois |
+|---|---|---|
+| resolver `list` | troca filtro em silêncio | `FORBIDDEN`, como o `getById` |
+| menu | oferece "Contas a Pagar" a todos | `adminOnly: true` |
+| aba do dashboard | "A Pagar" visível a todos | só admin; URL `?type=PAYABLE` cai em "A Receber" |
+
+Verificado no navegador:
+
+```
+ADMIN:    abas=[A Receber|A Pagar] | ativa=A Pagar   | 0 erros
+OPERADOR: abas=[A Receber]         | ativa=A Receber | 0 erros
+```
+
+E o resolver, chamado direto como operador: **403 FORBIDDEN**.
+
+O teste ancora no resolver **certo**: a primeira versão buscava o padrão no
+arquivo inteiro e passava por causa do `getById`, que já negava — passou cega
+contra o código defeituoso. Agora recorta o corpo da procedure por nome.
+
+Corrigi este e não o M9-1 porque aqui não há decisão de produto envolvida: o
+rótulo mentir é bug em qualquer política de RBAC que se escolha.
+
+Entregue no PR da branch `fix/financeiro-rotulo-contas-pagar`.
+
+---
+
 ## M9-2 — R$ 754.400 de obrigação cancelada inflando a despesa do DRE — ⚠️ ACHADO
 
 O lucro líquido do DRE de 2026 é **-R$ 1.340.844,09** — implausível para uma
