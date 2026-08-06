@@ -161,6 +161,24 @@ export const cashierRouter = createTRPCRouter({
         // FIN1: claim atômico do fechamento (CAS). O row-lock do UPDATE serializa
         // closes concorrentes (anti duplo-close); count 0 = já fechado por outra
         // operação. Um throw depois (validação da nota) rola este claim de volta.
+        // O carimbo sai DEPOIS do lock, nao antes (auditoria 2026-08-05, P1-B9).
+        //
+        // `const closedAt = new Date()` antes do `updateMany` parecia inofensivo,
+        // mas o UPDATE pode ficar BLOQUEADO esperando o `SELECT ... FOR UPDATE`
+        // que o `finalize` segura. Enquanto espera, o relogio corre: a venda
+        // commita e grava o movimento com `created_at` POSTERIOR ao `closedAt` ja
+        // capturado. O resultado e um movimento que parece ter caido numa sessao
+        // ja fechada.
+        //
+        // O dinheiro nunca se perdeu — os movimentos sao relidos abaixo, depois
+        // do claim, entao a venda ENTRA no fechamento. O que estava errado era o
+        // carimbo, e um `closed_at` que mente sobre quando o caixa fechou
+        // envenena qualquer auditoria por janela de tempo.
+        //
+        // `lockOpenCashSessionOrThrow` primeiro: adquire o lock explicitamente,
+        // e so entao lemos o relogio. Sem isso o `updateMany` faria as duas
+        // coisas na ordem errada.
+        await lockOpenCashSessionOrThrow(tx, session.id);
         const closedAt = new Date();
         const claim = await tx.cashSession.updateMany({
           where: { id: session.id, closedAt: null },
