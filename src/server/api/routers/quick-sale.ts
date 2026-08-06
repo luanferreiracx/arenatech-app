@@ -460,8 +460,16 @@ export const quickSaleRouter = createTRPCRouter({
           });
         }
 
+        // `isSettledForSaleDepixStatus` e a fonte unica de "esse deposito ja
+        // pode liberar a venda" — e ela ACEITA PROCESSING, porque num deposito
+        // de venda o PROCESSING so e gravado depois do PIX cair.
+        //
+        // Este ponto reimplementava o mapeamento a mao e deixava PROCESSING de
+        // fora, enquanto a linha 294 do MESMO arquivo ja usava a fonte unica
+        // (auditoria 2026-08-05, C2). O cliente pagava, o `markPaid` liberava a
+        // venda por um caminho, e esta tela continuava dizendo "pendente".
         let status: "pending" | "paid" | "expired" | "failed" = "pending";
-        if (walletTx.status === "COMPLETED" || walletTx.status === "COMPLETED_FEE_PENDING") {
+        if (isSettledForSaleDepixStatus(walletTx.status)) {
           status = "paid";
         } else if (walletTx.status === "EXPIRED") {
           status = "expired";

@@ -224,67 +224,23 @@ export async function writeCashMovement(
 }
 
 /**
- * Calculate available cash (DINHEIRO only) for sangria validation.
- * Formula: initialBalance + sum(INCOME where paymentMethod='dinheiro') - sum(OUTCOME where paymentMethod='dinheiro')
+ * REMOVIDO em 2026-08-06 (auditoria, C3): `calculateCashOnHand` e
+ * `getPaymentMethodSummary` viviam aqui com ZERO call sites — e, pior,
+ * discordavam da fonte única.
+ *
+ * `calculateCashOnHand` filtrava `paymentMethod = 'dinheiro'` literal, em reais,
+ * sem passar por `affectsCashDrawer` — então ignorava `ajuste_manual` e a
+ * normalização de token que `computeCashDrawerCents` (a fonte única, acima) faz.
+ * Duas respostas para "quanto tem na gaveta", e a errada esperando alguém
+ * importar por engano.
+ *
+ * `getPaymentMethodSummary` era a irmã morta de `buildPaymentMethodSummary`
+ * (`cashier.ts`), com escopo diferente: somava todos os tipos e devolvia reais,
+ * enquanto a viva soma só `type=SALE` e devolve centavos.
+ *
+ * O histórico está no git. Se voltarem a ser necessárias, que nasçam usando
+ * `computeCashDrawerCents`.
  */
-export async function calculateCashOnHand(
-  tx: PrismaClient,
-  cashSessionId: string
-): Promise<number> {
-  const session = await tx.cashSession.findUniqueOrThrow({
-    where: { id: cashSessionId },
-    select: { initialBalance: true },
-  })
-
-  const incomeResult = await tx.cashMovement.aggregate({
-    where: { cashSessionId, nature: "INCOME", paymentMethod: "dinheiro" },
-    _sum: { amount: true },
-  })
-
-  const outcomeResult = await tx.cashMovement.aggregate({
-    where: { cashSessionId, nature: "OUTCOME", paymentMethod: "dinheiro" },
-    _sum: { amount: true },
-  })
-
-  const initial = Number(session.initialBalance)
-  const income = Number(incomeResult._sum.amount ?? 0)
-  const outcome = Number(outcomeResult._sum.amount ?? 0)
-
-  return Math.round((initial + income - outcome) * 100) / 100
-}
-
-/**
- * Get summary grouped by payment method for a session.
- */
-export async function getPaymentMethodSummary(
-  tx: PrismaClient,
-  cashSessionId: string
-): Promise<Array<{ paymentMethod: string; totalIncome: number; totalOutcome: number; net: number }>> {
-  const movements = await tx.cashMovement.findMany({
-    where: { cashSessionId },
-    select: { paymentMethod: true, nature: true, amount: true },
-  })
-
-  const map = new Map<string, { income: number; outcome: number }>()
-
-  for (const m of movements) {
-    const method = m.paymentMethod || "outros"
-    const entry = map.get(method) || { income: 0, outcome: 0 }
-    if (m.nature === "INCOME") {
-      entry.income += Number(m.amount)
-    } else {
-      entry.outcome += Number(m.amount)
-    }
-    map.set(method, entry)
-  }
-
-  return Array.from(map.entries()).map(([method, { income, outcome }]) => ({
-    paymentMethod: method,
-    totalIncome: Math.round(income * 100) / 100,
-    totalOutcome: Math.round(outcome * 100) / 100,
-    net: Math.round((income - outcome) * 100) / 100,
-  }))
-}
 
 export interface AutoCloseResult {
   closedCount: number

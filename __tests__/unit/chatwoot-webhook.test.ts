@@ -7,6 +7,7 @@ import { NextRequest } from "next/server";
 
 const state = vi.hoisted(() => ({
   recordWebhookEvent: vi.fn().mockResolvedValue(true),
+  markWebhookProcessed: vi.fn().mockResolvedValue(undefined),
   scheduleTalisonRun: vi.fn().mockResolvedValue(undefined),
   existingConversation: null as { id: string; contactName: string | null; customerId: string | null; externalId: string | null } | null,
   customer: null as { id: string; name: string } | null,
@@ -39,6 +40,7 @@ vi.mock("@/server/db", () => ({
 
 vi.mock("@/lib/webhooks/replay-guard", () => ({
   recordWebhookEvent: (args: unknown) => state.recordWebhookEvent(args),
+  markWebhookProcessed: (...a: unknown[]) => state.markWebhookProcessed(...a),
   extractSourceIp: vi.fn().mockReturnValue("127.0.0.1"),
 }));
 
@@ -100,6 +102,8 @@ beforeEach(() => {
 
   state.recordWebhookEvent.mockClear();
   state.recordWebhookEvent.mockResolvedValue(true);
+  state.markWebhookProcessed.mockClear();
+  state.markWebhookProcessed.mockResolvedValue(undefined);
   state.scheduleTalisonRun.mockClear();
   state.existingConversation = null;
   state.customer = null;
@@ -194,6 +198,34 @@ describe("POST /api/webhooks/chatwoot", () => {
       expect(response.status).toBe(401);
       expect(state.tx.chatbotMessage.create).not.toHaveBeenCalled();
     });
+  });
+
+  /**
+   * Auditoria 2026-08-05 (C4): o chatwoot era o ÚNICO provider que gravava
+   * evento e nunca o marcava como processado — 25.277 eventos em
+   * `processed=false` para sempre.
+   *
+   * Não era só métrica morta: foi esse ruído que escondeu os 83 webhooks de
+   * saque da Eulen em `not_found` (o P0 da Etapa 1). Uma consulta de "webhooks
+   * não processados" devolvia 25 mil linhas, e as que representavam dinheiro
+   * sumiam no meio.
+   */
+  it("marca o evento como processado depois de persistir a mensagem", async () => {
+    await callWebhook(makePayload());
+
+    expect(state.markWebhookProcessed).toHaveBeenCalledWith(
+      "chatwoot",
+      "message:msg-1",
+      { ok: true },
+    );
+  });
+
+  it("evento duplicado NÃO remarca como processado (sai antes)", async () => {
+    state.recordWebhookEvent.mockResolvedValue(false);
+
+    await callWebhook(makePayload());
+
+    expect(state.markWebhookProcessed).not.toHaveBeenCalled();
   });
 
   it("agenda Talison para mensagem incoming quando Chatwoot está pending", async () => {
