@@ -155,6 +155,19 @@ services:
       - "--db-dir=/db"
       - "--listen=0.0.0.0:3100"
       - "--zmq-endpoint=tcp://elements:5555"
+      # OBRIGATÓRIO — sem isto o saldo vem ERRADO, e em silêncio.
+      #
+      # O default do waterfalls devolve no máximo 100 transações por endereço.
+      # O endereço mais movimentado da carteira central tem 415: as 315 restantes
+      # ficavam invisíveis para o LWK, escondendo 5 UTXOs (R$ 1.202). O saldo
+      # aparecia como R$ 7.702 em vez de R$ 8.905 — sem erro, sem log, sem
+      # sintoma além do número menor.
+      #
+      # Enganoso porque TUDO o mais batia: tip idêntico ao das Esploras públicas,
+      # bloco indexado, transação presente, endereço conhecido. O índice sempre
+      # esteve completo; era a API que truncava a resposta. Custou uma
+      # reindexação inteira perseguindo a hipótese errada (2026-08-06).
+      - "--max-txs-seen=100000"
     volumes:
       - waterfalls_db:/db
       - ./elements_rpc.secret:/run/secrets/elements_rpc:ro

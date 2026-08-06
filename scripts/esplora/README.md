@@ -40,6 +40,20 @@ comentada no ponto do script onde importa.
    Administrators+SYSTEM — não em `~/.ssh/authorized_keys`. No lugar errado, o
    login falha sem explicar.
 
+5. **`--max-txs-seen` é obrigatório, e sem ele o SALDO VEM ERRADO.** O default
+   devolve no máximo 100 transações por endereço; o endereço mais movimentado da
+   carteira central tem 415. As 315 restantes somem, e com elas 5 UTXOs
+   (R$ 1.202) — saldo de R$ 7.702 em vez de R$ 8.905, sem erro e sem log.
+
+   O que torna esta armadilha cara é que **todo o resto bate**: tip idêntico ao
+   das públicas, bloco indexado, transação presente, endereço conhecido. Parece
+   índice incompleto e não é — é a API truncando. Custou uma reindexação inteira
+   de 6h atrás da hipótese errada.
+
+   **Só um teste pega isso:** comparar saldo e contagem de UTXOs da carteira
+   central contra uma Esplora pública, ANTES de promover a fonte. Tip igual não
+   prova nada. Ver "Cutover" abaixo.
+
 ## Rede: por que Cloudflare Tunnel e não Tailscale
 
 Tailscale foi tentado e falhou de quatro formas (mirrored-inbound, portproxy não
@@ -67,9 +81,39 @@ camadas de escape) está descrito em `docs/runbooks/waterfalls-esplora.md`.
 
 ## Cutover — só depois de `initialblockdownload:false` **e** waterfalls no tip
 
-Antes de promover, comparar tip e saldo/UTXOs da carteira central contra uma
-Esplora pública. Promover cedo faz o LWK enxergar chain parcial — exatamente o
-tipo de leitura truncada que já custou um cache corrompido.
+**Critério de aceitação — não promova sem isto.** Tip igual NÃO basta: já tivemos
+tip idêntico ao da Blockstream com o saldo R$ 1.202 menor (ver armadilha 5). O
+teste que vale é comparar saldo e contagem de UTXOs da carteira central:
 
-Depois do cutover, **remover o auto-reparo interino** da VPS:
-`systemctl disable --now depix-cache-autorepair.timer`.
+```bash
+# Roda dentro do container do LWK, que é onde a lib `lwk` existe.
+# Compara a fonte própria contra as públicas usando o MESMO descriptor.
+ssh contabo 'docker exec arenatech-lwk-wallet python3 /tmp/par.py'
+# Aceite só com saldo e nº de UTXOs IDÊNTICOS aos das públicas.
+```
+
+Promover com índice truncado cria saldo subnotificado — o espelho do incidente do
+saldo inflado: um saque legítimo passa a ser recusado por "saldo insuficiente"
+que não existe.
+
+Executado o cutover (`ESPLORA_URL=https://esplora.pdvdepix.app` no
+`/opt/lwk-wallet/.env` + `docker compose up -d`), **remover o auto-reparo
+interino** da VPS: `systemctl disable --now depix-cache-autorepair.timer`.
+
+> **Se um dia a Esplora própria sair de operação** e o `ESPLORA_URL` voltar para
+> as públicas, REATIVE o auto-reparo — ele é o que continha a corrupção de cache
+> causada pelas respostas parciais delas.
+
+### Cloudflare: o endpoint precisa de bypass
+
+O `cloudflared` expõe o waterfalls, mas o Browser Integrity Check da Cloudflare
+bloqueia o LWK com **HTTP 403 / error code 1010** — ele é um cliente Rust sem
+cabeçalhos de navegador. Sintoma: `Server: cloudflare` na resposta de erro.
+
+Correção: WAF → Custom rules → regra `Skip` para
+`(http.host eq "esplora.pdvdepix.app")`, marcando Browser Integrity Check,
+Managed Rules, Bot Fight Mode e Rate Limiting.
+
+O endpoint serve dados públicos de blockchain (sem chaves, sem valores — na
+Liquid os valores são confidenciais), então o afrouxamento é de baixo risco. Para
+fechar depois, o caminho é um service token do Zero Trust.
