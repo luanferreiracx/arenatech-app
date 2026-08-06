@@ -36,12 +36,43 @@ const PRICE_TOOLS = new Set([
 ]);
 
 /**
- * Equação em dinheiro montada na resposta ("R$ 7.799,99 - R$ 3.150,00 ="). O bot
- * não faz conta: diferença de troca sai de `simular_parcelamento`. A guarda de
- * preço não pega esse caso, porque as tools de preço de fato rodaram — o que
- * falta é a tool de CÁLCULO.
+ * Conta em dinheiro feita pelo bot. Duas formas, porque ele usa as duas:
+ *
+ * 1. **Equação explícita** — "R$ 7.799,99 - R$ 3.150,00 =".
+ * 2. **Prosa** — "a diferença fica em R$ 4.649,99", "você paga R$ 4.649,99 de
+ *    diferença", "dando seu aparelho na troca, fica R$ 4.649,99".
+ *
+ * Só a primeira era detectada, e a segunda é a que aconteceu de verdade: o
+ * incidente do Caio Marques (01/08/2026), descrito abaixo, foi em prosa. Medido
+ * na auditoria de 05/08: as duas guardas dispararam **zero vezes em 7 dias** —
+ * não era bot comportado, era guarda que quase não pegava nada.
+ *
+ * A forma 2 exige valor + palavra de DIFERENÇA/TROCA na mesma frase. Sem essa
+ * âncora, "o aparelho está R$ 4.649,99 no PIX" (preço vindo de tool, legítimo)
+ * viraria falso positivo — e guarda que grita em tudo é ignorada, que é o modo
+ * de falha oposto e igualmente inútil.
+ *
+ * O bot não faz conta: diferença de troca sai de `simular_parcelamento`. A
+ * guarda de PREÇO não pega esse caso, porque as tools de preço de fato rodaram —
+ * o que falta é a tool de CÁLCULO.
  */
-const MATH_PATTERN = /R\$\s*[\d.,]+\s*[-–−+]\s*R\$\s*[\d.,]+\s*=/;
+const MATH_EQUATION = /R\$\s*[\d.,]+\s*[-–−+]\s*R\$\s*[\d.,]+\s*=/;
+
+/** Palavras que denunciam o bot fechando uma conta de troca/entrada em prosa. */
+const DIFFERENCE_WORDS =
+  /(diferen[çc]a|troca|sobrand[oa]|restant|de entrada|voc[êe] paga|fica(?:ria)?\s+(?:em\s+)?R\$)/i;
+
+/** Valor monetário em qualquer grafia usual. */
+const MONEY_ANYWHERE = /R\$\s*[\d.,]+/;
+
+/**
+ * A resposta fecha uma conta de dinheiro? Cobre a equação explícita e a prosa.
+ */
+function statesMoneyMath(reply: string): boolean {
+  if (MATH_EQUATION.test(reply)) return true;
+  return MONEY_ANYWHERE.test(reply) && DIFFERENCE_WORDS.test(reply);
+}
+
 const CALC_TOOL = "simular_parcelamento";
 
 /** Detecta valor monetário em texto (R$ 1.234,56 / R$1234 / 4.299,99 reais). */
@@ -164,7 +195,7 @@ export async function runTalison(args: TalisonRunArgs): Promise<TalisonRunResult
           });
         }
         emitirConsumo(iteration, false);
-        const computedMath = MATH_PATTERN.test(reply) && !toolsUsed.includes(CALC_TOOL);
+        const computedMath = statesMoneyMath(reply) && !toolsUsed.includes(CALC_TOOL);
         if (computedMath) {
           logger.warn("Talison: conta em dinheiro feita sem tool de cálculo", {
             conversationId: toolContext.conversation.id,

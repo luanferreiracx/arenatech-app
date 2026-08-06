@@ -392,6 +392,52 @@ describe("POST /api/webhooks/chatwoot", () => {
       expect(state.sendBotMessage).not.toHaveBeenCalled();
     });
 
+    /**
+     * Auditoria 2026-08-05 (P1-B7). Os testes acima mandam `status: "failed"` —
+     * e o `webhook_data` do Chatwoot (`app/models/message.rb`) **não inclui o
+     * campo `status`**. Os campos são: account, additional_attributes,
+     * content_attributes, content_type, content, conversation, created_at, id,
+     * inbox, message_type, private, sender, source_id.
+     *
+     * Ou seja: `body.status` era sempre `undefined`, o `if` saía fora, e todo o
+     * bloco de detecção **e o reenvio automático** era código morto.
+     *
+     * Medido em produção: 4 mensagens com `status=3` (failed) no Chatwoot em 30
+     * dias, e **0 marcadas** do nosso lado, em 15.424. O erro real vem em
+     * `content_attributes.external_error` (valores observados: "500 Internal
+     * Server Error", "Net::ReadTimeout with #<TCPSocket:(closed)>").
+     */
+    it("marca falha pelo payload REAL do Chatwoot (content_attributes.external_error)", async () => {
+      state.tx.chatbotMessage.findFirst.mockResolvedValue({
+        id: "m-real", senderType: "bot", content: "Olá! Como posso ajudar?",
+        conversationId: "c1", deliveryFailed: false, metadata: null,
+      });
+      state.tx.chatbotConversation.findUnique.mockResolvedValue({ externalId: "cw-42" });
+
+      // Sem `status`: exatamente como o Chatwoot manda.
+      await callWebhook(makePayload({
+        event: "message_updated",
+        id: "ext-real",
+        content_attributes: { external_error: "500 Internal Server Error" },
+      }));
+
+      expect(state.tx.chatbotMessage.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { deliveryFailed: true } }),
+      );
+      expect(state.sendBotMessage).toHaveBeenCalledWith("cw-42", "Olá! Como posso ajudar?");
+    });
+
+    it("message_updated SEM erro (edição de texto) não marca nada", async () => {
+      await callWebhook(makePayload({
+        event: "message_updated",
+        id: "ext-ok",
+        content_attributes: { in_reply_to: 123 },
+      }));
+
+      expect(state.tx.chatbotMessage.update).not.toHaveBeenCalled();
+      expect(state.sendBotMessage).not.toHaveBeenCalled();
+    });
+
     it("NÃO reenvia um reenvio que falhou (evita loop)", async () => {
       state.tx.chatbotMessage.findFirst.mockResolvedValue({
         id: "m3", senderType: "bot", content: "Olá!",
