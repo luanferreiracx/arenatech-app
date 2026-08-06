@@ -39,3 +39,31 @@ export function monthRange(
     daysInMonth: lastDay,
   };
 }
+
+/**
+ * Ano e mes de apuracao a que uma data pertence, ancorados no fuso Brasil.
+ *
+ * Inversa de `monthRange`: enquanto aquela devolve a janela de um mes, esta diz
+ * em qual mes uma data cai. Mesma fronteira, mesma razao — um instante e o mes
+ * de negocio dele so batem se ambos usarem o mesmo fuso.
+ *
+ * Etapa 7, Modulo 2 (achado A): `provider-reversal.service.ts` derivava o mes do
+ * fato com `getFullYear()`/`getMonth()`, que respondem no fuso do PROCESSO.
+ * Producao roda em UTC, entao uma venda de 31/jul 22:00 BRT (= 01/ago 01:00 UTC)
+ * era lida como AGOSTO: o estorno procurava a apuracao de agosto, nao achava a
+ * de julho e retornava no-op — a comissao indevida nunca era estornada.
+ *
+ * E a mesma familia do J3 (documentado acima) e do CM-1. A correcao ja existia
+ * para a JANELA do mes e para os DIAS do mes; faltava para a LEITURA do mes.
+ */
+export function monthOfDate(date: Date): { year: number; month: number } {
+  // `en-CA` formata como YYYY-MM-DD, o que evita ambiguidade de ordem.
+  const partes = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "numeric",
+  }).formatToParts(date);
+  const year = Number(partes.find((p) => p.type === "year")!.value);
+  const month = Number(partes.find((p) => p.type === "month")!.value);
+  return { year, month };
+}
