@@ -140,6 +140,61 @@ Registro porque o método importa mais que o placar:
 O Bloco C (17 P2 + 6 P3) segue como backlog datado, sem urgência de
 comercialização.
 
+## Etapa 7 — varredura módulo a módulo
+
+Motivada por uma cobrança do dono: as 6 primeiras auditorias foram por
+**dimensão**, e medindo a cobertura por módulo, Ordens de Serviço, Interesses e
+Relatórios tinham **zero menções**. Regra desta etapa: três provas por módulo —
+código, dado de produção e navegador real.
+
+| # | Módulo | Achados fechados |
+|---|---|---|
+| M1 | Ordens de Serviço | Botões admin-only visíveis ao operador; status relido dentro da tx; 3 locks de caixa faltando |
+| M2 | Comissões | Fuso do estorno (mês errado na virada); teste que exercitava réplica, não o resolver real |
+| M3 | Catálogo | Superfície anônima multi-tenant auditada |
+| M4 | Interesses | Opt-out de lead (LGPD), idempotente |
+| M5 | Fidelidade | Sem achados novos — 2 falsos positivos descartados |
+| M6 | Relatórios | Operador baixava em PDF o custo que a tela esconde dele (PR #840) |
+| M7 | Caixa | 4 escritas na gaveta sem travar a sessão — **e o teste da paridade passou cego** (PR #841) |
+| M8 | PDV | Três formas de `payment_details`; tela quebrava e **recibo saía com 76 linhas de `NaN`** (PR #842) |
+| M9 | Financeiro | "Contas a Pagar" mostrava recebimentos (PR #843) + 2 achados aguardando decisão |
+
+**Nove módulos, nove varridos.** O padrão apareceu em 6 dos 9: a regra existia,
+foi aplicada num lugar e esquecida no irmão.
+
+### A décima ocorrência foi dentro de um guardião
+
+O M7 é o caso mais instrutivo do programa. O M1 criou
+`os-cash-lock-parity.test.ts` justamente para impedir que a próxima instância
+aparecesse em silêncio. Ele tinha dois furos:
+
+1. a lista de arquivos era **escrita à mão**, e `stock.ts` não estava nela;
+2. a asserção era `locks > 0`, que **um único lock satisfaz** — `sale.ts` tinha
+   lock no `finalize` e as escritas do `refund`, 900 linhas abaixo, passavam.
+
+**O teste da paridade cometeu o erro que existe para pegar.** O mesmo se repetiu
+no M9-3: a primeira versão do teste buscava o padrão no arquivo inteiro e
+passava por causa do `getById`, que já negava.
+
+Lição operacional: **um guardião que não é visto falhar contra o código
+defeituoso não é um guardião.** Desde o M7 todo teste desta etapa é verificado
+nas duas direções, e as listas de arquivos são derivadas do código, não escritas
+à mão.
+
+### Dois achados aguardando sua decisão (M9)
+
+| # | achado | por que não corrigi |
+|---|---|---|
+| **M9-1** | `dre`, `cashFlow`, `stats` e `projectedCashFlow` não filtram por papel. Os **3 operadores reais** veem receita, custo, lucro e despesa do ano (**R$ 1,5 mi**), com botão de exportar | É decisão de produto. Em loja pequena, operador acompanhar o resultado pode ser o que você quer — ou exatamente o que não quer |
+| **M9-2** | **R$ 754.400** de obrigação **cancelada** cujo pagamento continua no ledger, inflando a despesa do DRE de 2026 (quase metade do total). Uma delas é de R$ 740.000, provável erro de digitação | Mexer em ledger de dinheiro é sua decisão. O caminho já foi fechado em 25/07; o passivo histórico ficou |
+
+### O que a Etapa 7 provou sobre integridade
+
+O Financeiro **resistiu a toda tentativa de derrubá-lo**: 1.341 obrigações e
+1.774 pagamentos reconciliados com **zero divergências**, zero órfãos, zero
+cross-tenant. Os defeitos deste programa não estão no núcleo contábil — estão
+nas bordas: rótulo, papel, formato legado, lock esquecido.
+
 ## Pendências suas (não dependem de código)
 
 1. **Abastecer L-BTC da central** — **CRUZOU o piso em 05/08** (9.992 contra
