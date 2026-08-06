@@ -4,6 +4,8 @@ import { useState } from "react";
 import { useTRPC } from "@/trpc/react";
 import { useQuery } from "@tanstack/react-query";
 import { PageHeader } from "@/components/domain/page-header";
+import { AdminOnlyPage } from "@/components/domain/admin-only-page";
+import { useIsTenantAdmin } from "@/lib/auth/use-tenant-admin";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   Select,
@@ -34,7 +36,7 @@ function formatDate(dateStr: string): string {
   return `${d}/${m}/${y}`;
 }
 
-export default function ProjectedCashFlowPage() {
+function ProjectedCashFlowContent() {
   const [days, setDays] = useState(30);
   const trpc = useTRPC();
 
@@ -147,4 +149,24 @@ export default function ProjectedCashFlowPage() {
       ) : null}
     </div>
   );
+}
+
+/**
+ * O gate vive AQUI, num componente separado, e nao dentro de `ProjectedCashFlowContent`.
+ * Um early-return antes dos `useState`/`useQuery` do corpo muda a ordem dos
+ * hooks entre renders — o React reclamou em voz alta ("change in the order of
+ * Hooks") e a tela do ADMIN quebrou com "Algo deu errado". O resolver estava
+ * certo o tempo todo; o defeito era meu, na UI.
+ */
+export default function ProjectedCashFlowPage() {
+  const isAdmin = useIsTenantAdmin();
+  if (!isAdmin) {
+    return (
+      <AdminOnlyPage
+        title="Fluxo Projetado"
+        description="A projecao de caixa reune contas a pagar e a receber futuras. Peca a um administrador se precisar do numero."
+      />
+    );
+  }
+  return <ProjectedCashFlowContent />;
 }

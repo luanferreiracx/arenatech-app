@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useTRPC } from "@/trpc/react";
+import { useIsTenantAdmin } from "@/lib/auth/use-tenant-admin";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -9,7 +10,7 @@ import { DateInput } from "@/components/inputs/date-input";
 import { brtDayKey, todayBrtISO } from "@/lib/utils/date-range";
 import { downloadCsv, centsToBrl } from "@/lib/utils/csv-export";
 import { Button } from "@/components/ui/button";
-import { Download } from "lucide-react";
+import { Download, ShieldAlert } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -57,7 +58,7 @@ function formatPeriodLabel(period: string, groupBy: string): string {
   return d.toLocaleDateString("pt-BR");
 }
 
-export function CashFlowReport() {
+function CashFlowContent() {
   const trpc = useTRPC();
 
   // Default: last 30 days
@@ -268,4 +269,28 @@ export function CashFlowReport() {
       ) : null}
     </div>
   );
+}
+
+/**
+ * Gate em componente separado: early-return antes dos hooks do corpo muda a
+ * ordem dos hooks entre renders e quebra a tela do admin. Mesmo erro que o
+ * `DrePage` cometeu nesta mudança — corrigido nos três.
+ */
+export function CashFlowReport() {
+  const isAdmin = useIsTenantAdmin();
+  if (!isAdmin) {
+    return (
+      <Card>
+        <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
+          <ShieldAlert className="h-10 w-10 text-muted-foreground" aria-hidden />
+          <p className="text-base font-medium">Disponivel apenas para administradores</p>
+          <p className="max-w-md text-sm text-muted-foreground break-words">
+            O fluxo de caixa reune entradas e saidas consolidadas da loja. Peca a
+            um administrador se precisar do numero.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+  return <CashFlowContent />;
 }
