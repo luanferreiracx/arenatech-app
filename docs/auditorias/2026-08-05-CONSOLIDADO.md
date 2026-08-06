@@ -140,6 +140,29 @@ Registro porque o método importa mais que o placar:
 O Bloco C (17 P2 + 6 P3) segue como backlog datado, sem urgência de
 comercialização.
 
+## Etapa 7 — varredura módulo a módulo
+
+Motivada por uma cobrança do dono: as 6 primeiras auditorias foram por
+**dimensão**, e medindo a cobertura por módulo, Ordens de Serviço, Interesses e
+Relatórios tinham **zero menções**. Regra desta etapa: três provas por módulo —
+código, dado de produção e navegador real.
+
+| # | Módulo | Achados fechados |
+|---|---|---|
+| M1 | Ordens de Serviço | Botões admin-only visíveis ao operador; status relido dentro da tx; 3 locks de caixa faltando |
+| M2 | Comissões | Fuso do estorno (mês errado na virada); teste que exercitava réplica, não o resolver real |
+| M3 | Catálogo | Superfície anônima multi-tenant auditada |
+| M4 | Interesses | Opt-out de lead (LGPD), idempotente |
+| M5 | Fidelidade | Sem achados novos — 2 falsos positivos descartados |
+| M6 | Relatórios | **Operador baixava em PDF o custo que a tela esconde dele** (PR #840) |
+
+Restam M7 Caixa, M8 PDV e M9 Financeiro — os três de dinheiro, a serem varridos
+com o segundo tenant populado.
+
+**O padrão das 6 dimensões se repetiu em 3 dos 6 módulos:** a regra existia e
+foi aplicada em um lugar e esquecida no irmão. No M6 a política de custo valia no
+produto, na OS e no PDV — e não no relatório.
+
 ## Pendências suas (não dependem de código)
 
 1. **Abastecer L-BTC da central** — **CRUZOU o piso em 05/08** (9.992 contra
