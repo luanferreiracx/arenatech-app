@@ -88,7 +88,10 @@ import {
   recordCashPaidTransaction,
   reverseCashPaidTransaction,
 } from "@/server/services/installment-ledger.service";
-import { writeCashMovement } from "@/server/services/cash-session.service";
+import {
+  writeCashMovement,
+  lockOpenCashSessionOrThrow,
+} from "@/server/services/cash-session.service";
 import {
   ensureDevicePurchaseCategoryId,
   DEVICE_PURCHASE_CATEGORY_NAME,
@@ -1416,6 +1419,10 @@ export const stockRouter = createTRPCRouter({
             // movimento que a conferência descartava: ruído no extrato do
             // caixa. `affectsCashDrawer` é a fonte única dessa pergunta.
             if (openSession) {
+              // Trava a sessao antes de escrever (mesma janela do B9): entre o
+              // `findFirst` acima e esta escrita o fechamento pode commitar, e o
+              // movimento cairia numa sessao ja fechada — fora da conferencia.
+              await lockOpenCashSessionOrThrow(tx, openSession.id);
               await writeCashMovement(tx, {
                 tenantId: ctx.tenantId,
                 cashSessionId: openSession.id,
@@ -1809,6 +1816,9 @@ export const stockRouter = createTRPCRouter({
             });
           }
           if (cancelOpenSession) {
+            // Trava antes do laco: uma unica vez cobre todas as devolucoes, e
+            // fecha a janela entre o `findFirst` acima e as escritas.
+            await lockOpenCashSessionOrThrow(tx, cancelOpenSession.id);
             for (const w of drawerWithdrawals) {
               await writeCashMovement(tx, {
                 tenantId: ctx.tenantId,
