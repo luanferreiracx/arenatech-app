@@ -15,6 +15,7 @@ import { selectIdsToCover } from "@/server/services/refund-coverage.service";
 import {
   refundNeedsOpenCashSession,
   writeCashMovement,
+  lockOpenCashSessionOrThrow,
 } from "@/server/services/cash-session.service";
 import {
   canonicalMethodToken,
@@ -1818,6 +1819,24 @@ export const saleRouter = createTRPCRouter({
               ? "Caixa nao esta aberto. Abra um caixa antes de devolver dinheiro (downgrade)."
               : "Caixa nao esta aberto. Abra um caixa antes de receber dinheiro.",
           });
+        }
+
+        // Trava a sessao antes de escrever na gaveta (auditoria 2026-08-05,
+        // P1-B9). Entre o `findFirst` acima e o `writeCashMovement` abaixo ha
+        // uma janela em que o fechamento pode commitar: o movimento entraria
+        // numa sessao ja fechada e ficaria FORA da conferencia — dinheiro que o
+        // relatorio de fechamento nao conta.
+        //
+        // `cashier.ts` ja documentava este follow-up ("Eliminacao total exigiria
+        // SELECT ... FOR UPDATE no finalize"); `payInstallment` e
+        // `reverseInstallment` sempre tiveram o lock. E o mesmo padrao que a
+        // auditoria encontrou seis vezes: a correcao fecha a instancia, nao a
+        // classe.
+        //
+        // Medido: 0 ocorrencias em 1.796 movimentos de producao — a janela e de
+        // milissegundos com um operador so. Com varias lojas, sobe.
+        if (openSession && payments.length > 0) {
+          await lockOpenCashSessionOrThrow(tx, openSession.id);
         }
 
         if (openSession && payments.length > 0) {

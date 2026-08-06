@@ -105,6 +105,16 @@ describe("Auditoria Financeira — FIN-B2 ledger (ao vivo)", () => {
       _sum: { amountCents: true },
     });
     expect(stats.paidMonthAmount).toBe(ledgerThisMonthOnly._sum.amountCents ?? 0);
-    expect(stats.paidMonthAmount).toBeLessThan(99999 + 10000); // o 99999 do mês passado ficou de fora
+
+    // O teto fixo (`< 99999 + 10000`) quebrava assim que o banco local
+    // acumulava pagamentos de outras suítes no mesmo mês — falhava por VOLUME,
+    // não porque o valor do mês passado tivesse vazado. A asserção acima já
+    // afirma o invariante certo (paidMonth == soma do ledger DESTE mês); aqui
+    // basta confirmar que a linha específica do mês passado não entrou.
+    const doMesPassado = await prisma.installmentPayment.aggregate({
+      where: { installmentId: instId, paidAt: { lt: new Date(new Date().getFullYear(), new Date().getMonth(), 1) } },
+      _sum: { amountCents: true },
+    });
+    expect(doMesPassado._sum.amountCents, "o pagamento do mês passado existe no ledger").toBe(99999);
   });
 });
