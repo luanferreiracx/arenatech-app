@@ -1353,6 +1353,13 @@ export const financialRouter = createTRPCRouter({
           JOIN financial_transactions t ON t.id = ip.transaction_id
           WHERE t.type = 'PAYABLE'
             AND t.deleted_at IS NULL
+            -- M9-2 (auditoria 2026-08-06): obrigacao CANCELADA nao e despesa.
+            -- A receita ja filtrava status da venda (s.status IN ...); a
+            -- despesa nao filtrava o da obrigacao — mesma regra, um lado so.
+            -- Efeito medido: R$ 754.400 de PAYABLE cancelado no DRE de 2026,
+            -- quase METADE da despesa do ano, e o lucro liquido aparecia como
+            -- -R$ 1.340.844 numa loja com R$ 1,5 mi de receita.
+            AND t.status <> 'CANCELLED'
             AND EXTRACT(YEAR FROM (ip.paid_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo')) = ${year}
           GROUP BY 1
         `;
