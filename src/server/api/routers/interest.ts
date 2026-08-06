@@ -15,6 +15,7 @@ import {
 } from "@/lib/validators/customer";
 import { logger } from "@/lib/logger";
 import { sendTextWithFallback } from "@/lib/whatsapp/send-with-fallback";
+import { unsubscribeInterest } from "@/server/services/interest-optout.service";
 
 /**
  * Cooldown anti-spam de notificação em lote (B5/RN-12): não reenvia ao mesmo
@@ -376,7 +377,17 @@ export const interestRouter = createTRPCRouter({
           continue;
         }
         const chave = phoneMatchKey(interest.phone);
-        if ((interest.customerId && optOutIds.has(interest.customerId)) || (chave && optOutKeys.has(chave))) {
+        // Tres formas de a pessoa ter pedido para sair, nesta ordem:
+        //  1. o PROPRIO lead se descadastrou (M4-1) — unica que alcanca quem nao
+        //     tem Customer, que sao 114 dos 119 de producao;
+        //  2. o Customer vinculado se descadastrou;
+        //  3. o telefone bate com algum Customer descadastrado (impede contornar
+        //     o descadastro so nao vinculando o lead).
+        if (
+          interest.unsubscribed ||
+          (interest.customerId && optOutIds.has(interest.customerId)) ||
+          (chave && optOutKeys.has(chave))
+        ) {
           skipped++;
           logger.info("Interest de contato descadastrado (LGPD) — pulado", {
             interestId: interest.id,
@@ -479,6 +490,25 @@ export const interestRouter = createTRPCRouter({
    * A conversão automática por telefone acontece no finalize da venda e no
    * create da OS (interest-conversion.service).
    */
+  /**
+   * Registra o "PARE" de um lead (LGPD).
+   *
+   * Nao e admin-only de proposito: quem recebe o pedido e quem atende o
+   * WhatsApp. Exigir admin criaria atrito para cumprir a lei, e o risco de um
+   * operador descadastrar alguem por engano e menor que o de a loja seguir
+   * mandando mensagem para quem pediu para sair.
+   */
+  unsubscribe: tenantProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      await unsubscribeInterest({
+        tenantId: ctx.tenantId,
+        interestId: input.id,
+        userId: ctx.session.user.id,
+      });
+      return { ok: true };
+    }),
+
   markConverted: tenantProcedure
     .input(z.object({
       id: z.string().uuid(),
