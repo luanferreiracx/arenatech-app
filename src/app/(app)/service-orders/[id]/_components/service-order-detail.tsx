@@ -453,7 +453,8 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                 <Ban className="mr-2 h-4 w-4" />Cancelar
               </Button>
             )}
-            {isCancelled && (
+            {/* Admin-only: `uncancel` exige isTenantAdmin no servidor (ADR 0053). */}
+            {isCancelled && isAdmin && (
               <Button variant="outline" onClick={() => dialog.open("uncancel")}>
                 <Undo2 className="mr-2 h-4 w-4" />Descancelar
               </Button>
@@ -464,7 +465,11 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                 <Trash2 className="mr-2 h-4 w-4" />Excluir
               </Button>
             )}
-            {isRefundableOsStatus(status) && !isRefunded && !benchMode && (
+            {/* Admin-only: `refund` exige isTenantAdmin no servidor (ADR 0053).
+                Medido no navegador (auditoria 2026-08-06, M1-2): o operador via
+                este botão numa OS paga e só tomava 403 depois de confirmar o
+                diálogo. O botão Excluir, logo acima, já tinha a guarda. */}
+            {isRefundableOsStatus(status) && !isRefunded && !benchMode && isAdmin && (
               <Button variant="destructive" size="sm" onClick={() => dialog.open("refund")}>
                 <Undo2 className="mr-2 h-4 w-4" />Estornar
               </Button>
