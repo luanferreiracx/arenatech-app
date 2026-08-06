@@ -46,7 +46,7 @@ custo de reverter. Não por etapa.
 | ~~**B7**~~ | ~~Falha de entrega do bot nunca é marcada~~ | 5 | ✅ **PR #827**. Lê `content_attributes.external_error`, onde o erro vive de verdade. Acrescenta métrica `delivery_failed` — antes só o reenvio era logado, e reenvio só existe para mensagem do bot |
 | ~~**B8**~~ | ~~54 FKs sem `tenant_id` composto~~ | 2 | ✅ **PR #833**. FK composta nas **4 de dinheiro** (não nas 54 — as outras apontam para catálogo/config, blast radius menor). Não toca no Prisma: a composta é adicional e vive só no banco. `ON DELETE` espelha a FK existente — `RESTRICT` ao lado de `CASCADE` bloquearia o cascade. Verificado em produção: o INSERT cross-tenant que a auditoria executou agora é recusado |
 | ~~**B9**~~ | ~~Corrida fechar-caixa × finalizar-venda~~ | 1 | ✅ **PRs #830 + #831**. O lock sozinho não bastou: o CI pegou a falha real que eu não reproduzi local. Causa era o `closed_at` carimbado **antes** do UPDATE bloquear — o dinheiro sempre foi contado, o carimbo é que mentia |
-| **B10** | L-BTC **abaixo** do piso | 2 | **Pendência sua, ATIVA** — **9.805** contra piso de 10.000 (06/08 04:00) — e **caindo**: era 10.113 na Etapa 2, 9.992 em 05/08 18:00. O alerta subiu de `warn` para `error`: *"repasses/saques podem travar"*. Era 10.113 na Etapa 2 |
+| **B10** | L-BTC **abaixo** do piso | 2 | **Pendência sua, ATIVA** — **9.805** contra piso de 10.000 (06/08 04:00) — e **caindo**: era 10.113 na Etapa 2, 9.992 em 05/08 18:00. O alerta subiu de `warn` para `error`: *"repasses/saques podem travar"* |
 | **B11** | Esplora de terceiro falhou 172× | 4 | **Em andamento por você** — Esplora própria |
 
 ### Bloco C — Backlog datado (P2/P3)
