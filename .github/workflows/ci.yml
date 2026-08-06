@@ -448,9 +448,26 @@ jobs:
   # flakiness). Imagem Docker so e buildada no job de deploy (main).
   # ============================================================
   e2e:
-    name: E2E
+    # SHARDING (2026-08-06): o full levava ~9,6min, dos quais 7,2min eram os
+    # TESTES e 2,4min o setup (medido nos ultimos 5 merges na main). Tres shards
+    # em paralelo derrubam a parte de teste para ~2,4min => job em ~4,8min.
+    #
+    # Cada shard e um JOB SEPARADO, com seu proprio servico de Postgres e banco
+    # limpo. Isso e o que torna o paralelismo seguro aqui: 9 dos 24 arquivos de
+    # spec mexem em sessao de caixa, que colide sob concorrencia no MESMO banco
+    # (indice unico `cash_sessions_one_open_per_user`). Aumentar `workers` seria
+    # a versao insegura da mesma ideia; shard com banco proprio, nao.
+    #
+    # `workers: 1` dentro do shard continua valendo (ADR 0039).
+    name: E2E${{ matrix.shard && format(' {0}/3', matrix.shard) || '' }}
     needs: [lint, typecheck, test]
     runs-on: ubuntu-latest
+    strategy:
+      # Um shard vermelho nao cancela os outros: quero o quadro completo de
+      # falhas num run so, nao a primeira que aparecer.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     # @smoke (branch/PR) termina em ~4-6min. O FULL (push na main, ~126 testes
     # serial — workers=1 por ADR 0039) leva ~25min. 35min dá folga p/ completar e
     # AVISAR (ADR 0045/0046 — full é advisory, roda em paralelo ao deploy self-hosted
@@ -578,8 +595,8 @@ jobs:
           AUTENTIQUE_MOCK: "1"
           PORT: "4000"
 
-      - name: Rodar E2E (${{ steps.scope.outputs.label }})
-        run: pnpm exec playwright test ${{ steps.scope.outputs.grep }}
+      - name: Rodar E2E (${{ steps.scope.outputs.label }} — shard ${{ matrix.shard }}/3)
+        run: pnpm exec playwright test ${{ steps.scope.outputs.grep }} --shard=${{ matrix.shard }}/3
         env:
           PLAYWRIGHT_BASE_URL: http://localhost:4000
 
@@ -591,7 +608,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report-${{ steps.scope.outputs.label }}
+          name: playwright-report-${{ steps.scope.outputs.label }}-shard${{ matrix.shard }}
           path: playwright-report/
           retention-days: 7
 
