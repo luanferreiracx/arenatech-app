@@ -226,3 +226,38 @@ pnpm typecheck && pnpm lint          # 0 erros
 pnpm test:unit                       # 2059 verdes (+19)
 pnpm test:integration                # 314 verdes (+10)
 ```
+
+---
+
+## Estado do TXW20260727-00002 antes da correção (registro histórico)
+
+Durante o incidente foi criada a tabela `_fix_txw20260727_00002_backup` no banco
+de produção, com a linha original antes de o status ser corrigido.
+
+A auditoria de 2026-08-05 (P1-B5) encontrou essa tabela **ainda em produção, com
+RLS desabilitado** — 1 de 2 exceções entre 113 tabelas com `tenant_id`. Ela
+guarda `pix_key`, `recipient_name` e `recipient_tax_id` (CPF), e `app_user` — o
+role que a aplicação usa em toda requisição — a lia sem filtro de tenant.
+
+O estado que importava foi preservado aqui, **sem os campos pessoais**, e a
+tabela foi removida:
+
+| campo | valor |
+|---|---|
+| `number` | TXW20260727-00002 |
+| `status` (antes da correção) | **FAILED** |
+| `status` (atual, correto) | **COMPLETED** |
+| `gross_amount_cents` | 39394 |
+| `net_amount_cents` | 39000 |
+| `pix_key_type` | PHONE |
+| `withdraw_tx_id` | (vazio — o app não tinha registrado o broadcast) |
+| `created_at` | 2026-07-27 19:03:52 |
+
+O `withdraw_tx_id` vazio com a transação de fato transmitida é a assinatura do
+incidente: **o banco dizia que o saque falhou e a transação estava na rede.** Foi
+o `idempotency.json` do LWK que desempatou — o mesmo arquivo que passou a ter
+backup automatizado em 2026-08-05 (ver [backup.md](./backup.md)).
+
+**Lição de operação:** tabela de socorro criada durante incidente precisa de
+prazo de validade. Esta viveu 9 dias em produção, fora do modelo de isolamento,
+guardando CPF — e ninguém teria notado sem a auditoria.

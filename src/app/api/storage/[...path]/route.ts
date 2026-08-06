@@ -13,6 +13,38 @@ export const dynamic = "force-dynamic";
  *
  * Cacheable (max-age 1 hora). Sem autenticacao — apenas assets publicos.
  */
+
+/**
+ * Prefixos que esta rota pode servir.
+ *
+ * O comentario acima sempre disse "apenas assets publicos", mas o codigo nao
+ * restringia nada: servia QUALQUER chave do bucket (auditoria 2026-08-05,
+ * P1-B4). E o bucket tambem guarda:
+ *
+ *   - `nfse/{tenantId}/{orderId}/...`        nota fiscal de servico, EM CLARO
+ *   - `tenants/{id}/certificates/*.pfx.enc`  certificado digital A1 (cifrado)
+ *
+ * Bastava saber tenantId + orderId para baixar a nota fiscal de outro tenant.
+ * Era latente na medicao (0 NFS-e anexadas em producao) e o certificado esta
+ * cifrado com AES-256-GCM — por isso P1 e nao P0. Mas o buraco fecha agora, nao
+ * quando a primeira nota for emitida.
+ *
+ * Allowlist e nao blocklist: uma lista de proibidos precisa ser atualizada toda
+ * vez que alguem grava um prefixo novo no bucket, e esquecer disso volta a
+ * expor. Aqui, prefixo novo nasce inacessivel ate ser declarado — o custo do
+ * esquecimento e um 404, nao um vazamento.
+ */
+const PUBLIC_PREFIXES = [
+  /** Logo do tenant: `tenants/{id}/logo-*.{ext}` (tenant-logo-service.ts:45) */
+  /^tenants\/[^/]+\/logo-[^/]+$/,
+  /** Imagens: `tenants/{id}/{kind}/{entityId}/...` (product-image-service.ts:83) */
+  /^tenants\/[^/]+\/(products|service-orders|purchases|valuations)\/[^/]+\/.+$/,
+];
+
+/** A chave e servivel por esta rota publica? */
+function isPublicKey(key: string): boolean {
+  return PUBLIC_PREFIXES.some((re) => re.test(key));
+}
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ path: string[] }> },
@@ -23,6 +55,12 @@ export async function GET(
   // Bloqueia path traversal.
   if (key.includes("..") || key.startsWith("/")) {
     return NextResponse.json({ error: "Invalid path" }, { status: 400 });
+  }
+
+  // Fora da allowlist: 404 SEM tocar no bucket. Devolver o 404 do S3 diria ao
+  // atacante se a chave existe — 404 nosso nega acesso sem confirmar nada.
+  if (!isPublicKey(key)) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
   const endpoint = process.env.S3_ENDPOINT || "http://localhost:9000";

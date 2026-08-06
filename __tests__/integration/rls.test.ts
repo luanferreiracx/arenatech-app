@@ -169,6 +169,19 @@ describe("RLS multi-tenant isolation", () => {
 describe("RLS guard-rail — toda tabela com tenant_id tem RLS forçado", () => {
   const KNOWN_GLOBAL = new Set<string>(["user_tenants"]);
 
+  /**
+   * LIMITE CONHECIDO desta rede (auditoria 2026-08-05, P1-B5): ela roda contra o
+   * banco de TESTES. A tabela `_fix_txw20260727_00002_backup` — criada à mão em
+   * produção durante o incidente de saque duplicado, com `pix_key`,
+   * `recipient_name` e CPF, e sem RLS — viveu 9 dias sem que este teste a visse,
+   * porque nunca existiu fora de produção.
+   *
+   * Schema é versionado e testável; tabela criada por `psql` em incidente não é.
+   * Para essa classe, a verificação equivalente é a query desta suíte rodada
+   * contra produção — está registrada em
+   * `docs/operations/incidente-2026-07-31-saque-quase-duplicado.md`.
+   */
+
   it("nenhuma tabela com tenant_id fica sem RLS habilitado + forçado + policy", async () => {
     const rows = await prisma.$queryRawUnsafe<
       Array<{ table: string; rls_enabled: boolean; rls_forced: boolean; policies: bigint }>
