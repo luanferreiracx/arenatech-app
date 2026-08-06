@@ -42,8 +42,8 @@ custo de reverter. Não por etapa.
 | ~~**B3**~~ | ~~App sem healthcheck e `/api/health` que não existe~~ | 3 | ✅ **PR #823**. Rota criada tocando o banco (a dependência sem a qual nada funciona); `HEALTHCHECK` no container. Validado com o postgres PARADO: devolve **503 degraded** de verdade. Em produção: `200 {status:ok,db:up}` e container `healthy` |
 | **B4** | `/api/storage` serve o bucket inteiro sem auth | 1 | Latente (0 NFS-e hoje); certificado A1 está cifrado. Allowlist de prefixos |
 | **B5** | Tabela de incidente com CPF/chave PIX fora do RLS | 1 | 1 linha, legível por `app_user` sem filtro de tenant |
-| **B6** | Guarda anti-alucinação de dinheiro não pega o caso que a motivou | 5 | Regex exige equação literal; 4 fraseados naturais passam, inclusive o do incidente documentado |
-| **B7** | Falha de entrega do bot nunca é marcada | 5 | Filtra por `body.status`, campo que o Chatwoot não envia. Reenvio automático é código morto |
+| ~~**B6**~~ | ~~Guarda anti-alucinação de dinheiro não pega o caso que a motivou~~ | 5 | ✅ **PR #827**. Detecta valor + palavra de diferença/troca. Validado contra **115 mensagens reais**: a regra antiga pegava **0**, a nova pega **6** — todas conta de diferença legítima, zero falso positivo. O bot **estava** fazendo conta em produção |
+| ~~**B7**~~ | ~~Falha de entrega do bot nunca é marcada~~ | 5 | ✅ **PR #827**. Lê `content_attributes.external_error`, onde o erro vive de verdade. Acrescenta métrica `delivery_failed` — antes só o reenvio era logado, e reenvio só existe para mensagem do bot |
 | **B8** | 54 FKs sem `tenant_id` composto | 2 | Provado: escrita cross-tenant passa no banco. App não expõe, mas `forceClose` depende só do RLS |
 | **B9** | Corrida fechar-caixa × finalizar-venda | 1 | 0 ocorrências em 1.796 movimentos; sobe de risco com múltiplos caixas |
 | **B10** | L-BTC **abaixo** do piso | 2 | **Pendência sua, ATIVA** — 9.992 contra piso de 10.000 (confirmado 05/08 18:00). O alerta subiu de `warn` para `error`: *"repasses/saques podem travar"*. Era 10.113 na Etapa 2 |
@@ -131,18 +131,15 @@ Registro porque o método importa mais que o placar:
 
 ## Estado da implementação (2026-08-05)
 
-**Entregue e em produção:** os 2 P0 (PR #820) e 3 P1 (PRs #821, #823).
+**Entregue e em produção:** os 2 P0 (PR #820) e 5 P1 (PRs #821, #823, #827).
 
-**Restam 8 P1** do Bloco B — dos quais 2 são pendências suas (L-BTC, Esplora).
-Os 6 técnicos, em ordem sugerida:
+**Restam 6 P1** do Bloco B — dos quais 2 são pendências suas (L-BTC, Esplora).
+Os 4 técnicos, em ordem sugerida:
 
-1. **B6** — guarda de preço do bot que não pega o caso que a motivou
-3. **B7** — falha de entrega do bot nunca marcada (filtra por um campo que o
-   Chatwoot não envia)
-4. **B4** — `/api/storage` sem allowlist de prefixo
-5. **B5** — tabela de incidente com CPF fora do RLS
-6. **B9** — corrida fechar-caixa × finalizar-venda (precisa do teste primeiro)
-7. **B8** — 54 FKs sem `tenant_id` composto (priorizar as ~4 de dinheiro)
+1. **B4** — `/api/storage` sem allowlist de prefixo
+2. **B5** — tabela de incidente com CPF fora do RLS
+3. **B9** — corrida fechar-caixa × finalizar-venda (precisa do teste primeiro)
+4. **B8** — 54 FKs sem `tenant_id` composto (priorizar as ~4 de dinheiro)
 
 ## Pendências suas (não dependem de código)
 
