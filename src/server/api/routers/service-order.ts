@@ -78,6 +78,7 @@ import {
   refundNeedsOpenCashSession,
   paymentMethodAffectsCashDrawer,
   writeCashMovement,
+  lockOpenCashSessionOrThrow,
 } from "@/server/services/cash-session.service";
 import { buildTechnicianReport } from "@/server/services/os-technician-report.service";
 import { productSearchFilter } from "@/server/services/product-search";
@@ -131,6 +132,12 @@ async function settleOsPaymentRecords(
     where: { userId: args.userId, closedAt: null },
   });
   if (openSession) {
+    // Trava a sessao antes de escrever na gaveta (auditoria 2026-08-06, M1-3).
+    // Entre o `findFirst` acima e esta escrita o fechamento pode commitar, e o
+    // movimento cairia numa sessao ja fechada — dinheiro fora da conferencia.
+    // Mesmo padrao de `payInstallment`, `reverseInstallment` e do `finalize`
+    // (fix do B9). A OS era o unico router de dinheiro sem o lock.
+    await lockOpenCashSessionOrThrow(tx, openSession.id);
     await writeCashMovement(tx, {
       tenantId: args.tenantId,
       cashSessionId: openSession.id,
@@ -1453,6 +1460,7 @@ export const serviceOrderRouter = createTRPCRouter({
             // refundOpenSession foi validado no guard inicial (linked sale paga
             // com valor > 0 => caixa aberto), entao a saida sempre e registrada.
             if (refundOpenSession && refundedCents > 0) {
+              await lockOpenCashSessionOrThrow(tx, refundOpenSession.id);
               await writeCashMovement(tx, {
                 tenantId: ctx.tenantId,
                 cashSessionId: refundOpenSession.id,
@@ -1567,6 +1575,7 @@ export const serviceOrderRouter = createTRPCRouter({
               const paidCents = decimalToCents(order.paidAmount);
               const refundMethod = order.paymentMethod ?? osReceivables[0]?.paymentMethod ?? null;
               if (paidCents > 0) {
+                await lockOpenCashSessionOrThrow(tx, refundOpenSession.id);
                 await writeCashMovement(tx, {
                   tenantId: ctx.tenantId,
                   cashSessionId: refundOpenSession.id,
@@ -3596,8 +3605,22 @@ export const serviceOrderRouter = createTRPCRouter({
         // M4: so avanca para DELIVERED se a OS ja estiver paga (PAID/READY_FOR_PICKUP),
         // mesmo gate que confirmPhysicalDeliveryTerm e confirmPhysicalSignature(delivery).
         // Cliente assinando o termo antes do pagamento nao deve pular o fluxo financeiro.
-        const canDeliver = ["PAID", "READY_FOR_PICKUP"].includes(prep.order.status);
         await ctx.withTenant(async (tx) => {
+          // Re-le o status DENTRO da transacao: `prep.order` foi carregado antes
+          // da chamada HTTP a Autentique e pode estar obsoleto — a janela e a
+          // duracao de uma requisicao de rede, nao milissegundos. Uma OS
+          // estornada nesse intervalo era sobrescrita para DELIVERED, ficando
+          // com `refundedAt` preenchido e status de entregue (auditoria
+          // 2026-08-06, M1-1).
+          //
+          // Mesmo padrao do irmao `checkReturnTermStatus`, que ja fazia isso.
+          const fresh = await tx.serviceOrder.findUnique({
+            where: { id: input.orderId },
+            select: { status: true },
+          });
+          if (!fresh) throw new TRPCError({ code: "NOT_FOUND", message: "OS nao encontrada" });
+
+          const canDeliver = ["PAID", "READY_FOR_PICKUP"].includes(fresh.status);
           await tx.serviceOrder.update({
             where: { id: input.orderId },
             data: {

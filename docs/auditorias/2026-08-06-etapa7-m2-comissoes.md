@@ -97,7 +97,7 @@ fechamento de apuração, que nunca aconteceu.
 | B | `status = PAID` e `paidAt` **nunca são escritos** — o ciclo morre em CLOSED, sem reconciliação com o PAYABLE | `commission.prisma:28,131`; 0 escritas no repo |
 | C | Evento sem regra correspondente é **descartado em silêncio** — venda some da apuração sem aviso nem telemetria | `compute-lines.ts:106` |
 | D | `Math.max(0, ...)` no `netAmount` **descarta saldo devedor** do prestador; sem carry-forward | `commission-preview.service.ts:466` |
-| E | O teste de `closeApuracao` é cópia manual que **omite o recompute** — testa a versão pré-C2 | `close-apuracao.test.ts:42-72` |
+| ~~E~~ | ~~O teste de `closeApuracao` é cópia manual que omite o recompute~~ ✅ **CORRIGIDO** — passa a chamar o resolver real; a asserção corrompe o valor para 99.999 e exige que o PAYABLE saia com 250 (prova de que o recompute rodou). Verificado: reintroduzindo o valor stale, os 3 casos quebram | `close-apuracao.test.ts` |
 | F | Sem unique no banco em `FinancialTransaction(referenceType, referenceId)` — PAYABLE único é garantia só comportamental | `financial.prisma:82-88` |
 | G | `financialTransactionId` **sem FK** — ponteiro solto | `commission.prisma:132` |
 | H | `recomputeProviderApuracao` não checa status; TOCTOU `calculate` × `closeApuracao` pode sobrescrever apuração já selada | `commission-preview.service.ts:437,480` |
