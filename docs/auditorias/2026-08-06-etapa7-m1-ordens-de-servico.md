@@ -89,7 +89,7 @@ Verificado no navegador: numa OS paga o admin mantém Estornar e o operador não
 vê; numa OS cancelada, o mesmo para Descancelar. O botão de controle (Recibo)
 segue visível para ambos.
 
-### M1-1 — `checkDeliveryTermStatus` sem CAS nem re-leitura (P2)
+### M1-1 — `checkDeliveryTermStatus` sem CAS nem re-leitura (P2) — ✅ CORRIGIDO
 
 `service-order.ts:3568-3627`: lê a OS em tx1, sai da transação para chamar a
 Autentique por **HTTP**, decide a partir do status obsoleto (`:3599`) e grava com
@@ -106,7 +106,7 @@ Falha possível: OS estornada durante a espera da Autentique é sobrescrita para
 **Prova de dado:** não medi ocorrência (exigiria correlacionar `refunded_at` com
 o histórico de entrega). Confiança: alta no código, não verificada no dado.
 
-### M1-3 — 4 escritas de caixa sem `lockOpenCashSessionOrThrow` (P2, latente)
+### M1-3 — 4 escritas de caixa sem `lockOpenCashSessionOrThrow` (P2, latente) — ✅ CORRIGIDO
 
 A OS é o **único router de dinheiro sem o lock**: `sale.ts` (1), `cashier.ts` (5),
 `financial.ts` (2), `service-order.ts` (**0**, com 4 `writeCashMovement`).
