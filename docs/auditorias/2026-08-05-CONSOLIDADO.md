@@ -40,13 +40,13 @@ custo de reverter. Não por etapa.
 | ~~**B1**~~ | ~~3 CVEs críticas em `next-auth`/`@auth/core` + bypass de proxy no Next~~ | 4 | ✅ **PR #821**. `next` 16.2.11, `next-auth` beta.32, `@auth/prisma-adapter` 2.11.3 (esta era necessária: sozinha a beta.32 deixava um `@auth/core@0.41.2` entrando pelo adapter), `js-yaml` 4.3.1. **3 críticas → 0**. Verificado em produção: login, `/api/auth/session` e o gate do tRPC intactos |
 | ~~**B2**~~ | ~~HSTS ausente em `pdvdepix.app` e no wildcard~~ | 3 | ✅ **PR #821**. A investigação achou algo maior: o PR #76 (12/06) **já tinha** versionado a config com HSTS — a produção divergiu depois e nada detectava (2 dos 3 vhosts divergiam). Além do header: wildcard versionado, repo sincronizado, `check-nginx-drift.sh` (verificado que **detecta** drift), e o redirect de `http://www.pdvdepix.app`, que respondia 404 |
 | ~~**B3**~~ | ~~App sem healthcheck e `/api/health` que não existe~~ | 3 | ✅ **PR #823**. Rota criada tocando o banco (a dependência sem a qual nada funciona); `HEALTHCHECK` no container. Validado com o postgres PARADO: devolve **503 degraded** de verdade. Em produção: `200 {status:ok,db:up}` e container `healthy` |
-| **B4** | `/api/storage` serve o bucket inteiro sem auth | 1 | Latente (0 NFS-e hoje); certificado A1 está cifrado. Allowlist de prefixos |
-| **B5** | Tabela de incidente com CPF/chave PIX fora do RLS | 1 | 1 linha, legível por `app_user` sem filtro de tenant |
+| ~~**B4**~~ | ~~`/api/storage` serve o bucket inteiro sem auth~~ | 1 | ✅ **PR #829**. Allowlist de prefixo; fora dela devolve 404 **sem tocar no bucket**. Verificado em produção: logo real serve (200), NFS-e e certificado negam (404) |
+| ~~**B5**~~ | ~~Tabela de incidente com CPF/chave PIX fora do RLS~~ | 1 | ✅ **PR #829**. Estado histórico preservado no doc do incidente (sem PII) e tabela removida. Isolamento agora é **112/112** |
 | ~~**B6**~~ | ~~Guarda anti-alucinação de dinheiro não pega o caso que a motivou~~ | 5 | ✅ **PR #827**. Detecta valor + palavra de diferença/troca. Validado contra **115 mensagens reais**: a regra antiga pegava **0**, a nova pega **6** — todas conta de diferença legítima, zero falso positivo. O bot **estava** fazendo conta em produção |
 | ~~**B7**~~ | ~~Falha de entrega do bot nunca é marcada~~ | 5 | ✅ **PR #827**. Lê `content_attributes.external_error`, onde o erro vive de verdade. Acrescenta métrica `delivery_failed` — antes só o reenvio era logado, e reenvio só existe para mensagem do bot |
 | **B8** | 54 FKs sem `tenant_id` composto | 2 | Provado: escrita cross-tenant passa no banco. App não expõe, mas `forceClose` depende só do RLS |
-| **B9** | Corrida fechar-caixa × finalizar-venda | 1 | 0 ocorrências em 1.796 movimentos; sobe de risco com múltiplos caixas |
-| **B10** | L-BTC **abaixo** do piso | 2 | **Pendência sua, ATIVA** — 9.992 contra piso de 10.000 (confirmado 05/08 18:00). O alerta subiu de `warn` para `error`: *"repasses/saques podem travar"*. Era 10.113 na Etapa 2 |
+| ~~**B9**~~ | ~~Corrida fechar-caixa × finalizar-venda~~ | 1 | ✅ **PRs #830 + #831**. O lock sozinho não bastou: o CI pegou a falha real que eu não reproduzi local. Causa era o `closed_at` carimbado **antes** do UPDATE bloquear — o dinheiro sempre foi contado, o carimbo é que mentia |
+| **B10** | L-BTC **abaixo** do piso | 2 | **Pendência sua, ATIVA** — **9.805** contra piso de 10.000 (06/08 04:00) — e **caindo**: era 10.113 na Etapa 2, 9.992 em 05/08 18:00. O alerta subiu de `warn` para `error`: *"repasses/saques podem travar"*. Era 10.113 na Etapa 2 |
 | **B11** | Esplora de terceiro falhou 172× | 4 | **Em andamento por você** — Esplora própria |
 
 ### Bloco C — Backlog datado (P2/P3)
@@ -88,8 +88,9 @@ Não é preenchimento — é o que 6 auditorias não conseguiram derrubar:
 - **Integridade financeira:** 0 divergências em 2.222 parcelas e 1.766 pagamentos
 - **Concorrência:** 0 deadlocks, 0 conflitos de RLS, 0,03% de rollback em 2,6
   milhões de transações
-- **Isolamento:** RLS em 111/113 tabelas, todas com índice em `tenant_id`;
-  testado com dois tenants reais
+- **Isolamento:** RLS em **112/112** tabelas com `tenant_id` (a tabela de
+  incidente saiu no #829; sobra `user_tenants`, global por design), todas com
+  índice em `tenant_id`; testado com dois tenants reais
 - **Auth:** red team não achou escalação a superadmin, fuga de tenant nem bypass
   de 2FA. Anti-replay de TOTP por compare-and-set no banco
 - **Fronteiras em produção:** enumeração de usuário indistinguível (0,509s vs
@@ -131,15 +132,10 @@ Registro porque o método importa mais que o placar:
 
 ## Estado da implementação (2026-08-05)
 
-**Entregue e em produção:** os 2 P0 (PR #820) e 5 P1 (PRs #821, #823, #827).
+**Entregue e em produção:** os 2 P0 (PR #820) e **8 P1** (PRs #821, #823, #827, #829, #830, #831).
 
-**Restam 6 P1** do Bloco B — dos quais 2 são pendências suas (L-BTC, Esplora).
-Os 4 técnicos, em ordem sugerida:
-
-1. **B4** — `/api/storage` sem allowlist de prefixo
-2. **B5** — tabela de incidente com CPF fora do RLS
-3. **B9** — corrida fechar-caixa × finalizar-venda (precisa do teste primeiro)
-4. **B8** — 54 FKs sem `tenant_id` composto (priorizar as ~4 de dinheiro)
+**Resta 1 P1 técnico** — **B8**, as 54 FKs sem `tenant_id` composto (priorizar
+as ~4 de dinheiro). Mais as 2 pendências suas (L-BTC, Esplora).
 
 ## Pendências suas (não dependem de código)
 
