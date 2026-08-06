@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { withAdmin } from "@/server/db"
 import { logger } from "@/lib/logger"
 import { timingSafeEqualBearer } from "@/lib/utils/timing-safe"
-import { recordWebhookEvent, extractSourceIp } from "@/lib/webhooks/replay-guard"
+import { recordWebhookEvent, markWebhookProcessed, extractSourceIp } from "@/lib/webhooks/replay-guard"
 import { scheduleTalisonRun } from "@/lib/talison/scheduler"
 import { sendBotMessage } from "@/lib/talison/chatwoot-client"
 import { recordTalisonMetric } from "@/lib/talison/metrics"
@@ -330,6 +330,22 @@ export async function POST(req: NextRequest) {
             chatwootStatus,
             messageType,
           })
+        }
+
+        // A mensagem foi persistida: o evento cumpriu seu papel.
+        //
+        // Sem isto, o chatwoot era o ÚNICO provider que gravava evento e nunca o
+        // marcava — 25.277 eventos em `processed=false` para sempre (auditoria
+        // 2026-08-05, C4). Não era só métrica morta: foi esse ruído que escondeu
+        // os 83 webhooks de saque da Eulen em `not_found`, o P0 da Etapa 1. Uma
+        // consulta de "webhooks não processados" devolvia 25 mil linhas e as que
+        // representavam dinheiro sumiam no meio.
+        //
+        // O agendamento do Talison é fire-and-forget de propósito (responde 200
+        // já); o sucesso DELE não é condição para o evento ser considerado
+        // processado — o que este flag afirma é que a mensagem entrou.
+        if (messageId) {
+          await markWebhookProcessed("chatwoot", `message:${messageId}`, { ok: true })
         }
         break
       }
