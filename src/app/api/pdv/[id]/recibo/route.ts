@@ -6,6 +6,7 @@ import { resolveActiveTenant } from "@/lib/auth/active-tenant";
 import { escapeHtml } from "@/lib/utils/html";
 import { withTenant, withAdmin } from "@/server/db";
 import { evaluateSaleReceiptPolicy } from "@/lib/services/sale-receipt-policy";
+import { parsePaymentDetails } from "@/lib/payments/payment-details";
 import { formatCustomerDocument } from "@/lib/utils";
 
 /**
@@ -145,13 +146,11 @@ export async function GET(
     const now = new Date();
 
     // Payment details
-    const paymentDetails = (sale.paymentDetails ?? []) as Array<{
-      method: string;
-      /** Nome legível resolvido no finalize (formas cadastradas pelo tenant). */
-      methodLabel?: string;
-      amount: number;
-      installments?: number;
-    }>;
+    // O `as Array<...>` que estava aqui era pior que na tela: `for...of` numa
+    // string NÃO lança — itera caractere a caractere. O recibo saía 200 com 76
+    // linhas de pagamento e `NaN`, num documento que vai para o cliente.
+    // Auditoria 2026-08-06, M8-1.
+    const paymentDetails = parsePaymentDetails(sale.paymentDetails);
 
     const PAYMENT_LABELS: Record<string, string> = {
       dinheiro: "Dinheiro",

@@ -2729,6 +2729,12 @@ export const saleRouter = createTRPCRouter({
         // paymentMethod="dinheiro" (conta na gaveta); o restante (cartão/pix, que
         // a adquirente estorna, não o caixa) sai como null (fora da gaveta).
         if (refundSession) {
+          // Trava a sessao antes das saidas de estorno. `refundSession` veio de
+          // um `findFirst` bem antes (o guard early, para nao mexer em estoque
+          // sem caixa) — a janela ate aqui e larga: devolucao de estoque e
+          // recebiveis acontecem no meio. Sem o lock, o estorno cairia numa
+          // sessao fechada e sumiria da conferencia.
+          await lockOpenCashSessionOrThrow(tx, refundSession.id);
           const originalLegs = Array.isArray(sale.paymentDetails)
             ? (sale.paymentDetails as Array<Record<string, unknown>>)
             : [];
