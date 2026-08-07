@@ -46,6 +46,12 @@ export const LBTC_ASSET_ID = "6f0279e9ed041c3d710a9f57d0c02928416460c4b722ae3457
  */
 const ADDRESS_TIMEOUT_MS = 150_000;
 
+/**
+ * Teto do sync periódico das carteiras. Generoso porque quem espera é cron: com
+ * a Esplora própria (travessia transatlântica) o full_scan leva ~70s.
+ */
+const SYNC_WALLET_TIMEOUT_MS = 150_000;
+
 export interface MasterAddressResult {
   success: boolean;
   masterAddress?: string;
@@ -508,6 +514,42 @@ export interface LwkListTxsResult {
   success: boolean;
   transactions?: LwkTxItem[];
   error?: string;
+}
+
+/**
+ * Força um sync da carteira contra a Esplora (full_scan) e descarta o resultado.
+ *
+ * Existe porque o monitor de fundo do LWK está desligado (`MONITOR_ENABLED=false`,
+ * para não criar um segundo caminho de detecção de depósito além da Eulen). Sem
+ * ninguém sincronizando, o cache do LWK envelhece: o saldo continua correto, mas
+ * o carimbo `last_sync_ok_at` para no tempo e a UI passa a avisar "saldo pode
+ * estar desatualizado" — corretamente, já que nada garante que ele reflita a rede.
+ *
+ * O timeout é generoso de propósito: com Esplora distante o full_scan leva ~70s.
+ * Quem chama é cron, não humano esperando na tela.
+ */
+export async function syncWallet(
+  tenantId: string,
+  opts: { timeoutMs?: number } = {},
+): Promise<{ success: boolean; error?: string }> {
+  const { config, error: cfgErr } = safeGetConfig();
+  if (cfgErr) return { success: false, error: cfgErr };
+  if (!config) return { success: true };
+  try {
+    const { ok, status, body } = await lwkFetch(
+      config,
+      "GET",
+      `/wallet/${tenantId}/balance?sync=true`,
+      { timeoutMs: opts.timeoutMs ?? SYNC_WALLET_TIMEOUT_MS },
+    );
+    if (!ok) return { success: false, error: String(body.error ?? `HTTP ${status}`) };
+    return { success: true };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
 
 /** Lista transacoes da carteira do tenant (mais recentes primeiro). */

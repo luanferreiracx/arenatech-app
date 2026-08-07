@@ -118,7 +118,7 @@ async function isOutpointSpent(
  * carteira nossa, logo não há cache nosso para corromper. Ordem estável por id:
  * o anel da rotação depende de a posição não mudar entre rodadas.
  */
-async function listWalletsWithLwkCache(): Promise<string[]> {
+export async function listWalletsWithLwkCache(): Promise<string[]> {
   const wallets = await withAdmin(async (tx) =>
     tx.tenantDepixWallet.findMany({
       where: { provisionedAt: { not: null }, custodyModel: { not: "external" } },
