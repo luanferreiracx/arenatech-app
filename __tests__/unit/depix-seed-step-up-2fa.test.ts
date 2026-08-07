@@ -98,6 +98,49 @@ describe("E8-10 — revelar a seed exige o mesmo segundo fator que o saque", () 
   });
 });
 
+describe("E8-10b — revelar a seed deixa rastro", () => {
+  const corpo = corpoDaProcedure("revealMnemonic");
+
+  /**
+   * Era a ÚNICA das quatro mutations sensíveis totalmente silenciosa:
+   * `setupWallet`, `rewrapPassphrase` e `recoverNonCustodial` já usavam
+   * `logger`. A mais grave — a que expõe a chave do saldo inteiro — não
+   * registrava nada.
+   *
+   * Sem "quem revelou, quando", um saque não autorizado depois de um vazamento
+   * é indistinguível de uso legítimo.
+   */
+  it("grava trilha de auditoria persistente", () => {
+    expect(
+      corpo,
+      "revelar a seed é a operação mais grave da carteira e era a única sem " +
+        "registro nenhum. Um incidente depois não teria como ser investigado.",
+    ).toMatch(/logAudit\(/);
+    expect(corpo).toMatch(/action: "depix_wallet_reveal_mnemonic"/);
+  });
+
+  it("a trilha NUNCA carrega a seed", () => {
+    // A trilha é sobre o ATO, não sobre o segredo. Gravar a seed no audit_log
+    // transformaria a defesa em vazamento.
+    const payload = corpo.slice(corpo.indexOf("payload: {"), corpo.indexOf("payload: {") + 300);
+    expect(payload).not.toMatch(/mnemonic/);
+    expect(payload).not.toMatch(/res\.mnemonic/);
+  });
+
+  it("só grava DEPOIS do step-up passar", () => {
+    // Tentativa falha não pode poluir a trilha — verificado no navegador:
+    // 2FA inválido devolveu 412 e gravou 0 registros.
+    const posStepUp = corpo.indexOf("verifyUserTwoFactor");
+    const posLog = corpo.indexOf("logAudit(");
+    expect(posStepUp).toBeGreaterThan(0);
+    expect(posLog).toBeGreaterThan(posStepUp);
+  });
+
+  it("também alerta em log operacional (nível warn)", () => {
+    expect(corpo).toMatch(/logger\.warn\(/);
+  });
+});
+
 describe("a tela pede o código (senão o admin não consegue usar)", () => {
   it("tem campo de 2FA no diálogo", () => {
     expect(CARD).toMatch(/depix-wallet-mnemonic-2fa/);

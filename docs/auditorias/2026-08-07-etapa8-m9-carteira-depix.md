@@ -85,9 +85,62 @@ O 2FA é **adicional**, não substituto: a senha (custodial) e a passphrase
 - **Não testei `recoverNonCustodial` nem `rewrapPassphrase`** com passphrase
   real. São os caminhos de recuperação, e recuperação mal testada é onde
   incidente nasce.
-- **Não verifiquei se `revealMnemonic` grava trilha.** Ele tem rate limit, mas
-  não confirmei se existe registro de "fulano revelou a seed em tal data" — que
-  é exatamente o que se quer auditar depois de um incidente.
+- ~~Não verifiquei se `revealMnemonic` grava trilha.~~ **Fechado — ver E8-10b.**
 - **Os 57 registros de limite diário** foram contados, não auditados: não
   verifiquei se o cap é aplicado corretamente na virada do dia (o fuso BRT já
   mordeu este sistema antes).
+
+---
+
+## E8-10b — A pendência do M9, fechada — ✅ CORRIGIDO
+
+Registrei acima "não confirmei se `revealMnemonic` grava trilha". Fui verificar:
+**não gravava nada** — nem `logAudit`, nem `logger`.
+
+E a assimetria é reveladora:
+
+| mutation | gravava? |
+|---|---|
+| `setupWallet` | `logger` |
+| `rewrapPassphrase` | `logger` |
+| `recoverNonCustodial` | `logger` |
+| **`revealMnemonic`** | **nada** |
+
+As três operações **menos** graves logavam. A que expõe a chave do saldo
+inteiro era a única totalmente silenciosa.
+
+Sem "quem revelou, quando", um saque não autorizado depois de um vazamento é
+**indistinguível de uso legítimo** — e é exatamente isso que se investiga num
+incidente.
+
+### O fix
+
+`logAudit` persistente (`depix_wallet_reveal_mnemonic`) + `logger.warn`. O
+payload carrega `custodyModel` e `network` — **nunca a seed**. A trilha é sobre
+o **ato**, não sobre o segredo; gravar a seed transformaria a defesa em
+vazamento.
+
+### Verificado no navegador
+
+Tentativa com 2FA inválido:
+
+```
+HTTP 412 | seed não retornada | 0 registros na trilha
+```
+
+Falha não polui a trilha — o `logAudit` roda **depois** do step-up passar, e o
+teste afirma essa ordem.
+
+### O que não consegui provar
+
+**O caminho de sucesso completo.** Para isso eu precisaria de uma carteira LWK
+provisionada no tenant de auditoria — o `audit-loja-2` não tem — e provisionar
+uma carteira Liquid real só para ver um `logAudit` é custo desproporcional.
+
+O que fiz: habilitei 2FA no usuário de auditoria pelo **fluxo legítimo do app**
+(`startEnrollment` → `confirm`, com segredo gerado pelo próprio sistema, sem
+copiar de conta real), promovi-o a admin e cheguei até a chamada. O que faltou
+foi a carteira.
+
+**Tudo revertido**: 2FA desligado, papel de volta a `operator`, trilha limpa —
+5 usuários com 2FA (as contas reais), zero resíduo.

@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { verifyUserTwoFactor } from "@/lib/auth/two-factor-verify";
+import { logAudit } from "@/server/services/audit-log.service";
 import { compareSync } from "bcryptjs";
 import { z } from "zod";
 import {
@@ -196,6 +197,36 @@ export const depixWalletRouter = createTRPCRouter({
           message: res.error ?? "Falha ao revelar frase de recuperacao.",
         });
       }
+
+      // Trilha (auditoria 2026-08-07, E8-10b): revelar a seed é a operação mais
+      // grave da carteira — quem a tem move o saldo inteiro por fora do sistema.
+      // Era a ÚNICA das quatro mutations sensíveis totalmente silenciosa:
+      // `setupWallet`, `rewrapPassphrase` e `recoverNonCustodial` já logavam.
+      //
+      // Sem registro de "quem revelou, quando", um saque não autorizado depois
+      // de um vazamento é indistinguível de uso legítimo — e é exatamente isso
+      // que se quer auditar num incidente.
+      //
+      // NUNCA gravar a seed, nem parte dela, no payload: a trilha é sobre o
+      // ATO, não sobre o segredo.
+      await ctx.withTenant((tx) =>
+        logAudit(tx as never, {
+          tenantId: ctx.tenantId,
+          userId: ctx.session.user.id,
+          action: "depix_wallet_reveal_mnemonic",
+          entity: "tenant_depix_wallet",
+          entityId: wallet.tenantId,
+          payload: {
+            custodyModel: wallet.custodyModel,
+            network: res.network ?? wallet.network,
+          },
+        }),
+      );
+      logger.warn("Carteira DePix: frase de recuperacao revelada", {
+        tenantId: ctx.tenantId,
+        userId: ctx.session.user.id,
+        custodyModel: wallet.custodyModel,
+      });
 
       return {
         mnemonic: res.mnemonic,
