@@ -21,6 +21,17 @@ import { enforceRateLimit } from "@/server/api/middleware/rate-limit";
 const rlSend = enforceRateLimit({ limit: 60, windowMs: 60 * 60 * 1000 });
 
 /**
+ * Chave ÚNICA de rate-limit para os três caminhos que chamam `dispatchMessage`
+ * (`send`, `resend`, `sendToCustomer`).
+ *
+ * `enforceRateLimit` compõe a chave como `trpc:{path}:{userId}` — passar o nome
+ * de cada procedure daria **três baldes de 60**, ou seja 180/hora pelo MESMO
+ * número WhatsApp Business. O recurso protegido é o número, não a procedure.
+ * Auditoria 2026-08-07, E8-6.
+ */
+const RL_ENVIO_EXTERNO = "communication.envio-externo";
+
+/**
  * LGPD (opt-out): o destinatário casa com um cliente que optou por NÃO receber
  * comunicações? Gate único do módulo — evita que o `send` (telefone livre), o
  * `resend` e as notificações furem o opt-out que o `sendToCustomer` já respeita.
@@ -198,7 +209,7 @@ export const communicationRouter = createTRPCRouter({
       // derruba o atendimento real junto. 60/hora cobre com folga o balcão.
       // Chamado no início do handler (não via `.use`) para preservar o ctx
       // refinado — mesmo padrão de `depix-transaction.ts`.
-      await rlSend(ctx, "communication.send");
+      await rlSend(ctx, RL_ENVIO_EXTERNO);
       // tx1: cria Message PENDING.
       const message = await ctx.withTenant(async (tx) =>
         tx.message.create({
@@ -251,6 +262,9 @@ export const communicationRouter = createTRPCRouter({
   sendToCustomer: tenantProcedure
     .input(sendToCustomerSchema)
     .mutation(async ({ ctx, input }) => {
+      // `sendToCustomer` também dispara envio externo pelo número compartilhado
+      // (E8-6). Teto único para os três caminhos que chamam `dispatchMessage`.
+      await rlSend(ctx, RL_ENVIO_EXTERNO);
       const prep = await ctx.withTenant(async (tx) => {
         const customer = await tx.customer.findUnique({
           where: { id: input.customerId },
@@ -325,6 +339,14 @@ export const communicationRouter = createTRPCRouter({
   resend: tenantProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
+      // Mesmo teto do `send` (auditoria 2026-08-07, E8-6): `resend` dispara o
+      // MESMO `dispatchMessage`, pelo MESMO número WhatsApp Business — e o
+      // status volta a FAILED quando o envio falha, então uma mensagem que a
+      // Evolution API recusa é reenviável indefinidamente. Produção tem 30
+      // FAILED (23 delas com "Evolution API HTTP 404"): munição pronta para o
+      // loop. O risco é o mesmo que o `send` documenta — ban do número na Meta,
+      // que é recurso COMPARTILHADO e derruba o atendimento real junto.
+      await rlSend(ctx, RL_ENVIO_EXTERNO);
       const message = await ctx.withTenant(async (tx) => {
         const m = await tx.message.findUnique({ where: { id: input.id } });
         if (!m) {
