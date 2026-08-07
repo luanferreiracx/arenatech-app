@@ -1,4 +1,5 @@
 import { TRPCError } from "@trpc/server";
+import { verifyUserTwoFactor } from "@/lib/auth/two-factor-verify";
 import { compareSync } from "bcryptjs";
 import { z } from "zod";
 import {
@@ -45,6 +46,8 @@ const revealMnemonicSchema = z.object({
   password: z.string().max(MAX_SENHA).optional(),
   // Non-custodial: passphrase da carteira. Custodial: ignorado.
   passphrase: z.string().max(256).optional(),
+  // Step-up 2FA (E8-10): TOTP de 6 dígitos ou backup code.
+  twoFactorCode: z.string().min(6).max(16),
 });
 
 export const depixWalletRouter = createTRPCRouter({
@@ -122,6 +125,28 @@ export const depixWalletRouter = createTRPCRouter({
     .input(revealMnemonicSchema)
     .mutation(async ({ ctx, input }) => {
       await rlSensitiveWallet(ctx, "depixWallet.revealMnemonic");
+
+      // Step-up 2FA (auditoria 2026-08-07, E8-10): a seed dá controle TOTAL e
+      // PERMANENTE da carteira — quem a tem move o saldo inteiro por fora do
+      // sistema, sem passar por limite diário, sem cap, sem trilha nossa.
+      //
+      // O saque de R$ 1 exige 2FA (`depixTransaction.createWithdraw`). Revelar a
+      // chave que dispensa o saque exigia apenas a senha de login. Provado no
+      // navegador: HTTP 200 e a seed retornada só com a senha.
+      //
+      // Escala medida na carteira `arena-tech` (custodial, R$ 130.808
+      // movimentados): 5 admins podem chamar isto, e só 2 têm 2FA ativo.
+      const stepUp = await verifyUserTwoFactor(ctx.session.user.id, input.twoFactorCode);
+      if (!stepUp.ok) {
+        if (stepUp.reason === "not_enrolled") {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              "Revelar a frase de recuperacao exige 2FA. Habilite em Configuracoes > Seguranca.",
+          });
+        }
+        throw new TRPCError({ code: "UNAUTHORIZED", message: "Codigo 2FA invalido." });
+      }
 
       const wallet = await ctx.withTenant(async (tx) =>
         tx.tenantDepixWallet.findUnique({ where: { tenantId: ctx.tenantId } }),
