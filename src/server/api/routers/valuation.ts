@@ -113,17 +113,31 @@ export const valuationRouter = createTRPCRouter({
           });
           defaultValidityDays = settings?.valuationValidityDays ?? 7;
         }
-        const valuation = await tx.deviceValuation.create({
-          data: {
-            tenantId: ctx.tenantId,
-            modelo: input.modelo,
-            armazenamento: input.armazenamento,
-            saudeBateria: input.saudeBateria,
-            valor: centsToPrisma(input.valor),
-            validadeDias: input.validadeDias ?? defaultValidityDays,
-          },
-        });
-        return { id: valuation.id };
+        // O índice único parcial `device_valuations_ativa_unica` é a garantia
+        // real (migration 20260807140000). Este try/catch só TRADUZ a violação
+        // — sem ele o admin recebe um 500 opaco em vez de saber que a
+        // combinação já existe. Auditoria 2026-08-07, E8-4.
+        try {
+          const valuation = await tx.deviceValuation.create({
+            data: {
+              tenantId: ctx.tenantId,
+              modelo: input.modelo,
+              armazenamento: input.armazenamento,
+              saudeBateria: input.saudeBateria,
+              valor: centsToPrisma(input.valor),
+              validadeDias: input.validadeDias ?? defaultValidityDays,
+            },
+          });
+          return { id: valuation.id };
+        } catch (e) {
+          if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: `Ja existe avaliacao ativa para ${input.modelo} ${input.armazenamento} com bateria ${input.saudeBateria}. Edite a existente em vez de criar outra.`,
+            });
+          }
+          throw e;
+        }
       });
     }),
 

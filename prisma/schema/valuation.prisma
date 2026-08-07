@@ -10,6 +10,10 @@ model DeviceValuation {
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 
+  // Índice único PARCIAL criado por SQL puro na migration
+  // 20260807140000_valuation_unique_ativa (o Prisma não expressa
+  // `WHERE deleted_at IS NULL` em @@unique). Impede duas linhas ATIVAS para a
+  // mesma combinação — ver E8-4 na auditoria de 2026-08-07.
   @@index([tenantId, modelo])
   @@index([tenantId, modelo, armazenamento])
   @@map("device_valuations")
