@@ -11,6 +11,7 @@ import { getEsploraHealth } from "@/lib/services/lwk-service";
 import { evaluateEsploraHealth } from "@/lib/services/esplora-health-alert";
 import { checkCentralLbtcRunway } from "@/server/services/depix-lbtc-refill.service";
 import { checkWalletCachesAndAlert } from "@/server/services/depix-cache-integrity.service";
+import { syncWalletsPeriodically } from "@/server/services/depix-wallet-sync.service";
 import { expireStaleWithdrawAuthorizations } from "@/server/services/depix-withdraw-authorization.service";
 
 /**
@@ -70,6 +71,12 @@ export async function POST(request: NextRequest) {
       checked: 0,
       resolved: 0,
     };
+    let walletSync: Awaited<ReturnType<typeof syncWalletsPeriodically>> = {
+      total: 0,
+      synced: 0,
+      failed: 0,
+      skipped: 0,
+    };
     // Lock por job: evita duas instancias consultando/transicionando a mesma tx.
     const ran = await withCronLock("reconcile-depix-transactions", async () => {
       results.push(await reconcileStaleDepixTransactions());
@@ -81,6 +88,13 @@ export async function POST(request: NextRequest) {
       // recorrência do incidente 2026-07), em TODAS as carteiras, não só na
       // central. Best-effort: nunca lança.
       await checkWalletCachesAndAlert();
+      // ...e pra manter o cache do LWK FRESCO. O monitor de fundo do LWK fica
+      // desligado de propósito (ele também detectaria depósitos e dispararia
+      // webhook, criando um 2º caminho além da Eulen), e sem ele nada
+      // sincronizava: o saldo seguia correto, mas `last_sync_ok_at` congelava e a
+      // UI avisava "saldo pode estar desatualizado" — com razão, já que nada
+      // garantia que o número refletisse a rede.
+      walletSync = await syncWalletsPeriodically();
       // ...e, POR ÚLTIMO, pra vigiar a saúde das Esploras do LWK.
       // A ordem importa: são as consultas de saldo acima que mandam o LWK
       // sincronizar e carimbar `last_sync_ok_at`. Checar antes delas lia sempre o
@@ -103,6 +117,7 @@ export async function POST(request: NextRequest) {
       expiredLinks,
       expiredAuthorizations,
       indeterminate,
+      walletSync,
     });
     return NextResponse.json({
       success: true,
@@ -110,6 +125,7 @@ export async function POST(request: NextRequest) {
       expiredLinks,
       expiredAuthorizations,
       indeterminate,
+      walletSync,
     });
   } catch (err) {
     logger.error("[cron-reconcile-depix] failed", {
