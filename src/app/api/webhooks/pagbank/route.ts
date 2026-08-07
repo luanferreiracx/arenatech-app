@@ -104,14 +104,21 @@ export async function POST(req: NextRequest) {
         return
       }
 
-      // Mark as paid
-      await tx.quickSale.update({
-        where: { id: quickSale.id },
+      // CAS ancorado no status (auditoria 2026-08-07, E8-8): o `markPaid` do
+      // router escreve a MESMA transição. O check de `status === "PAID"` acima
+      // é fast-path/UX — entre ele e esta escrita o operador pode ter marcado
+      // pela tela, e sem o CAS o `paidAt` do webhook sobrescreveria o dele.
+      const claimed = await tx.quickSale.updateMany({
+        where: { id: quickSale.id, status: "AWAITING_PAYMENT" },
         data: {
           status: "PAID",
           paidAt: new Date(),
         },
       })
+      if (claimed.count !== 1) {
+        logger.info("PagBank webhook: QuickSale já marcada em paralelo", { referenceId })
+        return
+      }
 
       logger.info("PagBank webhook: QuickSale marked as paid", {
         quickSaleId: quickSale.id,

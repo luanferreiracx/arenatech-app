@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
+import { logAudit } from "@/server/services/audit-log.service";
 import { instantRange } from "@/lib/utils/date-filter";
 import { Prisma } from "@prisma/client";
 import { createTRPCRouter, tenantProcedure } from "@/server/api/trpc";
@@ -304,13 +305,49 @@ export const quickSaleRouter = createTRPCRouter({
         });
       }
 
-      const updated = await ctx.withTenant((tx) =>
-        tx.quickSale.update({
-          where: { id: input.id },
+      // CAS ancorado no status (auditoria 2026-08-07, E8-8): o webhook do
+      // PagBank escreve a MESMA transição (`webhooks/pagbank/route.ts:108`) com
+      // o mesmo padrão ler-checar-escrever. Sem o CAS, os dois passam e o
+      // `paidAt` do segundo sobrescreve o do primeiro.
+      const claimed = await ctx.withTenant((tx) =>
+        tx.quickSale.updateMany({
+          where: { id: input.id, status: "AWAITING_PAYMENT" },
           data: { status: "PAID", paidAt: new Date() },
         }),
       );
+      if (claimed.count !== 1) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "A venda mudou de status durante a operacao (pagamento confirmado em paralelo?). Atualize a tela.",
+        });
+      }
 
+      // Trilha (E8-8): `markPaid` declara DINHEIRO RECEBIDO e é acessível ao
+      // operador — deliberadamente, porque registrar recebimento é atendimento,
+      // não gestão (mesma lógica do PDV, que restringe o ESTORNO e não a venda).
+      //
+      // Mas nas vendas SEM lastro externo a palavra do operador é a única prova:
+      // não há DePix nem wallet para revalidar. Produção tem 3 dessas em 21.
+      // Sem rastro, ninguém consegue reconstruir quem declarou o quê.
+      const semLastroExterno = !existing.walletTransactionId && !existing.depixTransactionId;
+      await ctx.withTenant((tx) =>
+        logAudit(tx as never, {
+          tenantId: ctx.tenantId,
+          userId: ctx.session.user.id,
+          action: "quick_sale_mark_paid",
+          entity: "quick_sale",
+          entityId: existing.id,
+          payload: {
+            number: existing.number,
+            totalAmount: String(existing.totalAmount),
+            revalidadoNaFonte: !semLastroExterno,
+          },
+        }),
+      );
+
+      const updated = await ctx.withTenant((tx) =>
+        tx.quickSale.findUniqueOrThrow({ where: { id: input.id } }),
+      );
       return serializeQuickSale(updated);
     }),
 
