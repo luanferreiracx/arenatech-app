@@ -118,18 +118,33 @@ ESPLORA_URLS = [u for u in [ESPLORA_URL.rstrip("/") if ESPLORA_URL else None,
 # dedup preservando ordem
 ESPLORA_URLS = list(dict.fromkeys(ESPLORA_URLS))
 
-# ESPLORA_URL e PREPENDADO — setar essa env REBAIXA a primaria documentada acima.
+# ESPLORA_URL e PREPENDADO — setar essa env decide qual fonte vale como primaria.
 # Foi assim que o .env da VPS colocou liquid.network na frente do waterfalls e a
 # sincronizacao passou a dar timeout constante, corrompendo o cache da carteira
 # central (saldo inflado + "internal error", 2026-07-27/28). A deriva era
 # silenciosa: nada no boot dizia qual fonte estava valendo. Agora diz.
-PRIMARY_ESPLORA = "https://waterfalls.liquidwebwallet.org/liquid/api"
-if ESPLORA_URLS and ESPLORA_URLS[0] != PRIMARY_ESPLORA:
+#
+# ALLOWLIST, nao URL fixa: o guard nasceu comparando contra o waterfalls publico,
+# o que funcionava enquanto ele era a unica primaria legitima. Apos o cutover para
+# a Esplora propria (2026-08-06) essa checagem passou a acusar 100% dos boots — e,
+# pior, o conselho que imprimia ("remova a env") DESFARIA o cutover. Alerta que
+# dispara sempre deixa de ser sinal, e alerta que ensina a acao errada e pior que
+# alerta nenhum.
+#
+# O que continua sendo perigoso e o que o incidente mostrou: promover uma Esplora
+# publica de FALLBACK a primaria. Sobre essas o alerta segue valendo.
+PRIMARY_ESPLORA_ALLOWLIST = {
+    # Fonte propria (ADR 0059): elementsd + waterfalls em maquina dedicada.
+    "https://esplora.pdvdepix.app",
+    # Waterfalls publico: primaria historica, ainda legitima como primaria.
+    "https://waterfalls.liquidwebwallet.org/liquid/api",
+}
+if ESPLORA_URLS and ESPLORA_URLS[0] not in PRIMARY_ESPLORA_ALLOWLIST:
     logger.warning(
-        "ESPLORA_URL=%s esta na FRENTE da primaria recomendada (%s). "
-        "Isso rebaixa a fonte que a ADR 0059 define como primaria e ja causou "
-        "corrupcao de cache. Remova a env pra usar o padrao do compose.",
-        ESPLORA_URLS[0], PRIMARY_ESPLORA,
+        "Esplora primaria=%s NAO esta na allowlist de primarias (%s). "
+        "Promover uma Esplora de fallback a primaria ja causou corrupcao de cache "
+        "(2026-07-27/28). Confira ESPLORA_URL no .env.",
+        ESPLORA_URLS[0], ", ".join(sorted(PRIMARY_ESPLORA_ALLOWLIST)),
     )
 else:
     logger.info("Esplora primaria: %s", ESPLORA_URLS[0] if ESPLORA_URLS else "<nenhuma>")
