@@ -39,12 +39,15 @@ export const LBTC_ASSET_ID = "6f0279e9ed041c3d710a9f57d0c02928416460c4b722ae3457
 /**
  * Teto para gerar endereço de depósito.
  *
- * Dimensionado pelo SYNC do LWK, não pelo tempo de derivar o endereço: o LWK
- * sincroniza a carteira antes de derivar (precisa saber quais índices já foram
- * usados). Com uma Esplora distante esse sync leva ~70s — o default de 30s
- * abortava e o usuário via "LWK indisponível" com a carteira perfeitamente sadia.
+ * Hoje o LWK deriva do cache local (`sync=false` é o default do endpoint), então
+ * a chamada é praticamente instantânea. O teto folgado cobre um LWK antigo que
+ * ainda sincronize antes de derivar — sem obrigar o operador a esperar por isso.
+ *
+ * Já foi 150s, dimensionado para o sync de ~70s da Esplora distante. Esperar 70s
+ * por um QR de depósito é inaceitável para quem está no balcão: a correção certa
+ * foi remover o sync do caminho, não alargar o timeout.
  */
-const ADDRESS_TIMEOUT_MS = 150_000;
+const ADDRESS_TIMEOUT_MS = 30_000;
 
 /**
  * Teto do sync periódico das carteiras. Generoso porque quem espera é cron: com
