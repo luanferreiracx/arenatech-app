@@ -150,11 +150,12 @@ export const appNavGroups: NavGroup[] = [
       { label: "Recebíveis de Cartão", href: "/financial/card-receivables", icon: CreditCard, module: "financial" },
       { label: "Pendentes", href: "/financial/pending", icon: Clock, module: "financial" },
       { label: "Contas a Receber", href: "/financial?type=RECEIVABLE", icon: Receipt, module: "financial" },
-      // Operador não vê PAYABLE (ADR 0032) — o resolver nega. Sem `adminOnly`
-      // o menu oferecia uma tela que o backend recusa. Auditoria 2026-08-06, M9-3.
+      // Operador não vê PAYABLE (ADR 0032, M9-3) nem relatório consolidado
+      // (M9-1, decisão do dono em 06/08) — o resolver nega os três. Sem
+      // `adminOnly` o menu oferecia telas que o backend recusa.
       { label: "Contas a Pagar", href: "/financial?type=PAYABLE", icon: Receipt, module: "financial", adminOnly: true },
-      { label: "Fluxo Projetado", href: "/financial/projected-cash-flow", icon: TrendingUp, module: "financial" },
-      { label: "DRE", href: "/financial/dre", icon: BarChart3, module: "financial" },
+      { label: "Fluxo Projetado", href: "/financial/projected-cash-flow", icon: TrendingUp, module: "financial", adminOnly: true },
+      { label: "DRE", href: "/financial/dre", icon: BarChart3, module: "financial", adminOnly: true },
       { label: "Contas Recorrentes", href: "/financial/recorrentes", icon: Clock, module: "financial" },
       { label: "Categorias", href: "/financial/categorias", icon: Tags, module: "financial" },
       { label: "DePix Wallet", href: "/depix-wallet", icon: Wallet, module: "wallet" },

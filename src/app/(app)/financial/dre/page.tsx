@@ -4,6 +4,8 @@ import { useState } from "react";
 import { useTRPC } from "@/trpc/react";
 import { useQuery } from "@tanstack/react-query";
 import { PageHeader } from "@/components/domain/page-header";
+import { AdminOnlyPage } from "@/components/domain/admin-only-page";
+import { useIsTenantAdmin } from "@/lib/auth/use-tenant-admin";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Download } from "lucide-react";
@@ -32,7 +34,7 @@ function formatCents(cents: number): string {
   });
 }
 
-export default function DrePage() {
+function DreContent() {
   const currentYear = new Date().getFullYear();
   const [year, setYear] = useState(currentYear);
   const trpc = useTRPC();
@@ -246,4 +248,24 @@ export default function DrePage() {
       ) : null}
     </div>
   );
+}
+
+/**
+ * O gate vive AQUI, num componente separado, e nao dentro de `DreContent`.
+ * Um early-return antes dos `useState`/`useQuery` do corpo muda a ordem dos
+ * hooks entre renders — o React reclamou em voz alta ("change in the order of
+ * Hooks") e a tela do ADMIN quebrou com "Algo deu errado". O resolver estava
+ * certo o tempo todo; o defeito era meu, na UI.
+ */
+export default function DrePage() {
+  const isAdmin = useIsTenantAdmin();
+  if (!isAdmin) {
+    return (
+      <AdminOnlyPage
+        title="DRE"
+        description="O demonstrativo de resultados reune receita, custo das pecas, lucro e despesas da loja. Peca a um administrador se precisar do numero."
+      />
+    );
+  }
+  return <DreContent />;
 }
