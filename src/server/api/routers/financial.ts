@@ -881,6 +881,11 @@ export const financialRouter = createTRPCRouter({
   stats: tenantProcedure
     .input(z.object({ type: z.enum(["PAYABLE", "RECEIVABLE"]) }))
     .query(async ({ ctx, input }) => {
+      // Aqui o que se nega é o TIPO, não o relatório: o operador continua vendo
+      // os números de RECEIVABLE (trabalho dele). Mesma regra do `list`.
+      if (input.type === "PAYABLE" && !isTenantAdmin(ctx.session, ctx.tenantId)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado a contas a pagar" });
+      }
       return ctx.withTenant(async (tx) => {
         // Ancorado em BRT (container roda UTC): mês corrente correto nas bordas.
         // Auditoria 2026-07-13 (E1).
@@ -962,6 +967,17 @@ export const financialRouter = createTRPCRouter({
   cashFlow: tenantProcedure
     .input(cashFlowSchema)
     .query(async ({ ctx, input }) => {
+      // RBAC (ADR 0032 + auditoria 2026-08-06, M9-1): o operador não vê
+      // PAYABLE. Antes o RBAC valia só nas ESCRITAS e sumia nos RELATÓRIOS —
+      // operador e admin recebiam o mesmo DRE, com custo das peças, lucro
+      // bruto, despesas e lucro líquido do ano (R$ 1,5 mi), mais exportação.
+      // Decisão do dono em 06/08: DRE e fluxo de caixa são de admin.
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Apenas administradores do tenant podem ver relatorios financeiros consolidados",
+        });
+      }
       return ctx.withTenant(async (tx) => {
         // Janela em BRT (auditoria 2026-07-27). `new Date("YYYY-MM-DD")` parseia
         // como meia-noite UTC, mas `setHours` opera em horário LOCAL: no fuso
@@ -1214,6 +1230,12 @@ export const financialRouter = createTRPCRouter({
   overdue: tenantProcedure
     .input(overdueSchema)
     .query(async ({ ctx, input }) => {
+      // `type` é opcional aqui: sem ele a query devolve os dois tipos, então o
+      // operador veria PAYABLE vencido pela porta dos fundos. Força RECEIVABLE.
+      const isAdmin = isTenantAdmin(ctx.session, ctx.tenantId);
+      if (!isAdmin && input.type === "PAYABLE") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado a contas a pagar" });
+      }
       return ctx.withTenant(async (tx) => {
         const page = input.page ?? 0;
         const pageSize = input.pageSize ?? 20;
@@ -1224,7 +1246,9 @@ export const financialRouter = createTRPCRouter({
           dueDate: { lt: now },
           transaction: {
             deletedAt: null,
-            ...(input.type ? { type: input.type } : {}),
+            // Sem `type` a query devolveria PAYABLE e RECEIVABLE juntos —
+            // porta dos fundos para o operador ver conta a pagar vencida.
+            ...(isAdmin ? (input.type ? { type: input.type } : {}) : { type: "RECEIVABLE" }),
           },
         };
 
@@ -1278,6 +1302,17 @@ export const financialRouter = createTRPCRouter({
   dre: tenantProcedure
     .input(dreSchema)
     .query(async ({ ctx, input }) => {
+      // RBAC (ADR 0032 + auditoria 2026-08-06, M9-1): o operador não vê
+      // PAYABLE. Antes o RBAC valia só nas ESCRITAS e sumia nos RELATÓRIOS —
+      // operador e admin recebiam o mesmo DRE, com custo das peças, lucro
+      // bruto, despesas e lucro líquido do ano (R$ 1,5 mi), mais exportação.
+      // Decisão do dono em 06/08: DRE e fluxo de caixa são de admin.
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Apenas administradores do tenant podem ver relatorios financeiros consolidados",
+        });
+      }
       const year = input.year;
       // G-P1-05: ano e mês do DRE ancorados em BRT (UTC-3). As colunas de data
       // são `timestamp without time zone` (UTC wall-clock); sem converter, os
@@ -1427,6 +1462,17 @@ export const financialRouter = createTRPCRouter({
   projectedCashFlow: tenantProcedure
     .input(projectedCashFlowSchema)
     .query(async ({ ctx, input }) => {
+      // RBAC (ADR 0032 + auditoria 2026-08-06, M9-1): o operador não vê
+      // PAYABLE. Antes o RBAC valia só nas ESCRITAS e sumia nos RELATÓRIOS —
+      // operador e admin recebiam o mesmo DRE, com custo das peças, lucro
+      // bruto, despesas e lucro líquido do ano (R$ 1,5 mi), mais exportação.
+      // Decisão do dono em 06/08: DRE e fluxo de caixa são de admin.
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Apenas administradores do tenant podem ver relatorios financeiros consolidados",
+        });
+      }
       return ctx.withTenant(async (tx) => {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
