@@ -105,13 +105,71 @@ descartadas sem qualquer indicação no UI"*.
 
 ## Baixa confiança
 
-- **Não auditei o conteúdo das 44.787 mensagens de chatbot** quanto a PII
-  gravada em claro (CPF, endereço ditado pelo cliente). O volume é o maior do
-  sistema e a retenção não foi verificada — só existe `purge-webhook-events`,
-  que é outra coisa.
+- **Não verifiquei quem pode LER as conversas** — ver abaixo.
 - **Não verifiquei quem pode LER as conversas.** `list` e `getById` são
   `tenantProcedure`; não comparei operador × admin no navegador como fiz no
   módulo de Configurações.
 - **`notifyOsCompleted` não chama `dispatchMessage`** (usa outro caminho de
   envio) e ficou fora do teto. Verifiquei que respeita opt-out, mas não medi se
   tem limite próprio.
+
+---
+
+## E8-7 — Retenção das conversas: medido, decisão do dono é NÃO MEXER AGORA
+
+Fui atrás da lacuna que registrei acima. Os números:
+
+| | |
+|---|---|
+| mensagens | **44.787** |
+| tamanho | **17 MB — 17% do banco inteiro** (103 MB) |
+| crescimento | ~12.600/mês em julho, monotônico |
+| política de retenção | **nenhuma** |
+| CPFs em claro no conteúdo | **85** |
+| menções a "senha" | 69 |
+
+O precedente existe e é do mesmo sistema: `purge-webhook-events` usa **90 dias**,
+criado na auditoria de 25/07 pela razão idêntica (*"crescimento monotônico, sem
+nenhuma purga"*).
+
+### Quem escreveu os CPFs
+
+| origem | mensagens |
+|---|---|
+| cliente (`incoming`/`inbound`) | 63 |
+| loja (`outgoing`/`outbound`) | 22 |
+
+A maioria é o **próprio cliente digitando o CPF no WhatsApp** — inerente ao
+atendimento, não vazamento do sistema.
+
+### O que 90 dias custaria
+
+**17.859 mensagens (40% do histórico)**, de fev a mai/2026. 180 dias apagaria
+zero hoje e passaria a agir em setembro.
+
+### Decisão
+
+**Não mexer agora** (dono, 07/08/2026). Apagar conversa com cliente é decisão de
+negócio, e 17 MB não é urgente. Fica registrado com os números para revisitar
+quando escalar — em 12 meses no ritmo atual seriam ~150 mil mensagens.
+
+### Um falso positivo, descartado
+
+As **18 sequências de 13-16 dígitos** que o regex de cartão pegou são **IMEI**
+(15 dígitos, `354222852869496`). Loja de celular — legítimo.
+
+### Uma divergência estrutural, inerte
+
+`direction` tem **dois vocabulários** para a mesma coisa:
+
+| valor | registros | período |
+|---|---|---|
+| `outbound` | 15.212 | 27/02 → 23/05 |
+| `inbound` | 5.954 | 27/02 → 23/05 |
+| `outgoing` | 12.372 | 03/06 → hoje |
+| `incoming` | 11.249 | 03/06 → hoje |
+
+O corte é limpo em junho. **Não é achado**: verifiquei o runner do Talison
+(`runner.ts:165-168`) e ele decide o papel de quem falou por **`senderType`**,
+nunca por `direction`. Nenhum leitor filtra pelo campo. É dívida cosmética, e
+"corrigir" faria um UPDATE em 21 mil linhas históricas sem ganho.
