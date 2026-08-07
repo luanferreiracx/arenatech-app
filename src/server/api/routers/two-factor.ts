@@ -150,6 +150,26 @@ export const twoFactorRouter = createTRPCRouter({
   regenerateBackupCodes: protectedProcedure
     .input(z.object({ code: totpCodeSchema }))
     .mutation(async ({ ctx, input }) => {
+      // Rate limit (auditoria 2026-08-07, E8-9): esta procedure devolve 10
+      // códigos que fazem BYPASS PERMANENTE do TOTP — são a chave reserva da
+      // conta, e a conta é o que protege o saque DePix (`createWithdraw` exige
+      // step-up 2FA).
+      //
+      // A única barreira era `verifyTotp` sobre 6 dígitos: 1 milhão de
+      // combinações, sem teto. Medido no navegador: **25 tentativas seguidas,
+      // zero bloqueios**. Quem tiver a sessão (cookie roubado, máquina do
+      // balcão aberta) força bruta e sai com bypass definitivo.
+      //
+      // Mesmo teto do `startDisable` logo abaixo, que já protege a operação
+      // irmã — a regra existia e não foi aplicada aqui.
+      const rl = await rateLimit({
+        key: `2fa-regen-backup:${ctx.session.user.id}`,
+        limit: 5,
+        windowMs: 60 * 60 * 1000,
+      });
+      if (!rl.success) {
+        throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "Muitas tentativas. Tente mais tarde." });
+      }
       const user = await prisma.user.findUnique({
         where: { id: ctx.session.user.id },
         select: { twoFactorSecret: true, twoFactorEnabled: true },
