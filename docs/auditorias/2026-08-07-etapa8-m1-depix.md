@@ -129,7 +129,39 @@ Registro porque o método importa mais que o placar:
 - **Não testei a corrida do `cancel` com duas transações concorrentes reais.**
   O teste é estático; afirma que o CAS está lá, não que ele segura sob
   concorrência.
-- **`tenant_depix_fee_ledger` tem 0 linhas** e a taxa Arena Tech é **R$ 0,00 em
-  todas as 517 transações**. Não investiguei se é configuração deliberada
-  (isenção) ou receita que não está sendo cobrada — **vale a sua conferência**,
-  porque é a receita do produto.
+- **Não conferi se a taxa do split chegou à carteira `arena-fees`.** Ver a
+  seção abaixo: o mecanismo está correto no código, mas a confirmação on-chain
+  do recebimento não foi feita nesta passada.
+
+---
+
+## Uma hipótese que investiguei e caiu
+
+Comecei a escrever isto como achado: **`fee_arena_tech_cents = R$ 0,00` nas 517
+transações**, com `tenant_depix_fee_ledger` vazio, enquanto a taxa da Pixpay
+(R$ 554,08) aparece cobrada. Parecia receita do produto não sendo cobrada.
+
+Fui atrás e não é. A explicação tem duas partes:
+
+**1. O `arena-tech` é isento por configuração.** É a central, e
+`tenant_depix_fee_configs` traz `0/0.00` para ela — deliberado.
+
+**2. Nos demais, a taxa sai por SPLIT NATIVO da Eulen, na origem.** O código é
+explícito (`depix-transaction.service.ts:598-640`): a Eulen manda o líquido para
+o endereço do tenant e a taxa direto para a carteira `arena-fees`, **já dividido
+on-chain**. O dinheiro da taxa nunca passa pela transação — por isso o campo
+fica zero, e ficar zero é o comportamento **correto**.
+
+| tenant | config | 127 transações |
+|---|---|---|
+| `arena-tech` | 0 / 0,00% | isento (central) |
+| `pdv-06a429b8` | R$ 0,99 + 1,5% | taxa via split, fora do registro |
+
+**O que eu deveria ter feito antes de quase reportar:** ler o serviço de
+depósito, não só o schema. O campo com nome de dinheiro parecia prova suficiente
+e não era — é o mesmo erro de "confiar no nome da coluna" que a auditoria já
+registrou como armadilha.
+
+**O que fica em aberto:** não confirmei on-chain que a carteira `arena-fees`
+recebeu o que o split mandou. É a verificação que fecharia o ciclo, e ela exige
+consultar a Liquid — fora do escopo desta passada.
