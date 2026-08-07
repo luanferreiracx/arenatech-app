@@ -176,6 +176,12 @@ export async function checkWalletCacheIntegrity(
     const utxosRes = await getUtxos(tenantId, {
       assetId: DEPIX_ASSET,
       timeoutMs: opts?.utxosTimeoutMs,
+      // Sem sync de propósito: este guard existe para auditar o que ESTÁ no
+      // cache. Forçar um full_scan aqui é contraditório (mediria o estado
+      // depois de consertado) e, com Esplora distante, custa ~70s — acima do
+      // timeout do app, o que fazia o guard falhar por timeout e bloquear
+      // saque/depósito com a carteira íntegra (incidente 2026-08-06).
+      sync: false,
     });
     // O LWK não conseguiu listar os UTXOs. Não é "Esplora oscilando": é a
     // carteira que não abre. Sinalizamos separado pro guard de saque poder

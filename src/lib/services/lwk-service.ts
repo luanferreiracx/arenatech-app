@@ -36,6 +36,16 @@ export interface BalanceResult {
  *  Exposto para uso por servicos que transferem L-BTC (ex.: refill por tenant central). */
 export const LBTC_ASSET_ID = "6f0279e9ed041c3d710a9f57d0c02928416460c4b722ae3457a11eec381c526d";
 
+/**
+ * Teto para gerar endereço de depósito.
+ *
+ * Dimensionado pelo SYNC do LWK, não pelo tempo de derivar o endereço: o LWK
+ * sincroniza a carteira antes de derivar (precisa saber quais índices já foram
+ * usados). Com uma Esplora distante esse sync leva ~70s — o default de 30s
+ * abortava e o usuário via "LWK indisponível" com a carteira perfeitamente sadia.
+ */
+const ADDRESS_TIMEOUT_MS = 150_000;
+
 export interface MasterAddressResult {
   success: boolean;
   masterAddress?: string;
@@ -455,7 +465,11 @@ export async function generateAddress(
       config,
       "POST",
       `/wallet/${tenantId}/address/new`,
-      { body },
+      // O LWK sincroniza a carteira antes de derivar o endereço (precisa saber
+      // quais índices já foram usados), e esse sync leva ~70s com a Esplora
+      // própria — o default de 30s abortava, e o depósito falhava com "LWK
+      // indisponível" mesmo com a carteira sadia (incidente 2026-08-06).
+      { body, timeoutMs: ADDRESS_TIMEOUT_MS },
     );
     if (!ok) {
       return { success: false, error: String(resp.error ?? `HTTP ${status}`) };
@@ -811,7 +825,7 @@ const UTXOS_DEFAULT_TIMEOUT_MS = 60_000;
  */
 export async function getUtxos(
   tenantId: string,
-  opts: { assetId?: string; timeoutMs?: number } = {},
+  opts: { assetId?: string; timeoutMs?: number; sync?: boolean } = {},
 ): Promise<LwkUtxosResult> {
   const { config, error: cfgErr } = safeGetConfig();
   if (cfgErr) return { success: false, error: cfgErr };
@@ -820,7 +834,14 @@ export async function getUtxos(
     return { success: true, utxos: [] };
   }
   try {
-    const query = opts.assetId ? `?asset=${encodeURIComponent(opts.assetId)}` : "";
+    const params = new URLSearchParams();
+    if (opts.assetId) params.set("asset", opts.assetId);
+    // `sync=false` lê só o cache do LWK, sem full_scan. Quem quer saber o que
+    // ESTÁ no cache (o guard de integridade) não deve pagar um sync — e com
+    // Esplora distante esse sync custa ~70s, estourando o timeout do app e
+    // derrubando saque e depósito (incidente 2026-08-06).
+    if (opts.sync === false) params.set("sync", "false");
+    const query = params.size > 0 ? `?${params.toString()}` : "";
     const { ok, status, body } = await lwkFetch(config, "GET", `/wallet/${tenantId}/utxos${query}`, {
       timeoutMs: opts.timeoutMs ?? UTXOS_DEFAULT_TIMEOUT_MS,
     });
