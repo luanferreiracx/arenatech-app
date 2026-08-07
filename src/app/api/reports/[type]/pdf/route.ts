@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/server/auth";
 import { isModuleAllowedForTenant, moduleDeniedMessage } from "@/server/auth/module-gate";
 import { resolveActiveTenant } from "@/lib/auth/active-tenant";
+import { isTenantAdmin } from "@/lib/auth/roles";
 import { withTenant, withAdmin } from "@/server/db";
 
 /**
@@ -52,7 +53,11 @@ export async function GET(
     switch (type) {
       case "stock-position":
         title = "Relatorio de Posicao de Estoque";
-        body = await renderStockPositionReport(tenantId);
+        // Custo so para admin: a mesma politica de `stock.ts:237,283` (que omite
+        // `costPrice` do produto) e do detalhe da OS. Sem isto o operador
+        // baixava pelo PDF o custo que a TELA esconde dele — 786 produtos e
+        // R$ 38.507 em producao (auditoria 2026-08-06, M6-1).
+        body = await renderStockPositionReport(tenantId, isTenantAdmin(session, tenantId));
         break;
       case "nf":
         title = "Relatorio de Notas Fiscais";
@@ -121,7 +126,11 @@ function layout(title: string, tenant: string, from: Date, to: Date, body: strin
 </html>`;
 }
 
-async function renderStockPositionReport(tenantId: string): Promise<string> {
+/**
+ * @param podeVerCusto quando false, a coluna de custo e o total NAO saem no PDF.
+ *   Operador ve o relatorio (conferir estoque e trabalho dele), sem o custo.
+ */
+async function renderStockPositionReport(tenantId: string, podeVerCusto: boolean): Promise<string> {
   const products = await withTenant(tenantId, async (tx) => {
     return tx.product.findMany({
       where: { active: true, deletedAt: null },
@@ -137,7 +146,7 @@ async function renderStockPositionReport(tenantId: string): Promise<string> {
     <thead><tr>
       <th>SKU</th><th>Produto</th>
       <th class="right">Estoque</th><th class="right">Min</th>
-      <th class="right">Custo</th><th class="right">Venda</th>
+      ${podeVerCusto ? `<th class="right">Custo</th>` : ""}<th class="right">Venda</th>
     </tr></thead><tbody>`;
   let totalCost = 0;
   let totalSale = 0;
@@ -151,12 +160,12 @@ async function renderStockPositionReport(tenantId: string): Promise<string> {
       <td>${escape(p.name)}</td>
       <td class="right">${p.currentStock}</td>
       <td class="right">${p.minStock}</td>
-      <td class="right">${formatBrl(Number(p.costPrice))}</td>
+      ${podeVerCusto ? `<td class="right">${formatBrl(Number(p.costPrice))}</td>` : ""}
       <td class="right">${formatBrl(Number(p.salePrice))}</td>
     </tr>`;
   }
   html += `<tr class="total"><td colspan="4">Total imobilizado</td>
-    <td class="right">${formatBrl(totalCost)}</td>
+    ${podeVerCusto ? `<td class="right">${formatBrl(totalCost)}</td>` : ""}
     <td class="right">${formatBrl(totalSale)}</td>
   </tr></tbody></table>`;
   return html;
