@@ -927,13 +927,39 @@ async function debitCashback(
   const balance = await tx.rewardBalance.findFirst({ where: { tenantId, customerId } })
   if (!balance) return
 
-  await tx.rewardBalance.update({
-    where: { id: balance.id },
+  // O quanto dá para debitar, pelo snapshot. Continua sendo um snapshot — por
+  // isso o CAS abaixo.
+  const debitavel = Math.min(amount, Number(balance.availableBalance))
+  if (debitavel <= 0) return
+
+  // CAS ancorado no saldo (auditoria 2026-08-07, E8-5): o `Math.min` sozinho usa
+  // um snapshot. Dois cancelamentos concorrentes de ações DIFERENTES do mesmo
+  // cliente liam R$100 cada, ambos calculavam "debitar 80", e o segundo levava
+  // o saldo a -60. O CAS na própria AÇÃO (linha ~540) não cobre isso: ele impede
+  // cancelar a MESMA ação duas vezes, não duas ações distintas.
+  //
+  // Sem o CAS, o CHECK `reward_balances_available_non_negative` barrava — mas
+  // violação de constraint ABORTA A TRANSAÇÃO no Postgres, e o operador recebia
+  // um 500 opaco em vez de saber que o saldo mudou.
+  //
+  // É o mesmo padrão que `unlockBalance` já usava desde 25/07. A regra existia e
+  // foi esquecida no irmão.
+  const claimed = await tx.rewardBalance.updateMany({
+    where: {
+      id: balance.id,
+      availableBalance: { gte: new Prisma.Decimal(debitavel) },
+    },
     data: {
-      totalBalance: { decrement: Math.min(amount, Number(balance.totalBalance)) },
-      availableBalance: { decrement: Math.min(amount, Number(balance.availableBalance)) },
+      totalBalance: { decrement: debitavel },
+      availableBalance: { decrement: debitavel },
     },
   })
+  if (claimed.count !== 1) {
+    throw new TRPCError({
+      code: "CONFLICT",
+      message: "O saldo de cashback do cliente mudou durante a operacao. Atualize e tente novamente.",
+    })
+  }
 
   await tx.rewardMovement.create({
     data: {
