@@ -140,6 +140,37 @@ O caminho mais sensível do módulo, e está bem feito:
   tiveram só o nível de acesso verificado.
 - **Não testei `uploadLogo` com arquivo hostil** (SVG com script, polyglot).
   O gate de papel está lá; a validação de conteúdo não foi exercitada.
-- **Não verifiquei rotação da chave de cifra do PFX.** Se `PFX_ENCRYPTION_KEY`
-  vazar, todos os certificados cifrados no MinIO são legíveis — e não sei se há
-  procedimento de rotação.
+---
+
+## A pendência do PFX, fechada
+
+Registrei nesta seção "não verifiquei rotação da chave do PFX — se vazar, todos
+os certificados ficam legíveis". Fui verificar e **a premissa estava errada**:
+não há chave para vazar.
+
+Quatro provas independentes contra produção:
+
+| verificação | resultado |
+|---|---|
+| `docker exec` lendo a env do container | **ausente** |
+| `docker inspect` contando vars com "PFX" | **0** |
+| `grep` no `docker-compose.deploy.yml` | **0** |
+| `grep` no `.env.production` da VPS | **não encontrada** |
+
+E o comportamento real, executado no container de produção:
+
+```
+FALHA: PFX_ENCRYPTION_KEY nao esta configurado
+```
+
+Impacto: **0 certificados cadastrados**, fiscal `enabled = false`, e o sistema
+**falha fechado** — o upload aborta antes de gravar qualquer coisa. É coerente
+com a decisão do dono de declarar Fiscal/NF-e fora de escopo até a escolha da
+API de emissão.
+
+Não é rotação que falta; é **provisionamento** — e ele traz junto uma decisão
+que ninguém tomou: se a chave ficar no `.env.production` da VPS, chave e
+certificados cifrados moram na mesma máquina, e quem tomar o host tem os dois.
+
+Registrado em `docs/operations/fiscal-prerequisitos.md` para não ser
+redescoberto no dia de ligar.
