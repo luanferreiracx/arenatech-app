@@ -189,6 +189,17 @@ export const financialRouter = createTRPCRouter({
         const sortOrder = input.sortOrder ?? "desc";
         const role = getUserRole(ctx);
 
+        // RBAC F8 (ADR 0032): operador não vê PAYABLE. Antes o filtro era
+        // TROCADO em silêncio (`operator ? "RECEIVABLE" : input.type`), então
+        // "Contas a Pagar" abria e mostrava RECEBIMENTOS — a tela dizia
+        // "R$ 49.599,99 / 8 conta(s) / Contas a Pagar" com dados de contas a
+        // receber (produção tem 3 PAYABLE pendentes, R$ 13.850). Negar é o que
+        // o `getById` logo abaixo já faz; trocar o dado sob um rótulo errado
+        // não protege ninguém e desinforma o operador. Auditoria 2026-08-06, M9-3.
+        if (role === "operator" && input.type === "PAYABLE") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado a contas a pagar" });
+        }
+
         const where: Record<string, unknown> = {
           type: role === "operator" ? "RECEIVABLE" : input.type,
           deletedAt: null,
@@ -1353,6 +1364,13 @@ export const financialRouter = createTRPCRouter({
           JOIN financial_transactions t ON t.id = ip.transaction_id
           WHERE t.type = 'PAYABLE'
             AND t.deleted_at IS NULL
+            -- M9-2 (auditoria 2026-08-06): obrigacao CANCELADA nao e despesa.
+            -- A receita ja filtrava status da venda (s.status IN ...); a
+            -- despesa nao filtrava o da obrigacao — mesma regra, um lado so.
+            -- Efeito medido: R$ 754.400 de PAYABLE cancelado no DRE de 2026,
+            -- quase METADE da despesa do ano, e o lucro liquido aparecia como
+            -- -R$ 1.340.844 numa loja com R$ 1,5 mi de receita.
+            AND t.status <> 'CANCELLED'
             AND EXTRACT(YEAR FROM (ip.paid_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo')) = ${year}
           GROUP BY 1
         `;

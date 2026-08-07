@@ -1,5 +1,6 @@
 "use client";
 import { formatCentsBRL as formatCurrency } from "@/lib/format";
+import { parsePaymentDetails } from "@/lib/payments/payment-details";
 import { FieldTitle } from "@/components/domain/forms/field";
 
 import { useEffect, useState } from "react";
@@ -317,12 +318,11 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
     0,
   );
   const items = sale.items ?? [];
-  const paymentDetails = sale.paymentDetails as Array<{
-    method: string;
-    methodLabel?: string;
-    amount: number;
-    installments: number;
-  }> | null;
+  // Três formas convivem no banco (array nativo, string legada do Laravel,
+  // NULL). O `as Array<...>` que estava aqui era uma promessa que o dado não
+  // cumpre: em 257 vendas de 10/04 o `.map` abaixo lançava TypeError e a tela
+  // virava "Algo deu errado nesta tela". Auditoria 2026-08-06, M8-1.
+  const paymentDetails = parsePaymentDetails(sale.paymentDetails);
 
   const receiptSent = !!sale.receiptSent;
   const signatureDocumentId = sale.signatureDocumentId;
