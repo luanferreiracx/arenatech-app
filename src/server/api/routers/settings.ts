@@ -1035,7 +1035,20 @@ export const settingsRouter = createTRPCRouter({
   // AUDIT LOGS
   // ═══════════════════════════════════════
 
-  listAuditLogs: tenantProcedure
+  /**
+   * Trilha de auditoria do tenant.
+   *
+   * `tenantAdminProcedure` (auditoria 2026-08-07, E8-3): era `tenantProcedure`.
+   * A TELA já negava — `/settings/logs` não está em `SETTINGS_OPERATOR_TABS`, e
+   * o operador é redirecionado. Mas o RESOLVER respondia: chamada direta ao
+   * tRPC como operador devolvia **50 registros, 19.634 bytes**.
+   *
+   * Segurança por obscuridade. A trilha registra `reset_password`,
+   * `reset_two_factor` e `removed` de usuários — quem administrou credencial de
+   * quem — além de valores de venda e notas do operador. É exatamente o mesmo
+   * padrão do M9-3 (menu escondia, resolver entregava).
+   */
+  listAuditLogs: tenantAdminProcedure
     .input(listAuditLogsSchema)
     .query(async ({ ctx, input }) => {
       const page = input.page ?? 0;
