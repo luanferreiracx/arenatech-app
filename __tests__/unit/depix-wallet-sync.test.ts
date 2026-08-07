@@ -92,3 +92,38 @@ describe("syncWalletsPeriodically", () => {
     expect(r.total).toBe(4);
   });
 });
+
+describe("syncWalletsPeriodically: anel entre rodadas", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    syncWalletMock.mockReset();
+    listWalletsMock.mockReset();
+  });
+
+  it("rodadas seguintes começam adiante — carteira nenhuma fica órfã", async () => {
+    // Orçamento cabe 1 por rodada: sem anel, a primeira seria sincronizada para
+    // sempre e as outras três nunca, com o cron parecendo estar cobrindo tudo.
+    listWalletsMock.mockResolvedValue(["t0", "t1", "t2", "t3"]);
+    syncWalletMock.mockImplementation(async () => {
+      // Consome o orçamento inteiro: só a primeira da rodada roda.
+      vi.setSystemTime(Date.now() + 120_000);
+      return { success: true };
+    });
+    vi.useFakeTimers();
+
+    const run = await load();
+    const CRON = 10 * 60_000;
+    const vistos: string[] = [];
+    for (let rodada = 0; rodada < 4; rodada += 1) {
+      vi.setSystemTime(rodada * CRON);
+      syncWalletMock.mockClear();
+      await run(rodada * CRON);
+      const chamada = syncWalletMock.mock.calls[0]?.[0];
+      if (chamada) vistos.push(chamada as string);
+    }
+    vi.useRealTimers();
+
+    // Quatro rodadas, quatro carteiras distintas: o anel girou.
+    expect(new Set(vistos).size).toBe(4);
+  });
+});
