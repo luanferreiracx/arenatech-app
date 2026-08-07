@@ -395,7 +395,21 @@ export function ValuationsList() {
     duplicateMutation.mutate(
       { sourceModelo: dupSource, targetModelo: dupTarget },
       {
-        onSuccess: (d) => { toast.success(`${d.created} avaliações duplicadas`); setShowDuplicateDialog(false); setDupSource(""); setDupTarget(""); invalidate(); },
+        onSuccess: (d) => {
+          // `skipped` são combinações que o destino JÁ tinha — o índice único
+          // (E8-4) as recusa e o servidor as pula. Sem dizer isso, o admin vê
+          // "3 duplicadas" numa cópia de 8 e acha que perdeu 5. Auditoria
+          // 2026-08-07.
+          toast.success(
+            d.skipped > 0
+              ? `${d.created} avaliações duplicadas — ${d.skipped} já existiam e foram mantidas`
+              : `${d.created} avaliações duplicadas`,
+          );
+          setShowDuplicateDialog(false);
+          setDupSource("");
+          setDupTarget("");
+          invalidate();
+        },
         onError: (err) => toast.error(err.message),
       },
     );
