@@ -314,7 +314,20 @@ export const depixTransactionRouter = createTRPCRouter({
     }),
 
   /** Cancela uma tx ainda PENDING (so deposito; saque ja foi transmitido). */
-  cancel: tenantProcedure
+  /**
+   * Cancela uma transacao PENDING.
+   *
+   * `tenantAdminProcedure` (auditoria 2026-08-07, E8-1): era `tenantProcedure`,
+   * e um operador comum cancelava saque que so admin consegue CRIAR
+   * (`createWithdraw` e admin + 2FA). Provado no navegador: operador do tenant
+   * cancelou um WITHDRAW de R$ 50 com HTTP 200. Nao exijo 2FA aqui porque
+   * cancelar nao move dinheiro para fora — mas quem cria e quem cancela tem de
+   * ser o mesmo nivel.
+   *
+   * O isolamento entre tenants ja estava intacto: operador de OUTRO tenant
+   * recebeu 404 (RLS), verificado no mesmo teste.
+   */
+  cancel: tenantAdminProcedure
     .input(cancelTransactionSchema)
     .mutation(async ({ ctx, input }) => {
       const tx = await ctx.withTenant(async (db) => {
@@ -326,14 +339,28 @@ export const depixTransactionRouter = createTRPCRouter({
             message: "Apenas transacoes PENDING podem ser canceladas",
           });
         }
-        return db.tenantDepixTransaction.update({
-          where: { id: input.id },
+        // CAS ancorado no status: entre o `findUnique` acima e esta escrita, o
+        // webhook da Eulen ou o reconciliador podem ter movido a transacao para
+        // PROCESSING/COMPLETED. `update` cru sobrescreveria o avanco e marcaria
+        // como cancelada uma transacao cujo dinheiro ja saiu — irreversivel em
+        // cripto. Todo o `depix-transaction.service.ts` ja usa este padrao
+        // (linhas 752, 859, 1002, 1272); so este ponto ficou de fora.
+        const cas = await db.tenantDepixTransaction.updateMany({
+          where: { id: input.id, status: "PENDING" },
           data: {
             status: "CANCELLED",
             errorMessage: input.reason ?? "Cancelado pelo operador",
             completedAt: new Date(),
           },
         });
+        if (cas.count !== 1) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message:
+              "A transacao mudou de status durante o cancelamento (webhook concorrente?). Atualize a tela e confira antes de cancelar.",
+          });
+        }
+        return db.tenantDepixTransaction.findUniqueOrThrow({ where: { id: input.id } });
       });
       return tx;
     }),
