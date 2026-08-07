@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { logger } from "@/lib/logger";
 import { splitCardReceivable, resolveAcquirerRate } from "@/server/services/card-receivable.service";
 
 /** Cliente Prisma mínimo necessário (transação). */
@@ -58,7 +59,19 @@ export async function generateCardReceivables(
     where: { id: payment.acquirerId, tenantId },
     select: { id: true, receivingAccountId: true },
   });
-  if (!acquirer) return 0;
+  if (!acquirer) {
+    // Não bloqueia a venda (decisão de projeto), mas NÃO pode ser silencioso:
+    // sem recebível, o dinheiro que a loja tem a receber some do sistema.
+    // Auditoria 2026-08-07, E8-2.
+    logger.error("Venda no cartao sem recebivel: adquirente nao encontrado no tenant", {
+      tenantId,
+      acquirerId: payment.acquirerId,
+      saleId: saleId ?? null,
+      serviceOrderId: serviceOrderId ?? null,
+      grossCents: payment.grossCents,
+    });
+    return 0;
+  }
 
   // Mesma resolucao de taxa do breakdown da venda (resolveAcquirerRate) — fonte
   // unica, sem drift entre o que entra no DRE e o que vira recebivel.
@@ -68,7 +81,23 @@ export async function generateCardReceivables(
     kind: payment.cardKind,
     installments: payment.installments,
   });
-  if (!rate) return 0;
+  if (!rate) {
+    // O caso REAL: adquirente ativo sem AcquirerRate cadastrada para a
+    // combinação (bandeira × tipo × parcelas). Medido em produção: o
+    // adquirente `stone` do tenant `pdv-09ed1f82` está ATIVO com ZERO taxas —
+    // a primeira venda no cartão dele cairia aqui e sumiria em silêncio.
+    logger.error("Venda no cartao sem recebivel: taxa da adquirente nao cadastrada", {
+      tenantId,
+      acquirerId: payment.acquirerId,
+      cardBrandId: payment.cardBrandId,
+      cardKind: payment.cardKind,
+      installments: payment.installments,
+      saleId: saleId ?? null,
+      serviceOrderId: serviceOrderId ?? null,
+      grossCents: payment.grossCents,
+    });
+    return 0;
+  }
 
   const splits = splitCardReceivable(rate, payment.grossCents, payment.installments, saleDate);
 
