@@ -1,6 +1,8 @@
 # ADR 0059 — Fonte on-chain própria para o LWK (Esplora self-hosted)
 
-**Status:** PAUSADA — stack `docker compose stop` após incidente de RAM (ver adendo 2026-07-17). Precisa de box dedicada / upgrade de RAM antes de retomar.
+**Status:** IMPLEMENTADA — cutover em 2026-08-06 (ver adendo). A fonte própria
+(`https://esplora.pdvdepix.app`) é a **primária** do LWK; as públicas seguem como
+fallback.
 **Data:** 2026-07-17
 **Contexto relacionado:** incidente do saldo inflado da carteira central (2026-07),
 [[depix-saldo-obsoleto-cache-2026-07-17]], PR #602 (guards de exibição + detector).
@@ -190,3 +192,45 @@ volumes preservados no disco).
 Enquanto isso, o LWK segue nas Esploras públicas (recorrência ativa: waterfalls público
 down + blockstream rate-limita o full_scan). Os curativos do #602 (guard de saldo +
 detector) seguem protegendo em produção.
+
+---
+
+## Adendo 2026-08-06 — Cutover concluído
+
+A stack saiu do papel: `elementsd` + `waterfalls` numa máquina dedicada (16 GiB),
+exposta por Cloudflare Tunnel em `https://esplora.pdvdepix.app`. O `ESPLORA_URL`
+do LWK aponta para ela; as públicas continuam na lista como fallback.
+
+O bloqueio do adendo de 2026-07-17 (RAM) foi resolvido com upgrade de 7,7 para
+15,7 GiB no host. Antes disso, cinco tentativas de IBD morreram por OOM entre 90%
+e 99% — o consumo do `elementsd` não cresce de forma gradual, ele salta de ~4,3
+para ~11 GiB perto do tip. Subir o teto do cgroup só adiava a morte; a correção
+foi remover o limite e dar RAM real à VM.
+
+### O que o cutover ensinou, e que a decisão original não previa
+
+**Tip igual não prova paridade.** A fonte própria chegou a servir o mesmo bloco da
+Blockstream reportando R$ 1.202 a menos de saldo. A causa era o `--max-txs-seen`,
+que por padrão trunca em 100 as transações retornadas por endereço — o endereço
+mais movimentado da central tem 415. O índice estava completo; a API é que
+truncava. **Critério de aceitação do cutover passou a ser comparar saldo e
+contagem de UTXOs contra uma pública**, nunca só o tip.
+
+**Distância geográfica é requisito, não detalhe.** A VPS está na França e a Esplora
+no Brasil: ~790 ms por requisição, das quais só 64 ms são TLS/TCP — o resto é
+travessia do Atlântico. Como o `full_scan` faz centenas de requisições sequenciais,
+ele leva ~70 s. Isso estourou três timeouts diferentes, em camadas distintas, todos
+com o mesmo sintoma ("LWK indisponível") e causas separadas:
+
+- o `t.join(timeout=20)` fixo dentro do LWK (PR #852);
+- os 30 s do app chamando `/utxos` e `/address/new` (PR #853);
+- e a ausência de qualquer sync periódico, que congelava `last_sync_ok_at` (PR #854).
+
+### Guard-rail de primária: allowlist, não URL fixa
+
+O aviso de boot que protege contra rebaixamento da primária comparava contra uma
+URL fixa (`waterfalls.liquidwebwallet.org`). Depois do cutover ele passou a
+disparar em 100% dos boots e — pior — a instruir "remova a env", o que desfaria o
+cutover. Virou allowlist: a própria e o waterfalls público são primárias legítimas;
+promover uma **pública de fallback** a primária, que foi o incidente de
+2026-07-27/28, continua alertando.
