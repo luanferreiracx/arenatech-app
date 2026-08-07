@@ -34,6 +34,18 @@ export function RecoveryPhraseCard({
   const isNonCustodial = custodyModel === "non_custodial";
   const [confirmRevealOpen, setConfirmRevealOpen] = useState(false);
   const [revealPassword, setRevealPassword] = useState("");
+  // Step-up 2FA (E8-10): a seed dá controle total da carteira — exige o mesmo
+  // segundo fator que o saque já exige.
+  const [revealTwoFactor, setRevealTwoFactor] = useState("");
+
+  /** Senha (ou passphrase) E o segundo fator — os dois são obrigatórios. */
+  const podeRevelar = revealPassword.length > 0 && revealTwoFactor.trim().length >= 6;
+
+  /** Monta o payload num lugar só: o botão e o Enter mandavam formas diferentes. */
+  const payloadRevelar = () => ({
+    ...(isNonCustodial ? { passphrase: revealPassword } : { password: revealPassword }),
+    twoFactorCode: revealTwoFactor.trim(),
+  });
   const [revealedMnemonic, setRevealedMnemonic] = useState<string | null>(null);
 
   const revealMnemonicMutation = useMutation(
@@ -123,7 +135,10 @@ export function RecoveryPhraseCard({
         open={confirmRevealOpen}
         onOpenChange={(open) => {
           setConfirmRevealOpen(open);
-          if (!open) setRevealPassword("");
+          if (!open) {
+            setRevealPassword("");
+            setRevealTwoFactor("");
+          }
         }}
       >
         <DialogContent>
@@ -148,15 +163,27 @@ export function RecoveryPhraseCard({
               type="password"
               value={revealPassword}
               onChange={(event) => setRevealPassword(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && revealPassword && !revealMnemonicMutation.isPending) {
-                  revealMnemonicMutation.mutate(
-                    isNonCustodial ? { passphrase: revealPassword } : { password: revealPassword },
-                  );
-                }
-              }}
               autoComplete={isNonCustodial ? "off" : "current-password"}
             />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="depix-wallet-mnemonic-2fa">Codigo 2FA</Label>
+            <Input
+              id="depix-wallet-mnemonic-2fa"
+              inputMode="numeric"
+              placeholder="000000"
+              value={revealTwoFactor}
+              onChange={(event) => setRevealTwoFactor(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && podeRevelar && !revealMnemonicMutation.isPending) {
+                  revealMnemonicMutation.mutate(payloadRevelar());
+                }
+              }}
+              autoComplete="one-time-code"
+            />
+            <p className="text-xs text-muted-foreground break-words">
+              Codigo do app autenticador ou um codigo de backup.
+            </p>
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setConfirmRevealOpen(false)}>
@@ -165,12 +192,8 @@ export function RecoveryPhraseCard({
             <Button
               type="button"
               variant="destructive"
-              onClick={() =>
-                revealMnemonicMutation.mutate(
-                  isNonCustodial ? { passphrase: revealPassword } : { password: revealPassword },
-                )
-              }
-              disabled={revealMnemonicMutation.isPending || !revealPassword}
+              onClick={() => revealMnemonicMutation.mutate(payloadRevelar())}
+              disabled={revealMnemonicMutation.isPending || !podeRevelar}
             >
               {revealMnemonicMutation.isPending ? "Revelando..." : "Confirmar senha e revelar"}
             </Button>
