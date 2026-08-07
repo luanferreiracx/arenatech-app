@@ -4,6 +4,7 @@ import { onActivateKey } from "@/lib/utils/a11y";
 
 import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useIsTenantAdmin } from "@/lib/auth/use-tenant-admin";
 import {
   Clock,
   AlertTriangle,
@@ -30,6 +31,10 @@ function tabFromParam(value: string | null): "RECEIVABLE" | "PAYABLE" {
 
 export function FinancialDashboard() {
   const searchParams = useSearchParams();
+  // Operador não vê PAYABLE (ADR 0032) — o resolver nega com FORBIDDEN. Sem
+  // isto a aba "A Pagar" era oferecida e o clique dava erro. Auditoria
+  // 2026-08-06, M9-3.
+  const isAdmin = useIsTenantAdmin();
   // Respeita o ?type= da URL (menu "Contas a Pagar" → ?type=PAYABLE). Sincroniza
   // quando a URL muda sem desmontar o componente (key derivada do param).
   const urlTab = tabFromParam(searchParams.get("type"));
@@ -40,7 +45,10 @@ export function FinancialDashboard() {
     setLastUrlTab(urlTab);
     setOverrideTab(null);
   }
-  const activeTab = overrideTab ?? urlTab;
+  const requestedTab = overrideTab ?? urlTab;
+  // Operador que chega em ?type=PAYABLE pela URL cai em "A Receber", que é o
+  // que ele pode ver — em vez de uma aba que o backend recusa.
+  const activeTab = !isAdmin && requestedTab === "PAYABLE" ? "RECEIVABLE" : requestedTab;
 
   return (
     <div className="space-y-6">
@@ -50,15 +58,17 @@ export function FinancialDashboard() {
       >
         <TabsList className="mb-4">
           <TabsTrigger value="RECEIVABLE">A Receber</TabsTrigger>
-          <TabsTrigger value="PAYABLE">A Pagar</TabsTrigger>
+          {isAdmin && <TabsTrigger value="PAYABLE">A Pagar</TabsTrigger>}
         </TabsList>
 
         <TabsContent value="RECEIVABLE">
           <FinancialTabContent type="RECEIVABLE" />
         </TabsContent>
-        <TabsContent value="PAYABLE">
-          <FinancialTabContent type="PAYABLE" />
-        </TabsContent>
+        {isAdmin && (
+          <TabsContent value="PAYABLE">
+            <FinancialTabContent type="PAYABLE" />
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   );

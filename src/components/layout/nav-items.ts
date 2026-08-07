@@ -150,7 +150,9 @@ export const appNavGroups: NavGroup[] = [
       { label: "Recebíveis de Cartão", href: "/financial/card-receivables", icon: CreditCard, module: "financial" },
       { label: "Pendentes", href: "/financial/pending", icon: Clock, module: "financial" },
       { label: "Contas a Receber", href: "/financial?type=RECEIVABLE", icon: Receipt, module: "financial" },
-      { label: "Contas a Pagar", href: "/financial?type=PAYABLE", icon: Receipt, module: "financial" },
+      // Operador não vê PAYABLE (ADR 0032) — o resolver nega. Sem `adminOnly`
+      // o menu oferecia uma tela que o backend recusa. Auditoria 2026-08-06, M9-3.
+      { label: "Contas a Pagar", href: "/financial?type=PAYABLE", icon: Receipt, module: "financial", adminOnly: true },
       { label: "Fluxo Projetado", href: "/financial/projected-cash-flow", icon: TrendingUp, module: "financial" },
       { label: "DRE", href: "/financial/dre", icon: BarChart3, module: "financial" },
       { label: "Contas Recorrentes", href: "/financial/recorrentes", icon: Clock, module: "financial" },

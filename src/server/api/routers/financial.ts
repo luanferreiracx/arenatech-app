@@ -189,6 +189,17 @@ export const financialRouter = createTRPCRouter({
         const sortOrder = input.sortOrder ?? "desc";
         const role = getUserRole(ctx);
 
+        // RBAC F8 (ADR 0032): operador não vê PAYABLE. Antes o filtro era
+        // TROCADO em silêncio (`operator ? "RECEIVABLE" : input.type`), então
+        // "Contas a Pagar" abria e mostrava RECEBIMENTOS — a tela dizia
+        // "R$ 49.599,99 / 8 conta(s) / Contas a Pagar" com dados de contas a
+        // receber (produção tem 3 PAYABLE pendentes, R$ 13.850). Negar é o que
+        // o `getById` logo abaixo já faz; trocar o dado sob um rótulo errado
+        // não protege ninguém e desinforma o operador. Auditoria 2026-08-06, M9-3.
+        if (role === "operator" && input.type === "PAYABLE") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado a contas a pagar" });
+        }
+
         const where: Record<string, unknown> = {
           type: role === "operator" ? "RECEIVABLE" : input.type,
           deletedAt: null,
