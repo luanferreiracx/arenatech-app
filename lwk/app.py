@@ -49,6 +49,19 @@ WEBHOOK_URL            = os.environ.get("WEBHOOK_URL", "")
 WEBHOOK_SECRET         = os.environ.get("WEBHOOK_SECRET", "")
 MONITOR_INTERVAL       = int(os.environ.get("MONITOR_INTERVAL", "120"))
 CONFIRMATIONS_REQUIRED = int(os.environ.get("CONFIRMATIONS_REQUIRED", "2"))
+# Timeout por tentativa de sync. Era fixo em 20s ate 2026-08-06, o que inviabilizava
+# uma Esplora geograficamente distante: a VPS esta na Franca e a Esplora propria em
+# Teresina -> ~790ms por requisicao (TLS/TCP custam so 64ms; o resto e travessia do
+# Atlantico) e full_scan de centenas de requisicoes sequenciais.
+#
+# O sync estourava, nunca completava, e o cache nunca purgava UTXOs gastos: o saldo
+# da central inflou para R$57k (185 UTXOs, 173 ja gastos) contra R$9.178 reais, com
+# saques bloqueados pelo guard e depositos falhando — tudo pela mesma raiz.
+#
+# Sync lento que COMPLETA e melhor que sync rapido que estoura e deixa o cache
+# apodrecer. Ajuste conforme a distancia da Esplora primaria (20 serve para Esplora
+# proxima; ~300 para travessia transatlantica).
+SYNC_TIMEOUT           = int(os.environ.get("SYNC_TIMEOUT", "20"))
 # Monitor de depositos: desabilitado na fase 1 (multi-wallet sem fluxo de
 # deposito ainda). Habilitar na fase 2 quando o monitor varrer por tenant.
 MONITOR_ENABLED        = os.environ.get("MONITOR_ENABLED", "false").lower() == "true"
@@ -388,14 +401,14 @@ def sync_wallet(wollet, silent=False):
                 result["error"] = str(e)
         t = threading.Thread(target=_try, daemon=True)
         t.start()
-        t.join(timeout=20)
+        t.join(timeout=SYNC_TIMEOUT)
         if result["ok"]:
             if not silent:
                 logger.info(f"Carteira sincronizada via {url}")
             _record_esplora_ok(url)
             return True
         if t.is_alive():
-            logger.warning(f"Sync timeout [{url}] (>20s)")
+            logger.warning(f"Sync timeout [{url}] (>{SYNC_TIMEOUT}s)")
         elif result["error"]:
             logger.warning(f"Sync falhou [{url}]: {result['error']}")
     logger.error("Todos os servidores Esplora falharam.")

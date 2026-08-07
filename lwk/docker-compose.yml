@@ -37,6 +37,11 @@ services:
       MONITOR_INTERVAL: ${MONITOR_INTERVAL:-30}
       # Confirmacoes on-chain pra considerar deposito final.
       CONFIRMATIONS_REQUIRED: ${CONFIRMATIONS_REQUIRED:-2}
+      # Timeout (s) por tentativa de sync. 20 serve para Esplora proxima; uma
+      # Esplora distante precisa de MUITO mais (a propria, no Brasil, com a VPS na
+      # Franca, leva ~70s). Sync que estoura nunca purga UTXOs gastos do cache e
+      # infla o saldo — foi o incidente de 2026-08-06.
+      SYNC_TIMEOUT: ${SYNC_TIMEOUT:-20}
 
       # ── Hardening ──────────────────────────────────────────────────
       # CSV de origens permitidas no CORS (default: dashboard local).
