@@ -707,7 +707,42 @@ jobs:
             echo "=> Recriando container app..."
             docker compose -f docker-compose.prod.yml -f docker-compose.deploy.yml up -d --no-build --no-deps app
 
-            # 5) Limpeza assincrona (nao bloqueia o deploy)
+            # 5) LWK: sincronizar o codigo e rebuildar SO se mudou.
+            #
+            #    O LWK roda de /opt/lwk-wallet (fora do repo, porque o .env com as
+            #    chaves vive la e nunca foi versionado). O deploy so cuidava do
+            #    `app`, entao mergear codigo do LWK dava a impressao de ter ido pra
+            #    producao e nao ia: as correcoes dos PRs #852/#855 ficaram semanas
+            #    no repo sem efeito, e a #864 (QR de deposito de 70s) so surtiu
+            #    efeito depois de eu copiar o arquivo a mao.
+            #
+            #    So o CODIGO e sincronizado — .env, wallet_data e mnemonics ficam
+            #    intactos. `cmp -s` evita rebuild/restart quando nada mudou: o LWK
+            #    e caminho de dinheiro e nao deve reiniciar a cada deploy do app.
+            echo "=> Sincronizando LWK (se mudou)..."
+            LWK_CHANGED=0
+            for f in app.py crypto.py dashboard.html requirements.txt Dockerfile; do
+              if [ -f "lwk/$f" ] && ! cmp -s "lwk/$f" "/opt/lwk-wallet/$f"; then
+                sudo -n cp "lwk/$f" "/opt/lwk-wallet/$f"
+                LWK_CHANGED=1
+                echo "   $f atualizado"
+              fi
+            done
+            if [ "$LWK_CHANGED" = "1" ]; then
+              echo "=> LWK mudou: rebuild + restart"
+              (cd /opt/lwk-wallet && sudo -n docker compose build --quiet && sudo -n docker compose up -d)
+              # Fail-fast: LWK que nao volta e saque e deposito parados.
+              sleep 15
+              if ! docker exec arenatech-lwk-wallet python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:5000/health', timeout=10)" 2>/dev/null; then
+                echo "=> ERRO: LWK nao respondeu ao /health apos o rebuild."
+                exit 1
+              fi
+              echo "   LWK no ar"
+            else
+              echo "   LWK sem mudancas — nada a fazer"
+            fi
+
+            # 6) Limpeza assincrona (nao bloqueia o deploy)
             (docker image prune -af --filter "until=24h" >/dev/null 2>&1 &) || true
 
             echo "=> Deploy completed at $(date)"
