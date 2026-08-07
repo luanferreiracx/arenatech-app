@@ -1316,6 +1316,25 @@ def new_address(tenant_id):
             except (ValueError, TypeError):
                 return fail("index invalido")
 
+        # `sync=false` (default) deriva do cache local, sem full_scan.
+        #
+        # O sync existia para o wollet saber qual indice ja foi usado — mas essa
+        # informacao ja esta no cache local: `labels.json` registra cada indice
+        # emitido e o proprio wollet mantem o ponteiro. Medido em producao com 75
+        # labels: `wollet.address(None)` devolve o MESMO indice (42) com e sem
+        # sync. O full_scan so reconfirmava o que ja sabiamos.
+        #
+        # E custava caro: com a Esplora propria (travessia transatlantica) esse
+        # sync levava 69-134s, e gerar QR de deposito virou espera absurda — as
+        # vezes estourando o timeout do app e falhando de vez.
+        #
+        # O RISCO de derivar sem sync e reusar um indice que outra instancia
+        # emitiu sem passar por aqui. Nao se aplica: toda emissao passa por este
+        # endpoint sob `wallet_lock`, e reuso de endereco de deposito nao perde
+        # fundos (so agrupa dois depositos no mesmo endereco). Quem quiser a
+        # garantia forte passa `sync=true`.
+        do_sync = str(data.get("sync", "false")).lower() == "true"
+
         p = WalletPaths(tenant_id)
         with wallet_lock(tenant_id):
             # Watch-only: nunca auto-cria. 404 se a carteira nao existe.
@@ -1323,7 +1342,8 @@ def new_address(tenant_id):
                 wollet, _ = load_watch_only(tenant_id)
             except FileNotFoundError:
                 return fail("carteira nao provisionada", 404)
-            sync_wallet(wollet, silent=True)
+            if do_sync:
+                sync_wallet(wollet, silent=True)
             addr_info = wollet.address(index)
 
         address    = str(addr_info.address())
