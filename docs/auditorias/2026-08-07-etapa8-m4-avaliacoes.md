@@ -122,13 +122,49 @@ que é o comportamento esperado. Não é corrida.
 
 ---
 
-## Baixa confiança
+---
 
-- **Não testei `duplicateModel` com o índice novo.** Ele copia todas as linhas
-  de um modelo para outro — se o modelo destino já tiver alguma combinação
-  igual, agora recebe P2002. O `create` traduz o erro; `duplicateModel` **não**,
-  e devolveria um 500 opaco. Não achei ocorrência em produção (o audit log tem
-  3 `delete_model` e nenhum `duplicate_model`), mas é a próxima ponta a fechar.
+## E8-4b — A ponta que o próprio fix abriu (e meu erro ao fechá-la)
+
+Ao adicionar o índice, `duplicateModel` passou a poder violar P2002: ele copia
+todas as combinações de um modelo para outro, e se o destino já tiver alguma,
+colide.
+
+**Minha primeira correção estava errada**, e o navegador provou. Envolvi o
+`create` num `try/catch` de P2002, contei as puladas e chamei de idempotente.
+Resultado real:
+
+```
+1ª duplicação -> 200 {created: 8, skipped: 0}
+2ª (mesma)    -> 500 "current transaction is aborted,
+                      commands ignored until end of transaction block"
+```
+
+**No Postgres, uma violação de constraint aborta a transação inteira.** Capturar
+o erro em JavaScript não a recupera — o `continue` seguia num transação morta, e
+a query seguinte falhava. O `try/catch` parecia certo lendo o diff e era inútil
+na execução.
+
+A correção real é **filtrar antes de inserir**: carregar as combinações que o
+destino já tem, remover essas da lista e fazer um `createMany` com o resto.
+Verificado:
+
+```
+1ª duplicação -> 200 {created: 8, skipped: 0}
+2ª (mesma)    -> 200 {created: 0, skipped: 8}
+```
+
+E o toast passou a dizer a verdade: *"3 avaliações duplicadas — 5 já existiam e
+foram mantidas"*. Sem isso, o admin vê "3 duplicadas" numa cópia de 8 e acha que
+perdeu 5.
+
+**A lição:** o teste estático teria aprovado meu primeiro fix — ele afirma
+estrutura, não comportamento. Quem pegou foi rodar no navegador. É o mesmo
+motivo pelo qual esta auditoria exige três provas.
+
+---
+
+## Baixa confiança
 - **Não auditei `sendWhatsApp` quanto a rate limit.** Ele dispara mensagem
   externa e é acessível ao operador; não verifiquei se há teto por período.
 - **`validade_dias` tem default 7 na tabela e também vem de

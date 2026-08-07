@@ -88,6 +88,47 @@ describe("E8-4 — uma combinação ativa tem um preço só", () => {
   });
 });
 
+describe("duplicateModel convive com o índice (E8-4b)", () => {
+  /**
+   * A primeira tentativa deste fix foi ERRADA e o navegador provou: envolvi o
+   * `create` num try/catch de P2002 e chamei de idempotente. No Postgres uma
+   * violação de constraint **aborta a transação inteira** — capturar o erro em
+   * JS não a recupera. A 2ª duplicação devolvia:
+   *
+   *     500 "current transaction is aborted, commands ignored until end of
+   *          transaction block"
+   *
+   * A correção é filtrar ANTES de inserir. Verificado no navegador:
+   *
+   *     1ª duplicação -> 200 {created: 8, skipped: 0}
+   *     2ª (mesma)    -> 200 {created: 0, skipped: 8}
+   */
+  /** Corpo até a próxima procedure — janela fixa cortava antes do `return`. */
+  const corpo = (() => {
+    const i = ROUTER.indexOf("  duplicateModel: tenantProcedure");
+    const resto = ROUTER.slice(i + 10);
+    const prox = resto.search(/\n {2}\w+: (?:tenant|tenantAdmin|admin)Procedure/);
+    return prox < 0 ? ROUTER.slice(i) : ROUTER.slice(i, i + 10 + prox);
+  })();
+
+  it("filtra as existentes antes de inserir, não depois", () => {
+    expect(
+      corpo,
+      "try/catch de P2002 dentro da transação NÃO funciona no Postgres: a " +
+        "violação aborta a transação e a query seguinte morre. Filtre antes.",
+    ).toMatch(/findMany\([\s\S]{0,200}modelo: input\.targetModelo/);
+  });
+
+  it("não tenta recuperar de P2002 dentro da transação", () => {
+    expect(corpo).not.toMatch(/catch[\s\S]{0,200}P2002/);
+  });
+
+  it("informa quantas foram puladas", () => {
+    expect(corpo).toMatch(/skipped/);
+    expect(corpo).toMatch(/return \{ created, skipped \}/);
+  });
+});
+
 describe("o erro do banco vira mensagem que o admin entende", () => {
   it("create traduz P2002 em CONFLICT", () => {
     const i = ROUTER.indexOf("  create: tenantProcedure");

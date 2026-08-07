@@ -235,25 +235,46 @@ export const valuationRouter = createTRPCRouter({
           throw new TRPCError({ code: "NOT_FOUND", message: "Modelo de origem nao encontrado" });
         }
 
-        let created = 0;
-        for (const entry of sourceEntries) {
-          await tx.deviceValuation.create({
-            data: {
+        // Combinações que o destino JÁ tem: filtrar ANTES de inserir, não
+        // capturar o erro depois. No Postgres uma violação de constraint
+        // ABORTA A TRANSAÇÃO INTEIRA — um try/catch em volta do `create` não a
+        // recupera, e a próxima query morre com "current transaction is
+        // aborted". Medido no navegador: a 2ª duplicação devolvia 500.
+        // Auditoria 2026-08-07, E8-4.
+        const existentes = await tx.deviceValuation.findMany({
+          where: { modelo: input.targetModelo, deletedAt: null },
+          select: { armazenamento: true, saudeBateria: true },
+        });
+        const jaExiste = new Set(
+          existentes.map((e) => `${e.armazenamento}|${e.saudeBateria}`),
+        );
+
+        const novas = sourceEntries.filter(
+          (e) => !jaExiste.has(`${e.armazenamento}|${e.saudeBateria}`),
+        );
+        const skipped = sourceEntries.length - novas.length;
+
+        // `createMany` numa chamada só: "duplicar modelo" preenche o que falta,
+        // sem sobrescrever preço que o admin já ajustou à mão no destino.
+        if (novas.length > 0) {
+          await tx.deviceValuation.createMany({
+            data: novas.map((entry) => ({
               tenantId: ctx.tenantId,
               modelo: input.targetModelo,
               armazenamento: entry.armazenamento,
               saudeBateria: entry.saudeBateria,
               valor: entry.valor,
               validadeDias: entry.validadeDias,
-            },
+            })),
           });
-          created++;
         }
+        const created = novas.length;
 
         logger.info("Duplicate model valuations", {
           source: input.sourceModelo,
           target: input.targetModelo,
           created,
+          skipped,
         });
 
         await logAudit(tx as never, {
@@ -261,10 +282,12 @@ export const valuationRouter = createTRPCRouter({
           userId: ctx.session.user.id,
           action: "duplicate_model",
           entity: "device_valuation",
-          payload: { sourceModelo: input.sourceModelo, targetModelo: input.targetModelo, created },
+          payload: { sourceModelo: input.sourceModelo, targetModelo: input.targetModelo, created, skipped },
         });
 
-        return { created };
+        // `skipped` sai no retorno: sem isso o admin ve "criadas: 3" numa copia
+        // de 8 combinacoes e nao sabe que 5 ja existiam com preco proprio.
+        return { created, skipped };
       });
     }),
 
