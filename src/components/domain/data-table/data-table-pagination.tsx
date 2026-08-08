@@ -11,12 +11,16 @@ interface DataTablePaginationProps<TData> {
 
 export function DataTablePagination<TData>({ table }: DataTablePaginationProps<TData>) {
   return (
-    <div className="flex items-center justify-between px-2">
+    // `flex-wrap` + `gap-y` (auditoria 2026-08-07, E9-2): a barra era um flex
+    // rígido de ~271px que, somado ao recuo, terminava em 347px — estourava a
+    // 320px e violava o WCAG 1.4.10 (reflow). Medido no navegador na lista de
+    // OS. Com wrap, os blocos empilham em vez de empurrar a página.
+    <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-2">
       <div className="text-sm text-muted-foreground">
         Página {table.getState().pagination.pageIndex + 1} de {table.getPageCount()}
       </div>
 
-      <div className="flex items-center gap-4">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <div className="flex items-center gap-2">
           <p className="text-sm text-muted-foreground">Linhas por página</p>
           <Select
