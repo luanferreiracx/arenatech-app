@@ -13,6 +13,7 @@ import {
   createServiceObservationSchema,
   updateServiceObservationSchema,
   listServiceObservationsSchema,
+  deviceConditionSchema,
 } from "@/lib/validators/catalog";
 import { Prisma } from "@prisma/client";
 import { sendPdfWithFallback } from "@/lib/whatsapp/send-with-fallback";
@@ -28,35 +29,6 @@ import { MAX_BUSCA, MAX_LINHA, MAX_NOME } from "@/lib/validators/limits";
 
 function serviceToCents(s: { basePrice: Prisma.Decimal | null }) {
   return s.basePrice ? Math.round(Number(s.basePrice) * 100) : 0;
-}
-
-/**
- * CAT-1 (Etapa 9, M12): "Preço PIX" é, por definição, o valor COM desconto — o
- * próprio diálogo diz "deixe em branco se não houver desconto". Os schemas
- * validavam cada preço isoladamente (`min(0)`) e nada impedia o PIX de ser maior.
- *
- * Medido no navegador: cartão R$ 1.000 + PIX R$ 1.500 salvava sem aviso nenhum.
- *
- * Não é cosmético: `promotionalPrice` é o preço que o BOT usa ao responder o
- * cliente (`pixPrice` em `device-catalog-admin`). Um dígito a mais faz o Talison
- * anunciar PIX mais caro que o cartão, contradizendo a própria oferta da loja.
- *
- * Vive no schema (não só na tela) porque a API é chamável direto — a guarda de
- * cliente evita o erro, esta impede o dado inválido.
- */
-function precoPixNaoPodeSerMaior(
-  valores: { price?: number | null; promotionalPrice?: number | null },
-  ctx: z.RefinementCtx,
-) {
-  const { price, promotionalPrice } = valores;
-  if (price == null || promotionalPrice == null) return;
-  if (promotionalPrice > price) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["promotionalPrice"],
-      message: "O preco PIX e o valor com desconto — nao pode ser maior que o preco do cartao.",
-    });
-  }
 }
 
 // `any` para o tx tenant-scoped do withTenant — padrao do repo.
@@ -931,9 +903,25 @@ export const catalogRouter = createTRPCRouter({
     .input(z.object({
       categoryId: z.string().uuid().optional().nullable(),
       name: z.string().min(2).max(200),
-      condition: z.string().max(50).optional().nullable(),
+      // CAT-2: lista fechada. Texto livre gerou "novo" e "Novo" como valores
+      // distintos em produção (18 e 2) — mesma condição, escrita de dois jeitos.
+      condition: deviceConditionSchema,
       description: z.string().max(2000).optional().nullable(),
-      price: z.number().min(0).optional().nullable(),
+      /**
+       * CAT-3 (decisão do dono, 2026-08-08): o catálogo tem **um preço só**.
+       *
+       * Havia "preço cartão" e "preço PIX", e a auditoria tinha acabado de fechar
+       * a validação que impedia o PIX de ser maior (CAT-1). O dono cortou a raiz:
+       * *"acho desnecessário. preço pix é suficiente."* Com um campo só a
+       * comparação deixa de existir, e a regra saiu junto — guarda sem dois lados
+       * é código morto que aparenta proteção.
+       *
+       * A coluna `price` continua na tabela e é **espelhada** a cada escrita:
+       * ainda é lida pelo fallback do bot (`promotionalPrice ?? price`, em
+       * `talison/tools/stock.ts`) e pela ordenação (`orderBy: [{ price: "asc" }]`).
+       * Os 15 aparelhos que só tinham `price` foram migrados antes da mudança —
+       * 0 divergências, nenhum valor anunciado mudou.
+       */
       promotionalPrice: z.number().min(0).optional().nullable(),
       imageUrl: z.string().max(MAX_LINHA).optional().nullable(),
       imageProvider: z.enum(["cloudinary", "minio", "external"]).optional().nullable(),
@@ -941,7 +929,7 @@ export const catalogRouter = createTRPCRouter({
       available: z.boolean().optional(),
       featured: z.boolean().optional(),
       order: z.number().int().min(0).optional(),
-    }).superRefine(precoPixNaoPodeSerMaior))
+    }))
     .mutation(async ({ ctx, input }) => {
       if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
@@ -954,7 +942,11 @@ export const catalogRouter = createTRPCRouter({
             name: input.name,
             condition: input.condition || null,
             description: input.description || null,
-            price: input.price ?? null,
+            // CAT-3: um preço só. Espelhado em `price` porque a coluna ainda é
+            // lida pelo fallback do bot (`promotionalPrice ?? price`) e pela
+            // ordenação (`orderBy: [{ price: "asc" }]`) — deixá-la nula faria o
+            // aparelho novo aparecer como "sem preço" na ordenação do Talison.
+            price: input.promotionalPrice ?? null,
             promotionalPrice: input.promotionalPrice ?? null,
             imageUrl: input.imageUrl || null,
             imageProvider: input.imageProvider ?? null,
@@ -962,7 +954,7 @@ export const catalogRouter = createTRPCRouter({
             available: input.available ?? true,
             featured: input.featured ?? false,
             order: input.order ?? 0,
-            priceUpdatedAt: input.price ? new Date() : null,
+            priceUpdatedAt: input.promotionalPrice ? new Date() : null,
           },
         });
       });
@@ -973,9 +965,8 @@ export const catalogRouter = createTRPCRouter({
       id: z.string().uuid(),
       categoryId: z.string().uuid().optional().nullable(),
       name: z.string().min(2).max(200).optional(),
-      condition: z.string().max(50).optional().nullable(),
+      condition: deviceConditionSchema,
       description: z.string().max(2000).optional().nullable(),
-      price: z.number().min(0).optional().nullable(),
       promotionalPrice: z.number().min(0).optional().nullable(),
       imageUrl: z.string().max(MAX_LINHA).optional().nullable(),
       imageProvider: z.enum(["cloudinary", "minio", "external"]).optional().nullable(),
@@ -983,9 +974,7 @@ export const catalogRouter = createTRPCRouter({
       available: z.boolean().optional(),
       featured: z.boolean().optional(),
       order: z.number().int().min(0).optional(),
-      // A regra vale na EDIÇÃO também: fechá-la só na criação deixaria o caminho
-      // aberto pelo irmão — o padrão que este programa já nomeou 16 vezes.
-    }).superRefine(precoPixNaoPodeSerMaior))
+    }))
     .mutation(async ({ ctx, input }) => {
       if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
@@ -994,37 +983,15 @@ export const catalogRouter = createTRPCRouter({
         const { id, ...data } = input;
         const existing = await tx.catalogDevice.findUnique({ where: { id } });
 
-        // CAT-1: o `superRefine` do schema só enxerga o PAYLOAD, e aqui todo
-        // campo é opcional — mandar apenas `promotionalPrice` passava batido
-        // (`price` chega `undefined`). Medido: PATCH com `promotionalPrice:
-        // 99999` num aparelho de R$ 1.000 devolvia HTTP 200.
-        //
-        // A comparação tem de ser contra o valor EFETIVO pós-edição: o que veio
-        // no payload quando veio, o persistido quando não veio.
-        const precoFinal =
-          data.price !== undefined
-            ? data.price
-            : existing?.price != null
-              ? Number(existing.price)
-              : null;
-        const pixFinal =
-          data.promotionalPrice !== undefined
-            ? data.promotionalPrice
-            : existing?.promotionalPrice != null
-              ? Number(existing.promotionalPrice)
-              : null;
-        if (precoFinal != null && pixFinal != null && pixFinal > precoFinal) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message:
-              "O preco PIX e o valor com desconto — nao pode ser maior que o preco do cartao.",
-          });
-        }
-
         const updateData: any = { ...data };
-        // Update priceUpdatedAt if price changed
-        if (data.price !== undefined && existing && Number(existing.price) !== data.price) {
-          updateData.priceUpdatedAt = new Date();
+        // CAT-3: um preço só. Espelha em `price` porque a coluna legada ainda é
+        // lida pelo fallback do bot e pela ordenação (`orderBy: [{ price }]`) —
+        // deixá-la parada faria a lista do Talison ordenar por preço antigo.
+        if (data.promotionalPrice !== undefined) {
+          updateData.price = data.promotionalPrice;
+          if (Number(existing?.promotionalPrice ?? NaN) !== data.promotionalPrice) {
+            updateData.priceUpdatedAt = new Date();
+          }
         }
         return tx.catalogDevice.update({ where: { id }, data: updateData });
       });

@@ -9,7 +9,17 @@ const DEFAULT_PAGE_SIZE = 24;
 const MAX_PAGE_SIZE = 48;
 const PIX_DISCOUNT_PERCENT = 5;
 const INSTALLMENTS = 6;
-const LOW_STOCK_THRESHOLD = 3;
+/**
+ * CAT-4 (decisão do dono, 2026-08-08): estoque a partir do qual a vitrine avisa
+ * "Últimas unidades". Era 3; passou a 2 — *"deixar apenas um alerta de últimas
+ * unidades (quando tiver 2 unidades ou menos)"*.
+ *
+ * O limiar vive AQUI e vai para o cliente já resolvido em `lowStock`, para que
+ * card e página de produto não possam divergir. Antes cada tela formatava o
+ * próprio texto a partir de `availableQuantity`, e foi assim que a quantidade
+ * exata acabou exposta em três lugares diferentes.
+ */
+const LOW_STOCK_THRESHOLD = 2;
 
 // Fallback usado apenas se o tenant ainda nao configurou um telefone em
 // TenantSettings.phone. No futuro, cada tenant terá o seu proprio numero.
@@ -59,6 +69,12 @@ export type CatalogProduct = {
   pixPriceCents: number;
   installmentCents: number;
   discountPercent: number | null;
+  /**
+   * CAT-4: NÃO exponha isto na vitrine. O campo continua no tipo porque o
+   * serviço precisa dele para derivar `lowStock`/`inStock`, mas a página é
+   * Server Component — todo campo renderizado vai para o HTML e fica legível no
+   * código-fonte. Quem precisa de escassez usa `lowStock`.
+   */
   availableQuantity: number;
   lowStock: boolean;
   inStock: boolean;
