@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/dialog";
 import { MoneyInput } from "@/components/inputs/money-input";
 import { toast } from "@/lib/toast";
+import { formatCentsBRL } from "@/lib/format";
 
 /**
  * Link de recebimento do tenant: fixo, reutilizável, um só.
@@ -161,24 +162,47 @@ function LinkBody() {
           Gera o mesmo link com o valor já preenchido — o cliente não altera.
         </p>
         <MoneyInput id="valor-cobranca" value={amountCents} onChange={setAmountCents} />
+        {amountCents >= 1000 && charge.isPending && (
+          <div className="flex items-center justify-center gap-2 py-6 text-xs text-muted-foreground">
+            <Loader2 className="size-4 animate-spin" />
+            Gerando o QR da cobrança…
+          </div>
+        )}
         {amountCents >= 1000 && charge.data?.url && (
-          <div className="flex min-w-0 gap-2">
-            <Input
-              id="link-com-valor"
-              readOnly
-              value={charge.data.url}
-              aria-label="Link com valor preenchido"
-              className="min-w-0 text-xs"
-            />
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              onClick={() => copy(charge.data!.url!, "charge")}
-              aria-label="Copiar link com valor"
-            >
-              {copied === "charge" ? <Check className="size-4" /> : <Copy className="size-4" />}
-            </Button>
+          <div className="space-y-2">
+            <div className="flex min-w-0 gap-2">
+              <Input
+                id="link-com-valor"
+                readOnly
+                value={charge.data.url}
+                aria-label="Link com valor preenchido"
+                className="min-w-0 text-xs"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                onClick={() => copy(charge.data!.url!, "charge")}
+                aria-label="Copiar link com valor"
+              >
+                {copied === "charge" ? <Check className="size-4" /> : <Copy className="size-4" />}
+              </Button>
+            </div>
+            {/* O QR da cobrança já vinha do backend (`qrCodeDataUrl`) e a tela o
+                descartava: só o link era exibido. Quem cobra no balcão mostra a
+                tela para o cliente escanear — sem o QR, a função ficava pela
+                metade. */}
+            {charge.data.qrCodeDataUrl && (
+              <div className="mx-auto w-fit rounded-lg bg-white p-3">
+                <Image
+                  src={charge.data.qrCodeDataUrl}
+                  alt={`QR Code de cobrança de ${formatCentsBRL(amountCents)}`}
+                  width={180}
+                  height={180}
+                  unoptimized
+                />
+              </div>
+            )}
           </div>
         )}
         {amountCents > 0 && amountCents < 1000 && (
