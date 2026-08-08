@@ -9,6 +9,7 @@ import { isValidTaxId } from "@/lib/utils/tax-id";
 import { generatePublicPixAction, getPublicPixStatusAction } from "../actions";
 import { StatusScreen } from "./pay-shell";
 import { resolveQrImageSrc } from "@/lib/depix/qr-image-src";
+import { resolveChargeAmountCents } from "@/lib/payment-link/charge-amount";
 
 const MIN_CENTS = 1000;
 const MAX_CENTS = 500000;
@@ -75,8 +76,18 @@ export function PublicPaymentForm({
 
   const taxDigits = taxId.replace(/\D/g, "");
   const taxValid = isValidTaxId(taxDigits);
-  const enteredCents = amountOpen ? Number(amountInput.replace(/\D/g, "")) || 0 : (amountCents ?? 0);
-  const amountValid = enteredCents >= MIN_CENTS && enteredCents <= MAX_CENTS;
+  const typedCents = Number(amountInput.replace(/\D/g, "")) || 0;
+
+  // O MESMO valor que valida é o que vai ao servidor. Antes eram dois cálculos:
+  // a validação usava o preset (botão habilitado) e o envio mandava `null`
+  // quando o campo estava travado — então toda cobrança de valor fixo morria no
+  // servidor com "valor mínimo", sem a tela dar qualquer pista.
+  const chargeCents = resolveChargeAmountCents({
+    presetCents: amountCents,
+    amountOpen,
+    enteredCents: typedCents,
+  });
+  const amountValid = chargeCents != null && chargeCents >= MIN_CENTS && chargeCents <= MAX_CENTS;
   const canGenerate = taxValid && ownership && amountValid && !isPending;
 
   function handleGenerate() {
@@ -85,7 +96,7 @@ export function PublicPaymentForm({
       const res = await generatePublicPixAction({
         token,
         taxId: taxDigits,
-        amountCents: amountOpen ? enteredCents : null,
+        amountCents: chargeCents,
         ownershipConfirmed: ownership,
       });
       if (!res.ok) {
@@ -140,7 +151,7 @@ export function PublicPaymentForm({
   return (
     <div className="space-y-6">
       <AmountHero
-        amountCents={amountOpen ? enteredCents : (amountCents ?? 0)}
+        amountCents={chargeCents ?? 0}
         description={description}
         merchantName={merchantName}
       />
