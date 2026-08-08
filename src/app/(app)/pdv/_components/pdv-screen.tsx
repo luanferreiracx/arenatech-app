@@ -768,7 +768,7 @@ export function PdvScreen() {
     }
 
     return (
-      <div className="flex items-center justify-center h-[calc(100vh-80px)]">
+      <div className="flex items-center justify-center min-h-[calc(100dvh-80px)]">
         <Card className="max-w-md w-full">
           <CardContent className="p-8 text-center space-y-4">
             <AlertTriangle className="mx-auto h-12 w-12 text-destructive opacity-60" />
@@ -788,7 +788,7 @@ export function PdvScreen() {
 
   if (draftId && draftQuery.isLoading) {
     return (
-      <div className="flex items-center justify-center h-[calc(100vh-80px)]">
+      <div className="flex items-center justify-center min-h-[calc(100dvh-80px)]">
         <Card className="max-w-md w-full">
           <CardContent className="p-8 text-center space-y-4">
             <Loader2 className="mx-auto h-12 w-12 text-primary animate-spin" />
@@ -811,7 +811,7 @@ export function PdvScreen() {
     // "tentar novamente" que vai falhar de novo — o rascunho não volta.
     const draftGone = draftQuery.error.data?.code === "NOT_FOUND";
     return (
-      <div className="flex items-center justify-center h-[calc(100vh-80px)]">
+      <div className="flex items-center justify-center min-h-[calc(100dvh-80px)]">
         <Card className="max-w-md w-full">
           <CardContent className="p-8 text-center space-y-4">
             <AlertTriangle className="mx-auto h-12 w-12 text-destructive opacity-60" />
@@ -853,7 +853,7 @@ export function PdvScreen() {
 
   if (draftId && !draft) {
     return (
-      <div className="flex items-center justify-center h-[calc(100vh-80px)]">
+      <div className="flex items-center justify-center min-h-[calc(100dvh-80px)]">
         <Card className="max-w-md w-full">
           <CardContent className="p-8 text-center space-y-4">
             <AlertTriangle className="mx-auto h-12 w-12 text-destructive opacity-60" />
