@@ -19,6 +19,17 @@ import {
 } from "@/components/ui/dialog";
 import { MoneyInput } from "@/components/inputs/money-input";
 import { toast } from "@/lib/toast";
+import { formatCentsBRL } from "@/lib/format";
+
+/** Mínimo de uma cobrança DePix (R$ 10,00), igual ao validado no backend. */
+const MIN_CHARGE_CENTS = 1000;
+
+/**
+ * Lado do QR em pixels. Uma constante só porque o placeholder de carregamento
+ * precisa ocupar EXATAMENTE o mesmo espaço — dois números soltos divergem na
+ * primeira vez que alguém ajustar um deles, e o layout volta a pular.
+ */
+const QR_SIZE_PX = 180;
 
 /**
  * Link de recebimento do tenant: fixo, reutilizável, um só.
@@ -52,7 +63,7 @@ function LinkBody() {
   const queryClient = useQueryClient();
   const link = useQuery(trpc.paymentLink.get.queryOptions());
   const [amountCents, setAmountCents] = useState(0);
-  const [copied, setCopied] = useState<"link" | "charge" | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const setActive = useMutation(
     trpc.paymentLink.setActive.mutationOptions({
@@ -66,14 +77,14 @@ function LinkBody() {
   // Cobrança com valor: só consulta quando há valor válido — o backend devolve a
   // URL pronta e o QR dela.
   const charge = useQuery(
-    trpc.paymentLink.chargeUrl.queryOptions({ amountCents }, { enabled: amountCents >= 1000 }),
+    trpc.paymentLink.chargeUrl.queryOptions({ amountCents }, { enabled: amountCents >= MIN_CHARGE_CENTS }),
   );
 
-  function copy(text: string, which: "link" | "charge") {
+  function copy(text: string) {
     void navigator.clipboard.writeText(text);
-    setCopied(which);
+    setCopied(true);
     toast.success("Link copiado");
-    window.setTimeout(() => setCopied(null), 2000);
+    window.setTimeout(() => setCopied(false), 2000);
   }
 
   if (link.isPending) {
@@ -92,6 +103,15 @@ function LinkBody() {
   }
 
   const data = link.data;
+
+  // UM QR de cada vez. Com valor válido, o QR é o da cobrança; sem valor, é o do
+  // link livre. Enquanto o da cobrança carrega, NÃO caímos de volta no QR livre:
+  // isso faria o cliente escanear e pagar o valor errado na janela entre um e
+  // outro.
+  const showCharge = amountCents >= MIN_CHARGE_CENTS;
+  const loadingCharge = showCharge && charge.isPending;
+  const qrSrc = showCharge ? (charge.data?.qrCodeDataUrl ?? null) : data.qrCodeDataUrl;
+  const currentUrl = (showCharge ? charge.data?.url : data.url) ?? data.url;
 
   return (
     <div className="space-y-5">
@@ -126,65 +146,78 @@ function LinkBody() {
       )}
 
       {data.active && (
-      <div className="space-y-2">
-        <Label htmlFor="link-fixo">Link fixo</Label>
-        <div className="flex min-w-0 gap-2">
-          <Input id="link-fixo" readOnly value={data.url} className="min-w-0 text-xs" />
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            onClick={() => copy(data.url, "link")}
-            aria-label="Copiar link fixo"
-          >
-            {copied === "link" ? <Check className="size-4" /> : <Copy className="size-4" />}
-          </Button>
-        </div>
-        {data.qrCodeDataUrl && (
-          <div className="mx-auto w-fit rounded-lg bg-white p-3">
-            <Image
-              src={data.qrCodeDataUrl}
-              alt="QR Code do link de recebimento"
-              width={180}
-              height={180}
-              unoptimized
-            />
+        <div className="space-y-4">
+          {/* O valor vem ANTES do QR de propósito: define o que o QR abaixo
+              representa. A versão anterior mostrava dois QR ao mesmo tempo (o do
+              link livre e o da cobrança), e o cliente não sabia qual escanear —
+              escanear o errado significa pagar valor livre em vez do cobrado. */}
+          <div className="space-y-2">
+            <Label htmlFor="valor-cobranca">Cobrar um valor específico</Label>
+            <p className="text-xs text-muted-foreground break-words">
+              Deixe zerado para o cliente escolher quanto pagar.
+            </p>
+            <MoneyInput id="valor-cobranca" value={amountCents} onChange={setAmountCents} />
+            {amountCents > 0 && amountCents < MIN_CHARGE_CENTS && (
+              <p className="text-xs text-destructive">Valor mínimo de R$ 10,00.</p>
+            )}
           </div>
-        )}
-      </div>
-      )}
 
-      {data.active && (
-      <div className="space-y-2 border-t pt-4">
-        <Label htmlFor="valor-cobranca">Cobrar um valor específico</Label>
-        <p className="text-xs text-muted-foreground break-words">
-          Gera o mesmo link com o valor já preenchido — o cliente não altera.
-        </p>
-        <MoneyInput id="valor-cobranca" value={amountCents} onChange={setAmountCents} />
-        {amountCents >= 1000 && charge.data?.url && (
-          <div className="flex min-w-0 gap-2">
-            <Input
-              id="link-com-valor"
-              readOnly
-              value={charge.data.url}
-              aria-label="Link com valor preenchido"
-              className="min-w-0 text-xs"
-            />
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              onClick={() => copy(charge.data!.url!, "charge")}
-              aria-label="Copiar link com valor"
-            >
-              {copied === "charge" ? <Check className="size-4" /> : <Copy className="size-4" />}
-            </Button>
+          <div className="space-y-2 border-t pt-4">
+            <p className="text-center text-sm font-medium">
+              {showCharge ? `Cobrando ${formatCentsBRL(amountCents)}` : "Valor livre"}
+            </p>
+
+            {loadingCharge ? (
+              // Mesma moldura e tamanho do QR: sem isso o layout pula quando a
+              // imagem chega, e num diálogo curto isso empurra o link para fora
+              // da vista bem na hora de copiar.
+              <div className="mx-auto w-fit rounded-lg bg-muted p-3">
+                <div
+                  style={{ width: QR_SIZE_PX, height: QR_SIZE_PX }}
+                  className="flex items-center justify-center gap-2 text-xs text-muted-foreground"
+                >
+                  <Loader2 className="size-4 animate-spin" />
+                  Gerando o QR…
+                </div>
+              </div>
+            ) : (
+              qrSrc && (
+                <div className="mx-auto w-fit rounded-lg bg-white p-3">
+                  <Image
+                    src={qrSrc}
+                    alt={
+                      showCharge
+                        ? `QR Code de cobrança de ${formatCentsBRL(amountCents)}`
+                        : "QR Code do link de recebimento"
+                    }
+                    width={QR_SIZE_PX}
+                    height={QR_SIZE_PX}
+                    unoptimized
+                  />
+                </div>
+              )
+            )}
+
+            <div className="flex min-w-0 gap-2">
+              <Input
+                id="link-atual"
+                readOnly
+                value={currentUrl}
+                aria-label={showCharge ? "Link com valor preenchido" : "Link de recebimento"}
+                className="min-w-0 text-xs"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                onClick={() => copy(currentUrl)}
+                aria-label="Copiar link"
+              >
+                {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+              </Button>
+            </div>
           </div>
-        )}
-        {amountCents > 0 && amountCents < 1000 && (
-          <p className="text-xs text-destructive">Valor mínimo de R$ 10,00.</p>
-        )}
-      </div>
+        </div>
       )}
 
       <p className="flex items-start gap-2 text-xs text-muted-foreground">
