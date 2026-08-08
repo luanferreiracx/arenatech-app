@@ -132,7 +132,50 @@ normalmente.
 
 ## Registro sem proposta
 
-### R1 — R$ 16.903,57 de comissão apurada fora do financeiro
+### R1 — R$ 16.903,57 de comissão apurada fora do financeiro · **RESOLVIDO pelo dono (2026-08-08)**
+
+> **Decisão:** *"já foi tudo pago, então pode zerar isso. melhor desconsiderar
+> todas essas apurações, se possível excluir. começaremos tudo a partir das
+> próximas."*
+>
+> **Executado:** as 9 apurações foram **excluídas** em produção. Backup completo
+> (incluindo a memória de cálculo, 863 KB) em
+> `~/Documents/arenatech-backups/backup-apuracoes-2026-08-08.jsonl`.
+>
+> **O que sobreviveu:** 7 prestadores, 3 contratos e 15 regras de alíquota
+> intactos — a configuração está preservada; só o histórico de apuração foi
+> limpo.
+>
+> **Por que a exclusão é segura:** a apuração é `upsert` — o botão "Calcular"
+> recria o registro a partir das vendas e OS do período. Nenhum dado é destruído
+> em definitivo; abril volta com um clique se algum dia for preciso.
+>
+> **Inventário antes de apagar:** todas as 9 estavam `OPEN`, com **zero** contas
+> a pagar vinculadas (`financial_transaction_id` nulo em todas) e **zero**
+> estornos. Nada pendurado — a exclusão não tocou no financeiro nem no caixa.
+>
+> **Por que NÃO fechei antes de excluir** (que seria o caminho "correto" no
+> papel): o fechamento cria PAYABLE com `status: PENDING` e `paidAmount: 0`.
+> Fechar as 9 geraria R$ 16.903,57 de contas **em aberto** — dívida que não
+> existe, poluindo o fluxo de caixa projetado. Trocaria um erro por outro.
+
+**Pergunta do dono:** *"onde fica o registro com o histórico de apurações?"*
+
+Não existe tela de histórico. A apuração vive na própria ficha do prestador
+(`/commissions/providers/[id]`), acessível **só pelo seletor de mês** — 12 meses
+para trás, de set/2025 a ago/2026. Não há lista de "todas as apurações" nem visão
+consolidada por período.
+
+O histórico **é** a linha em `provider_apuracoes`, com `memory_json` guardando
+linha a linha o que gerou o valor. Por isso a exclusão apaga o registro de que
+abril–julho foram apurados — mitigado pelo backup e pelo `upsert` do "Calcular".
+
+Fica como lacuna conhecida: um módulo de dinheiro sem tela de histórico depende
+de o operador saber qual mês procurar.
+
+---
+
+### R1 (registro original, para contexto da decisão acima)
 
 | | |
 |---|---|
