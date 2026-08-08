@@ -103,12 +103,32 @@ export function PurchasesTable() {
     }),
   );
 
+  // VAR-2 (varredura final): a tabela mede 914px numa área de 270 a 320px, e
+  // `Preco Compra` e `Preco Venda` nasciam fora de vista. Numa tela de COMPRA DE
+  // APARELHOS, quanto se pagou e por quanto se pretende vender é o conteúdo.
+  //
+  // A coluna "Aparelho" ocupava a segunda posição empilhando quatro linhas
+  // (marca+modelo, IMEI, S/N e observação) — sozinha, empurrava os dois preços.
   const columns: ColumnDef<PurchaseRow>[] = [
+    {
+      accessorKey: "purchasePrice",
+      header: "Preco Compra",
+      cell: ({ row }) => (
+        <span className="font-mono text-sm whitespace-nowrap">{formatCurrency(row.original.purchasePrice)}</span>
+      ),
+    },
+    {
+      accessorKey: "salePrice",
+      header: "Preco Venda",
+      cell: ({ row }) => (
+        <span className="font-mono text-sm whitespace-nowrap">{formatCurrency(row.original.salePrice)}</span>
+      ),
+    },
     {
       accessorKey: "createdAt",
       header: "Data",
       cell: ({ row }) => (
-        <span className="text-sm">{formatDate(row.original.createdAt)}</span>
+        <span className="whitespace-nowrap text-sm">{formatDate(row.original.createdAt)}</span>
       ),
     },
     {
@@ -183,20 +203,6 @@ export function PurchasesTable() {
         <span className="text-sm">
           {row.original.batteryHealth != null ? `${row.original.batteryHealth}%` : "-"}
         </span>
-      ),
-    },
-    {
-      accessorKey: "purchasePrice",
-      header: "Preco Compra",
-      cell: ({ row }) => (
-        <span className="font-mono text-sm">{formatCurrency(row.original.purchasePrice)}</span>
-      ),
-    },
-    {
-      accessorKey: "salePrice",
-      header: "Preco Venda",
-      cell: ({ row }) => (
-        <span className="font-mono text-sm">{formatCurrency(row.original.salePrice)}</span>
       ),
     },
     {

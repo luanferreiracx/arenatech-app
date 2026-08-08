@@ -148,10 +148,12 @@ export default function FinancialCategoriesPage() {
           <TableHeader>
             <TableRow>
               <TableHead>Nome</TableHead>
+              {/* VAR-2: `Ativo` e `Ações` nasciam fora de vista (543px em 270).
+                  O switch de ativo é a ação principal desta tela. */}
+              <TableHead>Ativo</TableHead>
               <TableHead>Tipo</TableHead>
               <TableHead>Origem</TableHead>
               <TableHead>Código</TableHead>
-              <TableHead>Ativo</TableHead>
               <TableHead className="w-16">Ações</TableHead>
             </TableRow>
           </TableHeader>
@@ -159,6 +161,12 @@ export default function FinancialCategoriesPage() {
             {categories?.map((cat) => (
               <TableRow key={cat.id}>
                 <TableCell className="font-medium">{cat.name}</TableCell>
+                <TableCell>
+                  <Switch
+                    checked={cat.active}
+                    onCheckedChange={(checked) => toggleMut.mutate({ id: cat.id, active: checked })}
+                  />
+                </TableCell>
                 <TableCell>
                   <Badge variant={cat.type === "RECEITA" ? "default" : "secondary"}>
                     {cat.type === "RECEITA" ? "Receita" : "Despesa"}
@@ -170,12 +178,6 @@ export default function FinancialCategoriesPage() {
                   </Badge>
                 </TableCell>
                 <TableCell className="text-muted-foreground font-mono text-xs">{cat.code}</TableCell>
-                <TableCell>
-                  <Switch
-                    checked={cat.active}
-                    onCheckedChange={(checked) => toggleMut.mutate({ id: cat.id, active: checked })}
-                  />
-                </TableCell>
                 <TableCell>
                   <div className="flex gap-1">
                     <Button

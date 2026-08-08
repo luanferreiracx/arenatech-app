@@ -121,7 +121,12 @@ export function EntitySelector<T>({
           aria-expanded={open}
           className={cn("w-full justify-between font-normal", !displayLabel && "text-muted-foreground", className)}
         >
-          {displayLabel ?? placeholder}
+          {/* VAR-2: o rótulo não truncava, então texto longo empurrava o ícone
+              para FORA do próprio botão — medido em `/service-orders/new`: botão
+              terminando em 271px e o `<svg>` em 320.7px, fazendo a página rolar
+              1px. Componente COMPARTILHADO: o defeito valia para toda tela que
+              usa o seletor de entidade. */}
+          <span className="min-w-0 truncate">{displayLabel ?? placeholder}</span>
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>

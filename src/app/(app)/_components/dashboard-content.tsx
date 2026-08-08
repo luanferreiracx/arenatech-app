@@ -499,9 +499,9 @@ function QuickLinks({ tenantSlug, allowedModules }: { tenantSlug?: string; allow
     { href: "/cashier", label: "Caixa", icon: Clock, mod: "cashier" },
     { href: "/depix-wallet", label: "Carteira DePix", icon: Wallet, mod: "wallet" },
     ...(tenantSlug === "arena-tech"
-      ? [{ href: "/iphone-hunter", label: "Buscar iPhones", icon: Smartphone, mod: "stock" }]
+      ? []
       : []),
-  ].filter((l) => has(l.mod) || (l.href === "/iphone-hunter" && tenantSlug === "arena-tech"));
+  ].filter((l) => has(l.mod));
 
   if (links.length === 0) return null;
 

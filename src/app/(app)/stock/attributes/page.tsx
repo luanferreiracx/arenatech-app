@@ -156,10 +156,12 @@ export default function AttributesPage() {
           <TableHeader>
             <TableRow>
               <TableHead className="w-8"></TableHead>
-              <TableHead>Nome</TableHead>
-              <TableHead>Slug</TableHead>
-              <TableHead>Valores</TableHead>
+              {/* VAR-2: `Status` e `Acoes` nasciam fora de vista numa tabela de
+                  505px em 270. Status primeiro. */}
               <TableHead>Status</TableHead>
+              <TableHead>Nome</TableHead>
+              <TableHead>Valores</TableHead>
+              <TableHead>Slug</TableHead>
               <TableHead className="w-20">Acoes</TableHead>
             </TableRow>
           </TableHeader>
@@ -182,16 +184,16 @@ export default function AttributesPage() {
                       <ChevronRight className="h-4 w-4" />
                     )}
                   </TableCell>
-                  <TableCell className="font-medium">{attr.name}</TableCell>
-                  <TableCell className="text-muted-foreground">{attr.slug}</TableCell>
-                  <TableCell>
-                    <Badge variant="secondary">{attr.values.length} valores</Badge>
-                  </TableCell>
                   <TableCell>
                     <Badge variant={attr.active ? "default" : "outline"}>
                       {attr.active ? "Ativo" : "Inativo"}
                     </Badge>
                   </TableCell>
+                  <TableCell className="font-medium">{attr.name}</TableCell>
+                  <TableCell>
+                    <Badge variant="secondary">{attr.values.length} valores</Badge>
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">{attr.slug}</TableCell>
                   <TableCell>
                     {isAdmin && (
                     <div className="flex gap-1">

@@ -93,12 +93,6 @@ export const appNavGroups: NavGroup[] = [
       { label: "Simulador", href: "/simulator", icon: Calculator, module: "tools" },
       { label: "Avaliar Aparelho", href: "/valuations", icon: Star, module: "tools" },
       { label: "Consultas", href: "/imei", icon: Shield, module: "imei-lookup" }, // aposentado
-      {
-        label: "Buscar iPhones",
-        href: "/iphone-hunter",
-        icon: Smartphone,
-        requiresTenantSlug: "arena-tech",
-      },
     ],
   },
   {

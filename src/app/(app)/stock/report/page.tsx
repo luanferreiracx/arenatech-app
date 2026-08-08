@@ -127,15 +127,22 @@ export default function StockReportPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Produto</TableHead>
-                <TableHead>SKU</TableHead>
+                {/* VAR-2: a tabela mede 1075px numa área de 222 a 320px — a mais
+                    larga do sistema. `Status` (sem estoque / baixo / normal) e
+                    `Estoque` nasciam fora de vista, e são o que um relatório de
+                    posição de estoque existe para responder.
+
+                    As colunas de admin (`Custo`) continuam pareadas com as suas
+                    equivalentes de venda, para a ordem não mudar entre papéis. */}
+                <TableHead>Status</TableHead>
                 <TableHead className="text-right">Estoque</TableHead>
+                <TableHead>Produto</TableHead>
                 <TableHead className="text-right">Minimo</TableHead>
+                <TableHead>SKU</TableHead>
                 {isAdmin && <TableHead className="text-right">Custo Unit.</TableHead>}
                 <TableHead className="text-right">Venda Unit.</TableHead>
                 {isAdmin && <TableHead className="text-right">Valor Total (Custo)</TableHead>}
                 <TableHead className="text-right">Valor Total (Venda)</TableHead>
-                <TableHead>Status</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -144,14 +151,27 @@ export default function StockReportPage() {
                 const isOut = product.currentStock === 0;
                 return (
                   <TableRow key={product.id}>
-                    <TableCell className="font-medium">{product.name}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{product.sku || "-"}</TableCell>
-                    <TableCell className="text-right font-mono">
+                    <TableCell>
+                      {isOut ? (
+                        <StatusBadge variant="destructive">Sem Estoque</StatusBadge>
+                      ) : isLow ? (
+                        <StatusBadge variant="warning">Estoque Baixo</StatusBadge>
+                      ) : (
+                        <StatusBadge variant="success">Normal</StatusBadge>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right font-mono whitespace-nowrap">
                       {product.currentStock} {product.unit}
+                    </TableCell>
+                    <TableCell className="font-medium">
+                      <span className="block max-w-[12rem] truncate" title={product.name}>
+                        {product.name}
+                      </span>
                     </TableCell>
                     <TableCell className="text-right text-muted-foreground">
                       {product.minStock || "-"}
                     </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{product.sku || "-"}</TableCell>
                     {isAdmin && (
                       <TableCell className="text-right font-mono text-sm">
                         {formatCurrency(product.costPrice)}
@@ -167,15 +187,6 @@ export default function StockReportPage() {
                     )}
                     <TableCell className="text-right font-mono text-sm">
                       {formatCurrency(product.currentStock * Number(product.salePrice))}
-                    </TableCell>
-                    <TableCell>
-                      {isOut ? (
-                        <StatusBadge variant="destructive">Sem Estoque</StatusBadge>
-                      ) : isLow ? (
-                        <StatusBadge variant="warning">Estoque Baixo</StatusBadge>
-                      ) : (
-                        <StatusBadge variant="success">Normal</StatusBadge>
-                      )}
                     </TableCell>
                   </TableRow>
                 );
