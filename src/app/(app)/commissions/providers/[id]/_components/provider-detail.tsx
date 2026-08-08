@@ -146,22 +146,29 @@ function PeriodCommissionPreview({ providerId }: { providerId: string }) {
           </Card>
 
           {data.lines.length > 0 ? (
+            /* CMU-9: mesma ordem da memória de cálculo — Comissao logo após Data.
+               São a MESMA tabela em dois lugares; corrigir só uma seria repetir o
+               padrão "a regra existe e o irmão fica de fora" que este módulo já
+               exibiu no CMU-4. */
             <div className="max-h-[420px] overflow-auto">
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b text-muted-foreground">
                     <th className="text-left p-2">Data</th>
+                    <th className="text-right p-2">Comissao</th>
                     <th className="text-left p-2">Referencia</th>
                     <th className="text-left p-2">Cat/Escopo</th>
                     <th className="text-left p-2">Origem</th>
                     <th className="text-right p-2">Base</th>
-                    <th className="text-right p-2">Comissao</th>
                   </tr>
                 </thead>
                 <tbody>
                   {data.lines.map((l, i) => (
                     <tr key={`${l.referencia_id}-${i}`} className="border-b">
                       <td className="p-2 text-muted-foreground whitespace-nowrap">{formatDate(l.data)}</td>
+                      <td className="p-2 text-right font-medium text-primary whitespace-nowrap">
+                        {formatCurrency(l.comissao)}
+                      </td>
                       <td className="p-2">{l.referencia_label}</td>
                       <td className="p-2">
                         {COMMISSION_CATEGORY_LABELS[l.categoria] ?? l.categoria} / {l.escopo}
@@ -170,7 +177,6 @@ function PeriodCommissionPreview({ providerId }: { providerId: string }) {
                         {COMMISSION_SOURCE_LABELS[l.origem] ?? "Propria"}
                       </td>
                       <td className="p-2 text-right">{formatCurrency(l.base)}</td>
-                      <td className="p-2 text-right font-medium text-primary">{formatCurrency(l.comissao)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -453,7 +459,12 @@ export function ProviderDetail({ providerId }: { providerId: string }) {
       {/* Apuracao Summary Cards */}
       {apuracao && (
         <>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {/* CMU-10: `grid-cols-2` fixo a partir de 320px dava 96px de caixa para
+              `text-2xl` — "+R$ 1.000,00" precisa de 158px e transbordava 62px,
+              invadindo o cartão vizinho. Três dos quatro cartões estouravam.
+              Mesmo defeito e mesma correção do DRE (E9-4, PR #873): uma coluna
+              até caber duas, e `min-w-0` para o filho poder encolher. */}
+          <div className="grid grid-cols-1 min-[420px]:grid-cols-2 md:grid-cols-4 gap-3 [&>*]:min-w-0">
             <Card className="p-4 border-primary/25 bg-primary/5">
               <p className="text-xs text-muted-foreground uppercase">Comissao bruta</p>
               <p className="text-2xl font-bold text-primary mt-1">{formatCurrency(apuracao.grossCommission)}</p>
@@ -478,9 +489,16 @@ export function ProviderDetail({ providerId }: { providerId: string }) {
           </div>
 
           {/* Close button */}
+          {/* CMU-8: rótulo de 37 caracteres num `Button` com `shrink-0` +
+              `whitespace-nowrap` = 309px irredutíveis, terminando em 333px numa
+              tela de 320. Escapou da primeira medição porque só existe quando há
+              apuração calculada — e eu media o mês corrente, que estava vazio. */}
           {isAdmin && !isClosed && currentContract && apuracao.grossCommission > 0 && (
-            <Button onClick={() => setShowCloseConfirm(true)}>
-              <Lock className="h-4 w-4 mr-2" />
+            <Button
+              onClick={() => setShowCloseConfirm(true)}
+              className="h-auto max-w-full shrink whitespace-normal text-left"
+            >
+              <Lock className="h-4 w-4 mr-2 shrink-0" />
               Fechar apuracao e gerar conta a pagar
             </Button>
           )}
@@ -502,16 +520,26 @@ export function ProviderDetail({ providerId }: { providerId: string }) {
             )}
           </div>
           {currentContract && currentContract.rules.length > 0 ? (
+            /* CMU-9: "Valor" era a ULTIMA das 6 colunas. A tabela mede 362px e o
+               cartao mostra 238 — a coluna comecava em 356px, ou seja, fora de
+               vista. A 320px o operador via "R$" solto em toda linha e concluia
+               que nao havia aliquota; os 5%/10%/7% estavam no DOM, so nao na
+               tela. O scroll horizontal e legitimo pela 1.4.10, mas esconder
+               justamente o numero que da nome ao cartao nao e.
+
+               Valor vem logo apos Categoria: as duas colunas que respondem "quanto
+               ele ganha em que" cabem juntas na area visivel, e o resto (escopo,
+               origem, faixas) fica para quem rolar. */
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b text-muted-foreground">
                     <th className="text-left p-2">Categoria</th>
+                    <th className="text-right p-2">Valor</th>
                     <th className="text-left p-2">Escopo</th>
                     <th className="text-left p-2">Origem</th>
                     <th className="text-right p-2">Min</th>
                     <th className="text-right p-2">Max</th>
-                    <th className="text-right p-2">Valor</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -520,6 +548,9 @@ export function ProviderDetail({ providerId }: { providerId: string }) {
                     return (
                       <tr key={r.id} className="border-b">
                         <td className="p-2">{COMMISSION_CATEGORY_LABELS[r.category] ?? r.category}</td>
+                        <td className="p-2 text-right font-medium whitespace-nowrap">
+                          {isFixed ? `${formatCurrency(r.rate)}/un` : `${r.rate}%`}
+                        </td>
                         <td className="p-2 capitalize">
                           {r.scope}
                           {r.base === "GROSS_NET" ? " · total" : ""}
@@ -529,9 +560,6 @@ export function ProviderDetail({ providerId }: { providerId: string }) {
                         </td>
                         <td className="p-2 text-right">{isFixed ? "—" : formatCurrency(r.rangeMin)}</td>
                         <td className="p-2 text-right">{isFixed ? "—" : r.rangeMax ? formatCurrency(r.rangeMax) : "---"}</td>
-                        <td className="p-2 text-right font-medium">
-                          {isFixed ? `${formatCurrency(r.rate)}/un` : `${r.rate}%`}
-                        </td>
                       </tr>
                     );
                   })}
@@ -550,22 +578,29 @@ export function ProviderDetail({ providerId }: { providerId: string }) {
             Memoria de calculo — {String(month).padStart(2, "0")}/{year}
           </h3>
           {apuracao?.memoryJson && (apuracao.memoryJson as Record<string, unknown>).linhas ? (
+            /* CMU-9: a memória é a tabela mais larga do módulo — 507px num cartão
+               de 238. "Comissao" era a última coluna e começava em 474px: a 320px
+               o operador via data e referência, e o valor comissionado de cada
+               linha ficava 236px fora da vista. Comissao vem logo após Data. */
             <div className="max-h-[420px] overflow-auto">
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b text-muted-foreground">
                     <th className="text-left p-2">Data</th>
+                    <th className="text-right p-2">Comissao</th>
                     <th className="text-left p-2">Referencia</th>
                     <th className="text-left p-2">Cat/Escopo</th>
                     <th className="text-left p-2">Origem</th>
                     <th className="text-right p-2">Base</th>
-                    <th className="text-right p-2">Comissao</th>
                   </tr>
                 </thead>
                 <tbody>
                   {((apuracao.memoryJson as Record<string, unknown>).linhas as Array<Record<string, unknown>>).map((l, i) => (
                     <tr key={i} className="border-b">
-                      <td className="p-2 text-muted-foreground">{formatDate(l.data as string)}</td>
+                      <td className="p-2 text-muted-foreground whitespace-nowrap">{formatDate(l.data as string)}</td>
+                      <td className="p-2 text-right font-medium text-primary whitespace-nowrap">
+                        {formatCurrency(l.comissao as number)}
+                      </td>
                       <td className="p-2">{l.referencia_label as string}</td>
                       <td className="p-2">
                         {COMMISSION_CATEGORY_LABELS[l.categoria as string] ?? String(l.categoria)} / {l.escopo as string}
@@ -574,9 +609,6 @@ export function ProviderDetail({ providerId }: { providerId: string }) {
                         {COMMISSION_SOURCE_LABELS[(l.origem as string) ?? "OWN"] ?? "Propria"}
                       </td>
                       <td className="p-2 text-right">{formatCurrency(l.base as number)}</td>
-                      <td className="p-2 text-right font-medium text-primary">
-                        {formatCurrency(l.comissao as number)}
-                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -717,8 +749,13 @@ export function ProviderDetail({ providerId }: { providerId: string }) {
           (ajuda de custo e proporcional).
         </p>
 
+        {/* CMU-8 (Etapa 9, M8): esta linha ficou de fora do CMU-4. As outras três
+            do arquivo ganharam `flex-wrap`/grid responsivo; esta seguiu `flex
+            gap-2` sem ponto de quebra — e o botão "Marcar/Desmarcar" terminava
+            em 389px numa tela de 320, inalcançável. Mesma classe de defeito,
+            irmão esquecido. */}
         {isAdmin && !isClosed && (
-          <div className="flex gap-2 items-end mb-4">
+          <div className="flex flex-wrap gap-2 items-end mb-4">
             <div>
               <Label className="text-xs">Data</Label>
               <DateInput
@@ -730,7 +767,9 @@ export function ProviderDetail({ providerId }: { providerId: string }) {
                 aria-label="Dia de remoto"
               />
             </div>
-            <div className="flex-1">
+            {/* `flex-1` sozinho colapsa quando a linha quebra (base 0%). O
+                `basis-40` dá largura mínima util antes de crescer. */}
+            <div className="flex-1 basis-40">
               <Label className="text-xs">Motivo</Label>
               <Input
                 value={uncoveredReason}
