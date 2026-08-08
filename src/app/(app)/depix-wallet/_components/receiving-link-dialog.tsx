@@ -95,13 +95,19 @@ function LinkBody() {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between rounded-lg border p-3">
+      {/* O rótulo diz o ESTADO ATUAL, não a ação do switch.
+          A versão anterior ("Recebendo pagamentos" + "Desligar suspende…") juntava
+          as duas coisas: com o link desligado, o título afirmava que estava
+          recebendo enquanto o switch dizia o contrário. */}
+      <div className="flex items-center justify-between gap-3 rounded-lg border p-3">
         <div className="min-w-0">
           <Label htmlFor="link-ativo" className="text-sm">
-            Recebendo pagamentos
+            {data.active ? "Link ativo" : "Link desativado"}
           </Label>
           <p className="mt-0.5 text-xs text-muted-foreground break-words">
-            Desligar suspende sem trocar o link — o QR já divulgado continua válido.
+            {data.active
+              ? "Seu link está recebendo pagamentos normalmente."
+              : "Ninguém consegue pagar por este link. Ative para voltar a receber."}
           </p>
         </div>
         <Switch
@@ -109,9 +115,17 @@ function LinkBody() {
           checked={data.active}
           disabled={setActive.isPending}
           onCheckedChange={(v) => setActive.mutate({ active: v })}
+          aria-label={data.active ? "Desativar o link" : "Ativar o link"}
         />
       </div>
 
+      {!data.active && (
+        <p className="rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-600 break-words dark:text-amber-400">
+          Ative o link acima para gerar o QR e começar a receber.
+        </p>
+      )}
+
+      {data.active && (
       <div className="space-y-2">
         <Label htmlFor="link-fixo">Link fixo</Label>
         <div className="flex min-w-0 gap-2">
@@ -138,7 +152,9 @@ function LinkBody() {
           </div>
         )}
       </div>
+      )}
 
+      {data.active && (
       <div className="space-y-2 border-t pt-4">
         <Label htmlFor="valor-cobranca">Cobrar um valor específico</Label>
         <p className="text-xs text-muted-foreground break-words">
@@ -169,6 +185,7 @@ function LinkBody() {
           <p className="text-xs text-destructive">Valor mínimo de R$ 10,00.</p>
         )}
       </div>
+      )}
 
       <p className="flex items-start gap-2 text-xs text-muted-foreground">
         <Link2 className="mt-0.5 size-3.5 shrink-0" />
