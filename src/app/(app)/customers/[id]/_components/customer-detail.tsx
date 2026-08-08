@@ -5,12 +5,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { Pencil, Trash2, RotateCcw } from "lucide-react";
+import { Pencil, Trash2, RotateCcw, MessageCircle } from "lucide-react";
 import { useTRPC } from "@/trpc/react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { PageHeader } from "@/components/domain/page-header";
 import { StatusBadge } from "@/components/domain/status-badge";
 import { CustomerRewardPanel } from "./customer-reward-panel";
+import { CustomerMessageDialog } from "../../_components/customer-message-dialog";
 import { ConfirmDialog } from "@/components/domain/confirm-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,14 +20,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/lib/toast";
 import { CUSTOMER_TYPE_LABELS } from "@/lib/validators/customer";
 import { SALE_STATUS_LABELS } from "@/lib/validators/sale";
-
-/** Link do WhatsApp a partir de um telefone BR (só dígitos, DDI 55). */
-function whatsappHref(phone: string | null): string | null {
-  if (!phone) return null;
-  const digits = phone.replace(/\D/g, "");
-  if (digits.length < 10) return null;
-  return `https://wa.me/55${digits}`;
-}
 
 /** Idade em anos a partir de uma data date-only (UTC), ou null. */
 function ageFromBirthDate(birthDate: string | Date): number | null {
@@ -62,6 +55,7 @@ export function CustomerDetail({ customerId }: { customerId: string }) {
   const queryClient = useQueryClient();
   const trpc = useTRPC();
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [mensagemAberta, setMensagemAberta] = useState(false);
 
   const { data: customer, isLoading } = useQuery(
     trpc.customer.byId.queryOptions({ id: customerId }),
@@ -133,6 +127,14 @@ export function CustomerDetail({ customerId }: { customerId: string }) {
               </Button>
             ) : (
               <>
+                {/* Caminho ÚNICO para falar com o cliente (E9-6): passa pelo
+                    Chatwoot/Cloud API, respeita o opt-out da LGPD e a janela de
+                    24h da Meta, e fica no inbox unificado. Antes a ficha só
+                    tinha `wa.me`, que abre o WhatsApp pessoal do operador. */}
+                <Button variant="outline" onClick={() => setMensagemAberta(true)}>
+                  <MessageCircle className="mr-2 h-4 w-4" />
+                  Enviar mensagem
+                </Button>
                 <Button variant="outline" asChild>
                   <Link href={`/customers/${customerId}/edit`}>
                     <Pencil className="mr-2 h-4 w-4" />
@@ -198,36 +200,20 @@ export function CustomerDetail({ customerId }: { customerId: string }) {
                 </span>
               </div>
             )}
+            {/* Telefone é TEXTO, não link (auditoria 2026-08-08, E9-6).
+                A ficha oferecia `wa.me/55<numero>`, que abre a conversa no
+                WhatsApp PESSOAL do operador: fora do Chatwoot, fora do inbox
+                unificado, fora do rastro — e furando o opt-out que o
+                `CustomerMessageDialog` respeita. Para falar com o cliente,
+                use o botão "Enviar mensagem" abaixo. */}
             <div className="flex justify-between gap-2">
               <span className="text-muted-foreground">WhatsApp</span>
-              {whatsappHref(customer.phone) ? (
-                <a
-                  href={whatsappHref(customer.phone)!}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-primary hover:underline"
-                >
-                  {formatPhone(customer.phone)}
-                </a>
-              ) : (
-                <span>{formatPhone(customer.phone)}</span>
-              )}
+              <span>{formatPhone(customer.phone)}</span>
             </div>
             {customer.phoneSecondary && (
               <div className="flex justify-between gap-2">
                 <span className="text-muted-foreground">Tel. alternativo</span>
-                {whatsappHref(customer.phoneSecondary) ? (
-                  <a
-                    href={whatsappHref(customer.phoneSecondary)!}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-primary hover:underline"
-                  >
-                    {formatPhone(customer.phoneSecondary)}
-                  </a>
-                ) : (
-                  <span>{formatPhone(customer.phoneSecondary)}</span>
-                )}
+                <span>{formatPhone(customer.phoneSecondary)}</span>
               </div>
             )}
             {customer.email && (
@@ -379,6 +365,19 @@ export function CustomerDetail({ customerId }: { customerId: string }) {
           <CustomerRewardPanel customerId={customer.id} />
         </TabsContent>
       </Tabs>
+
+      {/* Mesmo diálogo que a LISTA usa — um só caminho de envio, uma só regra
+          de opt-out. Duplicar a lógica aqui seria a receita para os dois lados
+          divergirem. */}
+      <CustomerMessageDialog
+        customer={
+          mensagemAberta
+            ? { id: customer.id, name: customer.name, phone: customer.phone }
+            : null
+        }
+        open={mensagemAberta}
+        onOpenChange={setMensagemAberta}
+      />
     </div>
   );
 }
