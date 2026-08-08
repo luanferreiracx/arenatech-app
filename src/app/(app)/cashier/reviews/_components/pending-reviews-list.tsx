@@ -133,10 +133,13 @@ export function PendingReviewsList() {
           <Table>
             <TableHeader>
               <TableRow>
+                {/* VAR-2: `Saldo Sistema` nascia fora de vista (tabela de 623px
+                    em 270). É o valor que o gerente confere — a razão de a tela
+                    existir. Duas colunas de data ocupavam as posições 2 e 3. */}
                 <TableHead>Operador</TableHead>
-                <TableHead>Aberto em</TableHead>
-                <TableHead>Fechado em</TableHead>
                 <TableHead className="text-right">Saldo Sistema</TableHead>
+                <TableHead>Fechado em</TableHead>
+                <TableHead>Aberto em</TableHead>
                 <TableHead className="w-[120px]" />
               </TableRow>
             </TableHeader>
@@ -144,16 +147,16 @@ export function PendingReviewsList() {
               {data.map((r) => (
                 <TableRow key={r.id}>
                   <TableCell className="font-medium">{r.userName}</TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {formatDateTime(r.openedAt)}
+                  <TableCell className="text-right font-mono font-semibold whitespace-nowrap">
+                    {r.expectedBalance != null
+                      ? formatCents(r.expectedBalance)
+                      : "-"}
                   </TableCell>
                   <TableCell className="text-warning">
                     {r.closedAt ? formatDateTime(r.closedAt) : "-"}
                   </TableCell>
-                  <TableCell className="text-right font-mono font-semibold">
-                    {r.expectedBalance != null
-                      ? formatCents(r.expectedBalance)
-                      : "-"}
+                  <TableCell className="text-muted-foreground">
+                    {formatDateTime(r.openedAt)}
                   </TableCell>
                   <TableCell>
                     {isAdmin ? (

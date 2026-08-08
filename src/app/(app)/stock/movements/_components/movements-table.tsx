@@ -55,28 +55,11 @@ export function MovementsTable() {
     }),
   );
 
+  // VAR-1 (varredura final): a tabela mede 861px numa área de 270 a 320px, e
+  // `Tipo`, `Quantidade` e `Motivo` nasciam fora de vista. Numa tela de
+  // MOVIMENTAÇÕES, "entrou ou saiu" e "quanto" são o conteúdo — a coluna
+  // "Produto" ocupava a segunda posição com nome + SKU em duas linhas.
   const columns: ColumnDef<MovementRow>[] = [
-    {
-      accessorKey: "createdAt",
-      header: "Data",
-      cell: ({ row }) => (
-        <span className="text-sm">{formatDate(row.original.createdAt)}</span>
-      ),
-    },
-    {
-      id: "product",
-      header: "Produto",
-      cell: ({ row }) => (
-        <div>
-          <span className="font-medium">{row.original.product.name}</span>
-          {row.original.product.sku && (
-            <span className="block text-xs text-muted-foreground">
-              SKU: {row.original.product.sku}
-            </span>
-          )}
-        </div>
-      ),
-    },
     {
       accessorKey: "type",
       header: "Tipo",
@@ -98,10 +81,33 @@ export function MovementsTable() {
       accessorKey: "quantity",
       header: "Quantidade",
       cell: ({ row }) => (
-        <span className="font-mono">
+        <span className="font-mono whitespace-nowrap">
           {row.original.type === "EXIT" || row.original.type === "RESERVE" ? "-" : "+"}
           {row.original.quantity}
         </span>
+      ),
+    },
+    {
+      id: "product",
+      header: "Produto",
+      cell: ({ row }) => (
+        <div className="max-w-[12rem]">
+          <span className="block truncate font-medium" title={row.original.product.name}>
+            {row.original.product.name}
+          </span>
+          {row.original.product.sku && (
+            <span className="block truncate text-xs text-muted-foreground">
+              SKU: {row.original.product.sku}
+            </span>
+          )}
+        </div>
+      ),
+    },
+    {
+      accessorKey: "createdAt",
+      header: "Data",
+      cell: ({ row }) => (
+        <span className="whitespace-nowrap text-sm">{formatDate(row.original.createdAt)}</span>
       ),
     },
     {

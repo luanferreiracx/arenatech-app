@@ -30,10 +30,39 @@ export function PreRegistrationsTable() {
     }),
   );
 
+  // ADM-1 (Etapa 9, M18): a ordem era
+  // Nome Fantasia|Responsavel|Email|Tipo|Status|Data. A tabela media **1199px**
+  // numa área de 270 a 320px — a mais larga da etapa —, e SEIS das sete colunas
+  // nasciam fora de vista. `Status` começava em **982px**.
+  //
+  // Esta é a fila de aprovação de novas lojas: o superadmin abre para decidir
+  // quem entra, e "pendente/aprovado/rejeitado" era justamente o que não se via.
+  //
+  // Quinta ocorrência da mesma classe nesta etapa (CMU-9/M8, CMN-1/M10,
+  // INT-1/M11, QSL-2/M15).
+  //
+  // Reordenar sozinho não bastaria: "Nome Fantasia" consumia 277px porque texto
+  // livre sem teto estica a coluna. Daí o `max-w-*` + `truncate` nas três de
+  // texto — com `title` para o valor inteiro ficar acessível no hover.
   const columns = [
-    { accessorKey: "tradeName", header: "Nome Fantasia" },
-    { accessorKey: "ownerName", header: "Responsavel" },
-    { accessorKey: "ownerEmail", header: "Email" },
+    {
+      accessorKey: "status",
+      header: "Status",
+      cell: ({ row }: { row: { original: { status: string } } }) => (
+        <StatusBadge variant={PRE_REGISTRATION_STATUS_VARIANT[row.original.status] ?? "default"}>
+          {PRE_REGISTRATION_STATUS_LABELS[row.original.status] ?? row.original.status}
+        </StatusBadge>
+      ),
+    },
+    {
+      accessorKey: "tradeName",
+      header: "Nome Fantasia",
+      cell: ({ row }: { row: { original: { tradeName: string } } }) => (
+        <span className="block max-w-[14rem] truncate" title={row.original.tradeName}>
+          {row.original.tradeName}
+        </span>
+      ),
+    },
     {
       id: "tipo",
       header: "Tipo",
@@ -45,19 +74,28 @@ export function PreRegistrationsTable() {
       ),
     },
     {
-      accessorKey: "status",
-      header: "Status",
-      cell: ({ row }: { row: { original: { status: string } } }) => (
-        <StatusBadge variant={PRE_REGISTRATION_STATUS_VARIANT[row.original.status] ?? "default"}>
-          {PRE_REGISTRATION_STATUS_LABELS[row.original.status] ?? row.original.status}
-        </StatusBadge>
-      ),
-    },
-    {
       accessorKey: "createdAt",
       header: "Data",
       cell: ({ row }: { row: { original: { createdAt: string | Date } } }) =>
         new Date(row.original.createdAt).toLocaleDateString("pt-BR"),
+    },
+    {
+      accessorKey: "ownerName",
+      header: "Responsavel",
+      cell: ({ row }: { row: { original: { ownerName: string } } }) => (
+        <span className="block max-w-[12rem] truncate" title={row.original.ownerName}>
+          {row.original.ownerName}
+        </span>
+      ),
+    },
+    {
+      accessorKey: "ownerEmail",
+      header: "Email",
+      cell: ({ row }: { row: { original: { ownerEmail: string } } }) => (
+        <span className="block max-w-[14rem] truncate" title={row.original.ownerEmail}>
+          {row.original.ownerEmail}
+        </span>
+      ),
     },
     {
       id: "actions",

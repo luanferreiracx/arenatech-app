@@ -67,9 +67,25 @@ describe("cobertura de gating de rota", () => {
     }
   });
 
-  it("iphone-hunter é bloqueado para tenant comum, mesmo com todos os módulos", () => {
+  /**
+   * O caso original media `/iphone-hunter`, removido com o módulo (decisão do
+   * dono, 2026-08-08). O que ele guardava continua valendo: rota fora de
+   * qualquer módulo **não pode** passar livre por URL só porque o menu a
+   * esconde — `requiresTenantSlug` some do menu, não bloqueia a rota.
+   *
+   * `SLUG_RESTRICTED_ROUTES` está vazio hoje. Enquanto estiver, a proteção é
+   * afirmar que rota desconhecida é NEGADA por padrão — é o que impede a
+   * próxima ferramenta interna de nascer acessível a todo tenant.
+   */
+  it("rota fora de qualquer módulo é negada por padrão", () => {
     const allModules = ["wallet", "depix-ops", "service-orders", "customers", "tools", "pdv", "stock", "cashier", "financial", "fiscal", "commissions", "settings"];
-    expect(isRouteAllowedForTenant("/iphone-hunter", { slug: "loja-x", modules: allModules })).toBe(false);
-    expect(isRouteAllowedForTenant("/iphone-hunter", { slug: "arena-tech", modules: allModules })).toBe(true);
+    expect(
+      isRouteAllowedForTenant("/ferramenta-interna-nova", { slug: "loja-x", modules: allModules }),
+      "rota sem módulo registrado deve ser NEGADA, senão passa livre por URL",
+    ).toBe(false);
+    expect(
+      isRouteAllowedForTenant("/ferramenta-interna-nova", { slug: "arena-tech", modules: allModules }),
+      "nem o tenant de acesso total escapa: sem registro, a rota não existe",
+    ).toBe(false);
   });
 });

@@ -58,6 +58,25 @@ export function ProvidersList() {
     <DataTable
       data={providers}
       columns={[
+        // VAR-3 (varredura final): `Contrato vigente` e `Acoes` nasciam fora de
+        // vista (tabela de 581px em 270). A coluna mostra "sem contrato" em
+        // VERMELHO — é o alerta que diz quem não pode ser comissionado, e era o
+        // que não se via.
+        {
+          header: "Contrato vigente",
+          id: "contract",
+          cell: ({ row }) => {
+            const contract = row.original.currentContract;
+            if (!contract) {
+              return <span className="whitespace-nowrap text-xs text-red-400">sem contrato</span>;
+            }
+            return (
+              <span className="whitespace-nowrap text-xs text-muted-foreground">
+                desde {new Date(contract.startDate).toLocaleDateString("pt-BR")}
+              </span>
+            );
+          },
+        },
         {
           header: "Nome",
           accessorKey: "userName",
@@ -96,21 +115,6 @@ export function ProvidersList() {
               {row.original.cnpjMei ?? row.original.cpf ?? "—"}
             </span>
           ),
-        },
-        {
-          header: "Contrato vigente",
-          id: "contract",
-          cell: ({ row }) => {
-            const contract = row.original.currentContract;
-            if (!contract) {
-              return <span className="text-xs text-red-400">sem contrato</span>;
-            }
-            return (
-              <span className="text-xs text-muted-foreground">
-                desde {new Date(contract.startDate).toLocaleDateString("pt-BR")}
-              </span>
-            );
-          },
         },
         {
           header: "Acoes",

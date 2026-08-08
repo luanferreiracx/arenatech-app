@@ -241,10 +241,14 @@ export function ServiceObservationsManager() {
     }
   }
 
+  // VAR-2: `p-6` + `flex justify-between` sem quebra empurrava o botão "Nova
+  // Observacao" para 329px numa tela de 320 — a ÚNICA rota da varredura em que a
+  // página inteira rolava (9px). Mesma classe do CMU-8 (M8): linha de ação sem
+  // estratégia de quebra.
   return (
-    <div className="rounded-lg border border-border p-6 space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
+    <div className="rounded-lg border border-border p-4 space-y-4 sm:p-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
           <h3 className="text-lg font-semibold">Observacoes do Orcamento</h3>
           <p className="text-sm text-muted-foreground">
             Textos incluidos automaticamente nos orcamentos de servico (Copiar / WhatsApp).

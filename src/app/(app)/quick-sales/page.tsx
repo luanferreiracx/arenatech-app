@@ -167,12 +167,22 @@ export default function QuickSalesPage() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  {/* QSL-2 (Etapa 9, M15): a ordem era
+                      Numero|Data|Pagador|CPF/CNPJ|Valor|Status|Acoes. A tabela
+                      mede 741px numa área de 270 a 320px, e QUATRO das sete
+                      colunas nasciam fora de vista — `Valor` em 420px e `Status`
+                      em 540px. Num módulo de cobrança, "quanto" e "pago ou não"
+                      são exatamente o que a lista existe para mostrar.
+
+                      Quarta ocorrência da mesma classe nesta etapa (CMU-9 no M8,
+                      CMN-1 no M10, INT-1 no M11): a coluna que decide a ação é
+                      declarada por último e nasce fora da tela. */}
                   <TableHead>Numero</TableHead>
+                  <TableHead className="text-right">Valor</TableHead>
+                  <TableHead>Status</TableHead>
                   <TableHead>Data</TableHead>
                   <TableHead>Pagador</TableHead>
                   <TableHead>CPF/CNPJ</TableHead>
-                  <TableHead className="text-right">Valor</TableHead>
-                  <TableHead>Status</TableHead>
                   <TableHead className="text-right">Acoes</TableHead>
                 </TableRow>
               </TableHeader>
@@ -183,12 +193,7 @@ export default function QuickSalesPage() {
                   return (
                     <TableRow key={sale.id as string}>
                       <TableCell className="font-mono font-semibold">{sale.number as string}</TableCell>
-                      <TableCell className="text-sm">
-                        {new Date(sale.createdAt as string).toLocaleDateString("pt-BR")}
-                      </TableCell>
-                      <TableCell className="font-medium">{(sale.buyerName as string) || "-"}</TableCell>
-                      <TableCell className="font-mono text-sm">{cpf || "-"}</TableCell>
-                      <TableCell className="text-right font-semibold">
+                      <TableCell className="text-right font-semibold whitespace-nowrap">
                         {formatCurrency(sale.totalAmount as number)}
                       </TableCell>
                       <TableCell>
@@ -196,6 +201,11 @@ export default function QuickSalesPage() {
                           {QUICK_SALE_STATUS_LABELS[status] ?? status}
                         </Badge>
                       </TableCell>
+                      <TableCell className="text-sm">
+                        {new Date(sale.createdAt as string).toLocaleDateString("pt-BR")}
+                      </TableCell>
+                      <TableCell className="font-medium">{(sale.buyerName as string) || "-"}</TableCell>
+                      <TableCell className="font-mono text-sm">{cpf || "-"}</TableCell>
                       <TableCell className="text-right">
                         <Button variant="ghost" size="sm" asChild>
                           <Link href={`/quick-sales/${sale.id}`}>

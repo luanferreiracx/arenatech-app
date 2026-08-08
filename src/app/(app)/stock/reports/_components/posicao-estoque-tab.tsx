@@ -86,13 +86,17 @@ export function PosicaoEstoqueTab() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Produto</TableHead>
-                    <TableHead>SKU</TableHead>
-                    <TableHead>Categoria</TableHead>
-                    <TableHead className="text-center">Qtd</TableHead>
-                    <TableHead className="text-right">Valor Unit.</TableHead>
-                    <TableHead className="text-right">Valor Total</TableHead>
+                    {/* VAR-3 (varredura final): `Status` e `Qtd` nasciam fora de
+                        vista (tabela de 839px em 270). Num relatório de POSIÇÃO
+                        de estoque, "quanto tem" e "sem estoque / baixo / normal"
+                        são a resposta que a tela existe para dar. */}
                     <TableHead>Status</TableHead>
+                    <TableHead className="text-center">Qtd</TableHead>
+                    <TableHead>Produto</TableHead>
+                    <TableHead className="text-right">Valor Total</TableHead>
+                    <TableHead className="text-right">Valor Unit.</TableHead>
+                    <TableHead>Categoria</TableHead>
+                    <TableHead>SKU</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -101,26 +105,6 @@ export function PosicaoEstoqueTab() {
                     const isOut = p.currentStock === 0;
                     return (
                       <TableRow key={p.id} className={isOut ? "opacity-50" : ""}>
-                        <TableCell className="font-medium">{p.name}</TableCell>
-                        <TableCell className="text-muted-foreground">{p.sku || "-"}</TableCell>
-                        <TableCell>{p.category?.name ?? "-"}</TableCell>
-                        <TableCell className="text-center">
-                          {isOut ? (
-                            <StatusBadge variant="default">0</StatusBadge>
-                          ) : isLow ? (
-                            <StatusBadge variant="warning">{p.currentStock}</StatusBadge>
-                          ) : (
-                            <StatusBadge variant="success">{p.currentStock}</StatusBadge>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-right font-mono text-sm">
-                          {p.currentStock > 0
-                            ? formatCurrencyFromDecimal(Number(p.salePrice))
-                            : "-"}
-                        </TableCell>
-                        <TableCell className="text-right font-mono text-sm">
-                          {formatCurrencyFromDecimal(p.currentStock * Number(p.salePrice))}
-                        </TableCell>
                         <TableCell>
                           {isOut ? (
                             <StatusBadge variant="destructive">Sem Estoque</StatusBadge>
@@ -130,6 +114,28 @@ export function PosicaoEstoqueTab() {
                             <StatusBadge variant="success">Normal</StatusBadge>
                           )}
                         </TableCell>
+                        <TableCell className="text-center">
+                          {isOut ? (
+                            <StatusBadge variant="default">0</StatusBadge>
+                          ) : isLow ? (
+                            <StatusBadge variant="warning">{p.currentStock}</StatusBadge>
+                          ) : (
+                            <StatusBadge variant="success">{p.currentStock}</StatusBadge>
+                          )}
+                        </TableCell>
+                        <TableCell className="font-medium">
+                          <span className="block max-w-[12rem] truncate" title={p.name}>{p.name}</span>
+                        </TableCell>
+                        <TableCell className="text-right font-mono text-sm whitespace-nowrap">
+                          {formatCurrencyFromDecimal(p.currentStock * Number(p.salePrice))}
+                        </TableCell>
+                        <TableCell className="text-right font-mono text-sm whitespace-nowrap">
+                          {p.currentStock > 0
+                            ? formatCurrencyFromDecimal(Number(p.salePrice))
+                            : "-"}
+                        </TableCell>
+                        <TableCell>{p.category?.name ?? "-"}</TableCell>
+                        <TableCell className="text-muted-foreground">{p.sku || "-"}</TableCell>
                       </TableRow>
                     );
                   })}

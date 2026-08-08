@@ -29,23 +29,14 @@ export function TenantsTable() {
     trpc.admin.listTenants.queryOptions({ page, pageSize: 20, search: search || undefined }),
   );
 
+  // ADM-1: a tabela media 994px numa área de 270 a 320px, e `Status` começava em
+  // 461px — fora de vista. Numa lista de lojas, "ativa / suspensa / bloqueada" é
+  // o que decide se o superadmin precisa agir.
+  //
+  // Mesma correção da fila de pré-cadastros e da mesma classe das quatro
+  // ocorrências anteriores da etapa. O `max-w-*` acompanha porque texto livre sem
+  // teto (nome da loja) estica a coluna e desfaz a reordenação.
   const columns = [
-    { accessorKey: "name", header: "Nome" },
-    {
-      id: "owner",
-      header: "Responsável",
-      cell: ({ row }: { row: { original: { owner: { name: string; email: string | null } | null } } }) => {
-        const owner = row.original.owner;
-        if (!owner) return <span className="text-muted-foreground">—</span>;
-        return (
-          <div className="min-w-0">
-            <p className="truncate">{owner.name}</p>
-            {owner.email && <p className="truncate text-xs text-muted-foreground">{owner.email}</p>}
-          </div>
-        );
-      },
-    },
-    { accessorKey: "slug", header: "Slug" },
     {
       accessorKey: "status",
       header: "Status",
@@ -53,7 +44,31 @@ export function TenantsTable() {
         <StatusBadge variant={STATUS_VARIANT[row.original.status] ?? "default"}>{row.original.status}</StatusBadge>
       ),
     },
+    {
+      accessorKey: "name",
+      header: "Nome",
+      cell: ({ row }: { row: { original: { name: string } } }) => (
+        <span className="block max-w-[12rem] truncate" title={row.original.name}>
+          {row.original.name}
+        </span>
+      ),
+    },
     { accessorKey: "plan", header: "Plano", cell: ({ row }: { row: { original: { plan: string | null } } }) => row.original.plan ?? "-" },
+    {
+      id: "owner",
+      header: "Responsável",
+      cell: ({ row }: { row: { original: { owner: { name: string; email: string | null } | null } } }) => {
+        const owner = row.original.owner;
+        if (!owner) return <span className="text-muted-foreground">—</span>;
+        return (
+          <div className="min-w-0 max-w-[12rem]">
+            <p className="truncate">{owner.name}</p>
+            {owner.email && <p className="truncate text-xs text-muted-foreground">{owner.email}</p>}
+          </div>
+        );
+      },
+    },
+    { accessorKey: "slug", header: "Slug" },
     {
       accessorKey: "createdAt",
       header: "Criado em",

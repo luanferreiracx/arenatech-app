@@ -252,6 +252,22 @@ export const quickSaleRouter = createTRPCRouter({
         const qty = (input.quantity ?? existing.quantity);
         const unitPriceCents = input.unitPrice ?? decimalToCents(existing.unitPrice);
         const discountCents = input.discount ?? decimalToCents(existing.discount);
+
+        // QSL-1: a guarda do schema (`superRefine`) só enxerga o payload, e aqui
+        // todo campo é opcional — editar apenas o `discount` chegaria com
+        // `quantity`/`unitPrice` indefinidos e passaria batido. Mesma armadilha
+        // da edição parcial do CAT-1 (M12).
+        //
+        // A comparação usa os valores EFETIVOS já resolvidos acima: payload
+        // quando veio, persistido quando não veio.
+        if (discountCents >= qty * unitPriceCents) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "O desconto nao pode ser maior ou igual ao subtotal — a cobranca ficaria zerada.",
+          });
+        }
+
         const total = Math.max(0, qty * unitPriceCents - discountCents);
         data.totalAmount = new Prisma.Decimal(total / 100);
 

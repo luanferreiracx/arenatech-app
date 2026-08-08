@@ -235,14 +235,17 @@ export const TOTAL_ACCESS_TENANT_SLUG = "arena-tech";
 
 /**
  * Rotas restritas a slugs específicos, INDEPENDENTE de módulo/plano. Ferramentas
- * internas que não pertencem a nenhum módulo comercializável (ex.: o buscador de
- * iPhones em grupos, só do arena-tech). Sem isto, a rota não casa nenhum prefixo
- * de módulo → `resolveModuleForPath` retorna null → passaria livre por URL para
- * qualquer tenant, ainda que o menu a esconda (o menu usa `requiresTenantSlug`,
- * que não bloqueia a rota). `isRouteAllowedForTenant` fecha esse buraco.
+ * internas que não pertencem a nenhum módulo comercializável. Sem isto, a rota
+ * não casa nenhum prefixo de módulo → `resolveModuleForPath` retorna null →
+ * passaria livre por URL para qualquer tenant, ainda que o menu a esconda (o
+ * menu usa `requiresTenantSlug`, que não bloqueia a rota).
+ * `isRouteAllowedForTenant` fecha esse buraco.
+ *
+ * **Vazio hoje** (2026-08-08): o único usuário era `/iphone-hunter`, removido
+ * com o módulo. O mecanismo fica porque o buraco que ele fecha é real — a
+ * próxima ferramenta interna sem módulo precisa entrar aqui, não só no menu.
  */
 const SLUG_RESTRICTED_ROUTES: ReadonlyArray<readonly [string, readonly string[]]> = [
-  ["/iphone-hunter", [TOTAL_ACCESS_TENANT_SLUG]],
 ];
 
 /** Slugs autorizados para uma rota restrita por slug, ou null se não for restrita. */

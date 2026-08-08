@@ -175,13 +175,17 @@ export function PendingTable() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  {/* VAR-1: a tabela mede 635px numa área de 270 a 320px, e
+                      QUATRO das sete colunas nasciam fora de vista — incluindo
+                      `A Receber` e `Status`, que são a razão de a tela existir
+                      (é a lista de contas PENDENTES). */}
+                  <TableHead className="text-right">A Receber</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Vencimento</TableHead>
                   <TableHead>Descricao</TableHead>
                   <TableHead>Cliente</TableHead>
                   <TableHead className="text-right">Valor Total</TableHead>
                   <TableHead className="text-right">Ja Pago</TableHead>
-                  <TableHead className="text-right">A Receber</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Vencimento</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -195,6 +199,17 @@ export function PendingTable() {
                     onClick={() => router.push(`/financial/${t.id}`)}
                     onKeyDown={onActivateKey(() => router.push(`/financial/${t.id}`))}
                   >
+                    <TableCell className="text-right font-mono text-warning font-semibold whitespace-nowrap">
+                      {formatCents(t.remainingAmount)}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={statusVariant(t.status)}>
+                        {TRANSACTION_STATUS_LABELS[t.status] ?? t.status}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-sm whitespace-nowrap">
+                      {formatDate(t.dueDate)}
+                    </TableCell>
                     <TableCell className="max-w-[200px] truncate">
                       {t.description}
                     </TableCell>
@@ -204,17 +219,6 @@ export function PendingTable() {
                     </TableCell>
                     <TableCell className="text-right font-mono text-success">
                       {t.paidAmount > 0 ? formatCents(t.paidAmount) : "-"}
-                    </TableCell>
-                    <TableCell className="text-right font-mono text-warning font-semibold">
-                      {formatCents(t.remainingAmount)}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={statusVariant(t.status)}>
-                        {TRANSACTION_STATUS_LABELS[t.status] ?? t.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-sm">
-                      {formatDate(t.dueDate)}
                     </TableCell>
                   </TableRow>
                 ))}

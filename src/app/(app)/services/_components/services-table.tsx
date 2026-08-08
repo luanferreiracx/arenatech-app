@@ -139,6 +139,17 @@ export function ServicesManageTable() {
   );
 
   const columns: ColumnDef<ServiceRow>[] = [
+    // VAR-3 (varredura final): `Status` nascia fora de vista (tabela de 370px em
+    // 270). Serviço inativo não entra na OS — é o que decide se a linha vale.
+    {
+      id: "status",
+      header: "Status",
+      cell: ({ row }) => (
+        <StatusBadge variant={row.original.active ? "success" : "destructive"}>
+          {row.original.active ? "Ativo" : "Inativo"}
+        </StatusBadge>
+      ),
+    },
     {
       accessorKey: "serviceType",
       header: "Tipo de Servico",
@@ -169,15 +180,6 @@ export function ServicesManageTable() {
         <span className="text-sm text-muted-foreground">
           {row.original.estimatedTime || "-"}
         </span>
-      ),
-    },
-    {
-      id: "status",
-      header: "Status",
-      cell: ({ row }) => (
-        <StatusBadge variant={row.original.active ? "success" : "destructive"}>
-          {row.original.active ? "Ativo" : "Inativo"}
-        </StatusBadge>
       ),
     },
     {

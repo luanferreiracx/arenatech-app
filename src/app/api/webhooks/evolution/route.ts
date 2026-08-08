@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withAdmin } from "@/server/db";
 import { logger } from "@/lib/logger";
-import { parseIPhoneListing } from "@/lib/services/iphone-listing-parser";
 import { timingSafeEqualString } from "@/lib/utils/timing-safe";
 
 /**
@@ -10,8 +9,13 @@ import { timingSafeEqualString } from "@/lib/utils/timing-safe";
  * Webhook Evolution API (WhatsApp) — recebe status updates de mensagens enviadas.
  *
  * Eventos esperados:
- *   - "messages.upsert" — mensagem enviada
  *   - "messages.update" — status atualizado (DELIVERED, READ, FAILED)
+ *
+ * O ramo `messages.upsert` foi removido junto com o iPhone Hunter (decisão do
+ * dono, 2026-08-08): ele existia só para capturar anúncios de grupos monitorados
+ * e alimentar `WhatsAppGroupMessage`/`IPhoneListing`. O webhook mantém a outra
+ * responsabilidade, independente: atualizar o status das mensagens que a loja
+ * ENVIA.
  *
  * Payload tipico:
  *   {
@@ -45,11 +49,6 @@ export async function POST(req: NextRequest) {
     const body = (await req.json()) as EvolutionWebhookPayload;
 
     const event = String(body.event ?? "");
-
-    // messages.upsert em grupo monitorado: persistir + extrair iPhone
-    if (event === "messages.upsert" || event === "MESSAGES_UPSERT") {
-      return await handleGroupMessageUpsert(body);
-    }
 
     const providerMessageId = body.data?.key?.id;
     const status = body.data?.update?.status?.toUpperCase() ?? "";
@@ -129,93 +128,6 @@ interface EvolutionWebhookPayload {
     messageTimestamp?: number | string;
     pushName?: string;
   };
-}
-
-/**
- * messages.upsert: nova mensagem recebida.
- * - Filtra apenas grupos (`remoteJid` termina em `@g.us`).
- * - Resolve tenant via `WhatsAppGroup.evolutionGroupJid` (com `monitored=true`).
- * - Persiste a mensagem (idempotente por `evolution_message_id`).
- * - Roda parser de iPhone; se match, cria `IPhoneListing`.
- */
-async function handleGroupMessageUpsert(body: EvolutionWebhookPayload) {
-  const remoteJid = body.data?.key?.remoteJid;
-  const evolutionMessageId = body.data?.key?.id;
-  if (!remoteJid || !evolutionMessageId || !remoteJid.endsWith("@g.us")) {
-    return NextResponse.json({ ok: true, skipped: "not a group message" });
-  }
-
-  const message = body.data?.message;
-  const bodyText =
-    message?.conversation ??
-    message?.extendedTextMessage?.text ??
-    message?.imageMessage?.caption ??
-    message?.videoMessage?.caption ??
-    "";
-  if (!bodyText.trim()) {
-    return NextResponse.json({ ok: true, skipped: "empty body" });
-  }
-
-  const senderJid = body.data?.key?.participant ?? remoteJid;
-  const senderName = body.data?.pushName ?? null;
-  const timestamp = body.data?.messageTimestamp;
-  const postedAt =
-    typeof timestamp === "number"
-      ? new Date(timestamp * 1000)
-      : typeof timestamp === "string"
-        ? new Date(Number(timestamp) * 1000)
-        : new Date();
-
-  const result = await withAdmin(async (tx) => {
-    const group = await tx.whatsAppGroup.findFirst({
-      where: { evolutionGroupJid: remoteJid, monitored: true },
-      select: { id: true, tenantId: true },
-    });
-    if (!group) return { matched: false, reason: "group not monitored" };
-
-    const existing = await tx.whatsAppGroupMessage.findFirst({
-      where: { tenantId: group.tenantId, evolutionMessageId },
-      select: { id: true },
-    });
-    if (existing) return { matched: true, duplicate: true };
-
-    const created = await tx.whatsAppGroupMessage.create({
-      data: {
-        tenantId: group.tenantId,
-        groupId: group.id,
-        evolutionMessageId,
-        senderJid,
-        senderName,
-        bodyText,
-        mediaUrl: message?.imageMessage?.url ?? null,
-        mediaType: message?.imageMessage ? "image" : message?.videoMessage ? "video" : null,
-        postedAt,
-      },
-      select: { id: true },
-    });
-
-    const parsed = parseIPhoneListing(bodyText);
-    if (parsed) {
-      await tx.iPhoneListing.create({
-        data: {
-          tenantId: group.tenantId,
-          messageId: created.id,
-          model: parsed.model,
-          storageGb: parsed.storageGb,
-          color: parsed.color,
-          priceCents: parsed.priceCents,
-          hasBox: parsed.hasBox,
-          condition: parsed.condition,
-          rawSnippet: parsed.rawSnippet,
-          postedAt,
-        },
-      });
-    }
-
-    return { matched: true, messageId: created.id, listing: parsed !== null };
-  });
-
-  return NextResponse.json({ ok: true, ...result });
 }
 
 function mapEvolutionStatus(status: string): "SENT" | "DELIVERED" | "READ" | "FAILED" | null {

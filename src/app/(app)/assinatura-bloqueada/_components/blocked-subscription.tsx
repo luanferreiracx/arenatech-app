@@ -65,30 +65,51 @@ export function BlockedSubscription({ tenantName, canPay }: BlockedSubscriptionP
           </div>
 
           {canPay ? (
-            <div className="space-y-2 border-t border-border pt-4">
-              {amountCents > 0 && (
+            /* ASN-1 (Etapa 9, M17): com `amountCents = 0` — assinatura sem plano,
+               valor não definido, cadastro incompleto — o valor sumia E o botão
+               desabilitava. Sobrava "Pagar e reativar agora" morto, sem uma
+               palavra do porquê.
+
+               É o mesmo beco que esta tela existe para evitar: o comentário da
+               `page.tsx` conta que antes o lojista caía em `/no-access` lendo
+               mensagem sobre outro problema. Botão inerte sem explicação recria o
+               beco dentro da própria tela de saída.
+
+               Agora o caso sem valor diz o que houve e dá um caminho (suporte),
+               em vez de um controle que não responde. */
+            amountCents > 0 ? (
+              <div className="space-y-2 border-t border-border pt-4">
                 <p className="text-sm text-muted-foreground">
                   Valor da mensalidade:{" "}
                   <strong className="tabular-nums text-foreground">
                     {formatCentsBRL(amountCents)}
                   </strong>
                 </p>
-              )}
-              <Button
-                className="w-full"
-                disabled={amountCents <= 0}
-                onClick={() => {
-                  setPayKey((key) => key + 1);
-                  setPayOpen(true);
-                }}
-              >
-                Pagar e reativar agora
-              </Button>
-              <p className="break-words text-xs text-muted-foreground">
-                Pagamento via DePix (PIX). O QR vale 30 minutos e a reativação é
-                automática assim que o pagamento é confirmado.
-              </p>
-            </div>
+                <Button
+                  className="w-full"
+                  onClick={() => {
+                    setPayKey((key) => key + 1);
+                    setPayOpen(true);
+                  }}
+                >
+                  Pagar e reativar agora
+                </Button>
+                <p className="break-words text-xs text-muted-foreground">
+                  Pagamento via DePix (PIX). O QR vale 30 minutos e a reativação é
+                  automática assim que o pagamento é confirmado.
+                </p>
+              </div>
+            ) : (
+              <div className="flex items-start gap-2 border-t border-border pt-4 text-sm text-muted-foreground">
+                <LifeBuoy className="mt-0.5 size-4 shrink-0" aria-hidden />
+                <p className="min-w-0 break-words">
+                  A mensalidade desta loja ainda não tem valor definido, então o
+                  pagamento não pode ser gerado por aqui. Fale com o suporte da Arena
+                  Tech para regularizar o acesso — seus dados e sua carteira DePix
+                  continuam intactos.
+                </p>
+              </div>
+            )
           ) : (
             <div className="flex items-start gap-2 border-t border-border pt-4 text-sm text-muted-foreground">
               <LifeBuoy className="mt-0.5 size-4 shrink-0" aria-hidden />

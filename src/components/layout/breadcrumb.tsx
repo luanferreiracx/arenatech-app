@@ -57,7 +57,6 @@ const segmentLabels: Record<string, string> = {
   "quick-sales": "Vendas Avulsas",
   simulator: "Simulador",
   "my-commission": "Minha Comissão",
-  "iphone-hunter": "Buscar iPhones",
   "aparelhos-catalogo": "Catálogo de Aparelhos",
   "depix-wallet": "DePix Wallet",
   // Financeiro
