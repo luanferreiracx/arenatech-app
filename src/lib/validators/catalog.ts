@@ -92,3 +92,41 @@ export const listServiceObservationsSchema = z.object({
   deviceModel: z.string().max(MAX_NOME).optional(),
 });
 export type ListServiceObservationsInput = z.infer<typeof listServiceObservationsSchema>;
+
+// ═══════════════════════════════════════
+// CONDIÇÃO DO APARELHO (catálogo)
+// ═══════════════════════════════════════
+
+/**
+ * CAT-2 (Etapa 9, M12): "Condição" era `Input` de texto livre, e o resultado em
+ * produção foi previsível — **"novo" (18) e "Novo" (2) como valores distintos**,
+ * mais 2 "Seminovo" e 1 vazio. O cliente vê a mesma condição escrita de duas
+ * formas, e nenhum agrupamento por condição funciona.
+ *
+ * Lista fechada, ordenada do melhor estado para o pior (é como o cliente pensa
+ * ao comparar). O valor persistido é o próprio rótulo — o dado legado só precisa
+ * de normalização de caixa, não de mapa de conversão.
+ */
+export const DEVICE_CONDITIONS = ["Novo", "Seminovo", "Usado", "Vitrine"] as const;
+
+export type DeviceCondition = (typeof DEVICE_CONDITIONS)[number];
+
+/**
+ * Aceita o legado em qualquer caixa ("novo" → "Novo") e recusa o que não estiver
+ * na lista. `null`/vazio continua válido: condição é opcional.
+ */
+export const deviceConditionSchema = z
+  .string()
+  .trim()
+  .transform((valor) => {
+    if (valor === "") return null;
+    const achado = DEVICE_CONDITIONS.find(
+      (c) => c.toLowerCase() === valor.toLowerCase(),
+    );
+    return achado ?? valor;
+  })
+  .refine((valor) => valor === null || DEVICE_CONDITIONS.includes(valor as DeviceCondition), {
+    message: `Condicao deve ser uma de: ${DEVICE_CONDITIONS.join(", ")}`,
+  })
+  .nullable()
+  .optional();

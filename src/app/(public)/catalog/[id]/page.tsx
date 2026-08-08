@@ -74,7 +74,10 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
               ) : null}
               {product.lowStock ? (
                 <span className="rounded-full border border-amber-400/40 bg-amber-400/10 px-2.5 py-1 text-[11px] font-semibold text-amber-300">
-                  {product.availableQuantity === 1 ? "Último disponível" : `Restam ${product.availableQuantity}`}
+                  {/* CAT-4: era "Restam N". Ver o comentário do badge
+                      "Disponível" abaixo — o número exato saiu dos três pontos
+                      que o expunham. */}
+                  Últimas unidades
                 </span>
               ) : null}
             </div>
@@ -115,7 +118,16 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
 
             {/* responsive-audit-ignore: 3 badges curtos (ícone + texto), desenhado p/ 320px */}
             <div className="mt-4 grid grid-cols-3 gap-2.5">
-              <Benefit icon={Package} title="Disponível" text={`${product.availableQuantity} un.`} />
+              {/* CAT-4 (decisão do dono, 2026-08-08): a vitrine mostrava a
+                  quantidade EXATA ("100 un."), expondo o estoque da loja a
+                  qualquer visitante — inclusive à concorrência. Agora informa
+                  apenas que há disponibilidade, e só vira urgência quando o
+                  estoque de fato acaba. */}
+              <Benefit
+                icon={Package}
+                title="Disponível"
+                text={product.lowStock ? "Últimas unidades" : "Em estoque"}
+              />
               <Benefit icon={MapPin} title="Retirada" text="Na loja" />
               <Benefit icon={ShieldCheck} title="Garantia" text="Suporte local" />
             </div>

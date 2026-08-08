@@ -35,7 +35,9 @@ export function CatalogProductCard({ product, index = 0 }: CatalogProductCardPro
             ) : null}
             {product.lowStock ? (
               <span className="rounded-md border border-[var(--cat-line-strong)] bg-[var(--cat-surface)]/90 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-[var(--cat-ink-soft)] backdrop-blur">
-                {product.availableQuantity === 1 ? "Último" : `Restam ${product.availableQuantity}`}
+                {/* CAT-4: era "Restam N" — quantidade exata do estoque na
+                    vitrine pública. Agora só sinaliza escassez. */}
+                Últimas unidades
               </span>
             ) : null}
           </div>

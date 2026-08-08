@@ -21,6 +21,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
+import { DEVICE_CONDITIONS } from "@/lib/validators/catalog";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -50,6 +51,13 @@ import { ConfirmDialog } from "@/components/domain/confirm-dialog";
 import { EmptyState } from "@/components/domain/empty-state";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
+
+/**
+ * Radix não aceita `<SelectItem value="">` — string vazia é o valor reservado
+ * para "sem seleção", e usá-la quebra o componente. Sentinela explícita, mapeada
+ * de volta para `null` na escrita.
+ */
+const SEM_CONDICAO = "__sem_condicao__";
 
 function fmt(v: unknown): string {
   return Number(v ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -231,15 +239,11 @@ function DeviceRow({
           {device.condition && (
             <span className="text-xs text-muted-foreground">{device.condition}</span>
           )}
+          {/* CAT-3: era "de/por" — `price` riscado ao lado do `promotionalPrice`.
+              Com um preço só, `price` é espelho do mesmo valor: o "de/por"
+              mostraria o MESMO número riscado ao lado dele. Um preço, um número. */}
           <span className="flex items-center gap-1 text-xs">
-            {hasPromo ? (
-              <>
-                <span className="text-muted-foreground line-through">{fmt(device.price)}</span>
-                <span className="font-semibold text-primary">PIX {fmt(pixPrice)}</span>
-              </>
-            ) : (
-              <span className="font-semibold font-mono">{fmt(device.price)}</span>
-            )}
+            <span className="font-semibold font-mono text-primary">{fmt(pixPrice)}</span>
           </span>
         </div>
       </div>
@@ -370,12 +374,14 @@ export function DeviceCatalogAdmin() {
       toast.error("Informe um nome com pelo menos 2 caracteres");
       return;
     }
+    // CAT-3: com UM preço, a comparação "PIX não pode ser maior que o cartão"
+    // (CAT-1, fechada horas antes) deixou de ter dois lados. Saiu daqui e do
+    // schema — guarda sem o que comparar aparenta proteção e não protege nada.
     const payload = {
       categoryId: deviceDialog.categoryId ?? selectedCategoryId ?? null,
       name: deviceDialog.name,
       condition: deviceDialog.condition ?? null,
       description: deviceDialog.description ?? null,
-      price: deviceDialog.price != null ? Number(deviceDialog.price) : null,
       promotionalPrice: deviceDialog.promotionalPrice != null ? Number(deviceDialog.promotionalPrice) : null,
       imageUrl: deviceDialog.imageUrl ?? null,
       available: deviceDialog.available ?? true,
@@ -512,7 +518,11 @@ export function DeviceCatalogAdmin() {
           <DialogHeader>
             <DialogTitle>{deviceDialog?.id ? "Editar aparelho" : "Novo aparelho"}</DialogTitle>
             <DialogDescription className="text-xs">
-              O preço PIX é o valor que o bot exibe ao cliente. Deixe em branco se não houver desconto.
+              {/* CAT-3: o texto falava em "deixe em branco se não houver
+                  desconto" — sobra do tempo em que havia preço de cartão para
+                  descontar. Com um preço só, a frase descrevia uma escolha que
+                  não existe mais. */}
+              O preço é o valor que o bot exibe ao cliente.
             </DialogDescription>
           </DialogHeader>
 
@@ -545,40 +555,47 @@ export function DeviceCatalogAdmin() {
               </Select>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label htmlFor="preco-cartao-r">Preço cartão (R$)</Label>
-                <Input id="preco-cartao-r"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={deviceDialog?.price != null ? String(deviceDialog.price) : ""}
-                  onChange={(e) => setDeviceDialog((d) => d ? { ...d, price: e.target.value === "" ? null : Number(e.target.value) } : d)}
-                  placeholder="0,00"
-                  className="font-mono"
-                />
-              </div>
-              <div>
-                <Label htmlFor="preco-pix-bot-usa-este">Preço PIX <span className="text-xs text-primary">(bot usa este)</span></Label>
-                <Input id="preco-pix-bot-usa-este"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={deviceDialog?.promotionalPrice != null ? String(deviceDialog.promotionalPrice) : ""}
-                  onChange={(e) => setDeviceDialog((d) => d ? { ...d, promotionalPrice: e.target.value === "" ? null : Number(e.target.value) } : d)}
-                  placeholder="opcional"
-                  className="font-mono"
-                />
-              </div>
+            {/* CAT-3: um preço só (decisão do dono). Antes eram dois campos lado
+                a lado — "cartão" e "PIX" — e o segundo era o único que o bot
+                usava. Ocupa a linha inteira agora que está sozinho. */}
+            <div>
+              <Label htmlFor="preco-pix-bot-usa-este">
+                Preço <span className="text-xs text-primary">(bot usa este)</span>
+              </Label>
+              <Input id="preco-pix-bot-usa-este"
+                type="number"
+                step="0.01"
+                min="0"
+                value={deviceDialog?.promotionalPrice != null ? String(deviceDialog.promotionalPrice) : ""}
+                onChange={(e) => setDeviceDialog((d) => d ? { ...d, promotionalPrice: e.target.value === "" ? null : Number(e.target.value) } : d)}
+                placeholder="0,00"
+                className="font-mono"
+              />
             </div>
 
+            {/* CAT-2: era `Input` livre, e produção acabou com "novo" (18) e
+                "Novo" (2) como valores DISTINTOS — mesma condição, escrita de
+                dois jeitos, sem agrupar em filtro nenhum. Lista fechada. */}
             <div>
               <Label htmlFor="condicao">Condição</Label>
-              <Input id="condicao"
-                value={deviceDialog?.condition ?? ""}
-                onChange={(e) => setDeviceDialog((d) => d ? { ...d, condition: e.target.value } : d)}
-                placeholder="Novo, Seminovo, Usado..."
-              />
+              <Select
+                value={deviceDialog?.condition ?? SEM_CONDICAO}
+                onValueChange={(v) =>
+                  setDeviceDialog((d) =>
+                    d ? { ...d, condition: v === SEM_CONDICAO ? null : v } : d,
+                  )
+                }
+              >
+                <SelectTrigger id="condicao" className="w-full">
+                  <SelectValue placeholder="Selecione a condição" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={SEM_CONDICAO}>— não informar —</SelectItem>
+                  {DEVICE_CONDITIONS.map((c) => (
+                    <SelectItem key={c} value={c}>{c}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div>
@@ -600,7 +617,10 @@ export function DeviceCatalogAdmin() {
               />
             </div>
 
-            <div className="flex gap-6 pt-1">
+            {/* CAT-3: `flex gap-6` sem quebra — a 320px "Disponível para venda"
+                era cortado no meio. Mesma classe do CMU-8 (M8): linha de
+                controles sem estratégia de quebra. */}
+            <div className="flex flex-wrap gap-x-6 gap-y-3 pt-1">
               <div className="flex items-center gap-2">
                 <Switch
                   checked={deviceDialog?.available ?? true}
