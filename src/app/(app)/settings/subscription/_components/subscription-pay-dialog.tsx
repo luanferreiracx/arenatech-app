@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/lib/toast";
+import { resolveQrImageSrc } from "@/lib/depix/qr-image-src";
 
 type SubscriptionPayDialogProps = {
   open: boolean;
@@ -82,7 +83,7 @@ export function SubscriptionPayDialog({ open, amountCents, onClose, onPaid }: Su
         onSuccess: (res) => {
           setTransactionId(res.transactionId);
           setQrCode(res.qrCode);
-          setQrImageUrl(res.qrCodeBase64 || null);
+          setQrImageUrl(resolveQrImageSrc(res.qrCodeBase64));
           setExpiresAt(res.expiresAt);
         },
         onError: (err) => {
