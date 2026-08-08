@@ -9,7 +9,6 @@ import { LoadingState } from "@/components/domain/loading-state";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { BalanceHero } from "./_components/balance-hero";
-import { StaticQrCard } from "./_components/static-qr-card";
 import { RecentTransactions } from "./_components/recent-transactions";
 import { RecoveryPhraseCard } from "./_components/recovery-phrase-card";
 import { WalletManagementCard } from "./_components/wallet-management-card";
@@ -131,7 +130,6 @@ export default function DepixWalletPage() {
 
       {/* QR PIX estatico — exclusivo da Arena Tech (master). Vendas rapidas no
           balcao; recebimento conferido manualmente. */}
-      {o?.isCentralTenant && <StaticQrCard />}
 
       {/* Gerenciamento da carteira non-custodial (ADR 0051): trocar senha,
           recuperar. So aparece p/ admin com carteira non_custodial provisionada. */}

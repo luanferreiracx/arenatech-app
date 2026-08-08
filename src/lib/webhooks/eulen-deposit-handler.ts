@@ -9,7 +9,6 @@ import {
   applyPixReceivedEffects,
   depositUnderpayToleranceCents,
 } from "@/server/services/depix-transaction.service";
-import { handleStaticQrDeposit } from "@/lib/webhooks/eulen-static-qr-handler";
 import { getFeeWalletTenantId } from "@/server/services/depix-fee-wallet.service";
 import { getPixStatus, isDepixConfigured } from "@/lib/services/depix-service";
 import {
@@ -123,10 +122,20 @@ export async function handleEulenDepositWebhook(
   const qrId = payload.qrId;
   const statusRaw = (payload.status ?? "").toLowerCase();
 
-  // qrId vazio = pagamento no QR PIX ESTATICO (chave fixa da intermediadora,
-  // exclusivo do tenant central). Handler dedicado cria/credita a tx STATIC_QR.
+  // qrId vazio era o pagamento no QR PIX ESTATICO, descontinuado em 2026-08-08
+  // (o dono desabilitou a chave fixa; o recebimento agora e pelo link de
+  // pagamento, que existe em todo tenant e sempre traz qrId).
+  //
+  // NAO seguir adiante sem qrId: a idempotencia e por `${qrId}:${status}`, entao
+  // um payload sem qrId colidiria com qualquer outro payload sem qrId — dois
+  // pagamentos distintos viram o mesmo evento e um deles some. Melhor recusar
+  // ruidosamente e conciliar a mao do que creditar errado em silencio.
   if (!qrId) {
-    return handleStaticQrDeposit(payload, sourceIp);
+    logger.error(
+      "Eulen-deposit: webhook sem qrId — QR estatico foi descontinuado. Se for pagamento real, concilie manualmente.",
+      { statusRaw, bankTxId: payload.bankTxId ?? null, blockchainTxID: payload.blockchainTxID ?? null },
+    );
+    return { status: 200, body: { ok: true, ignored: "static_qr_descontinuado" } };
   }
 
   // Idempotencia por (qrId, status).
