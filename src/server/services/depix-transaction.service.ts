@@ -321,81 +321,6 @@ async function getFeeRecipientAddress(): Promise<string> {
 // QR ESTATICO (tenant central)
 // ────────────────────────────────────────────────────────────────────────────
 
-/**
- * Garante a tx de DEPOSITO do pagamento no QR PIX ESTATICO (chave fixa da
- * intermediadora), EXCLUSIVA do tenant central (arena-tech). O webhook vem com
- * qrId vazio — usamos uma chave estavel (txid/bankTxId) como `depositLabel`
- * sintetico p/ idempotencia + match no settle. Cria PENDING se nao existe; nunca
- * cria pra outro tenant. Retorna a tx (ou null se a central nao esta provisionada).
- */
-export async function ensureStaticQrDepositTx(args: {
-  stableKey: string; // txid on-chain ou bankTxId — chave unica do pagamento
-  grossAmountCents: number;
-  payerName?: string | null;
-  payerTaxId?: string | null;
-  apiResponse?: unknown;
-}): Promise<
-  | { id: string; tenantId: string; status: string; depositLabel: string; depositAddress: string | null }
-  | null
-> {
-  const centralId = await getCentralTenantId();
-  if (!centralId) {
-    logger.error("static-qr: tenant central (arena-tech) nao encontrado");
-    return null;
-  }
-  const depositLabel = `static:${args.stableKey}`;
-
-  // Ja existe? (idempotente por label)
-  const existing = await withTenant(centralId, async (tx) =>
-    tx.tenantDepixTransaction.findFirst({
-      where: { tenantId: centralId, kind: "DEPOSIT", depositLabel },
-      select: { id: true, tenantId: true, status: true, depositLabel: true, depositAddress: true },
-    }),
-  );
-  if (existing) return existing as never;
-
-  // Carteira master da central (destino on-chain do DePix do QR estatico) +
-  // um usuario da central (userId e obrigatorio na tx; o estatico nao tem
-  // operador, entao usamos qualquer membro da central).
-  const wallet = await withTenant(centralId, async (tx) =>
-    tx.tenantDepixWallet.findUnique({ where: { tenantId: centralId }, select: { masterAddress: true } }),
-  );
-  const member = await withAdmin(async (tx) =>
-    tx.userTenant.findFirst({ where: { tenantId: centralId }, select: { userId: true } }),
-  );
-  if (!member) {
-    logger.error("static-qr: central sem usuario vinculado — nao da p/ criar tx");
-    return null;
-  }
-
-  const created = await withTenant(centralId, async (tx) => {
-    const number = await nextTransactionNumber(tx, "DEPOSIT");
-    return tx.tenantDepixTransaction.create({
-      data: {
-        tenantId: centralId,
-        number,
-        kind: "DEPOSIT",
-        status: "PENDING",
-        userId: member.userId,
-        userName: "QR estático",
-        grossAmountCents: args.grossAmountCents,
-        netAmountCents: args.grossAmountCents,
-        sourceType: "STATIC_QR",
-        sourceDescription: "Pagamento QR estático",
-        depositLabel,
-        depositAddress: wallet?.masterAddress ?? null,
-        depositReceivingTenantId: centralId,
-        payerName: args.payerName?.trim() || null,
-        payerTaxId: args.payerTaxId?.replace(/\D/g, "") || null,
-        apiResponse: (args.apiResponse ?? null) as never,
-        expiresAt: new Date(Date.now() + 30 * 60_000),
-      },
-      select: { id: true, tenantId: true, status: true, depositLabel: true, depositAddress: true },
-    });
-  });
-  logger.info("static-qr: tx criada na central", { id: created.id, stableKey: args.stableKey });
-  return created as never;
-}
 
 /**
  * Registra um DEPOSITO ON-CHAIN EXTERNO (DePix vindo de outra carteira — Sideswap,
@@ -1148,14 +1073,12 @@ async function applyDepositSaleEffects(row: {
   sourceId: string | null;
 }): Promise<{ applied: boolean; sourceType?: string | null; sourceId?: string | null }> {
   if (row.sourceType === "PAYMENT_LINK" && row.sourceId) {
-    // Link de pagamento (DePix Wallet) — marca PAID na hora do PIX recebido.
-    // Idempotente: so transiciona de ACTIVE.
-    await withTenant(row.tenantId, async (tx) => {
-      await tx.paymentLink.updateMany({
-        where: { id: row.sourceId!, walletTransactionId: row.id, status: "ACTIVE" },
-        data: { status: "PAID", paidAt: new Date() },
-      });
-    });
+    // Link de pagamento: nada a fazer no link.
+    //
+    // O link e FIXO e reutilizavel (2026-08-08) — nao "conclui" ao ser pago. O
+    // registro do dinheiro e esta propria transacao, que ja segue seu ciclo
+    // normal; marcar o link fecharia o recebimento apos o primeiro pagamento,
+    // que e exatamente o comportamento que saiu.
     return { applied: true, sourceType: row.sourceType, sourceId: row.sourceId };
   }
 

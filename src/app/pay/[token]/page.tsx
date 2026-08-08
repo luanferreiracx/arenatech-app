@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getPublicCharge } from "@/server/services/pay-public.service";
+import { parsePayAmountCents, PAY_AMOUNT_PARAM } from "@/lib/payment-link/pay-url";
 import { PublicPaymentForm } from "./_components/public-payment-form";
 import { PayShell, StatusScreen } from "./_components/pay-shell";
 
@@ -9,39 +10,38 @@ export const metadata: Metadata = {
   description: "Pague com PIX e receba na rede Liquid",
 };
 
-// Sempre dinamico: o estado da cobranca muda (pago/expirado) e nao deve cachear.
+// Sempre dinamico: o link pode ser desligado a qualquer momento e a pagina nao
+// deve servir versao cacheada de um recebimento suspenso.
 export const dynamic = "force-dynamic";
 
 export default async function PublicPaymentPage(props: {
   params: Promise<{ token: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { token } = await props.params;
+  const search = await props.searchParams;
   const charge = await getPublicCharge(token);
   if (!charge) notFound();
 
-  if (charge.status === "PAID") {
-    return (
-      <PayShell merchantName={charge.merchantName}>
-        <StatusScreen
-          tone="success"
-          title="Pagamento confirmado"
-          message={`O pagamento para ${charge.merchantName} foi concluído. Você já pode fechar esta página.`}
-        />
-      </PayShell>
-    );
-  }
-
-  if (charge.status === "EXPIRED" || charge.status === "CANCELLED") {
+  if (!charge.active) {
     return (
       <PayShell merchantName={charge.merchantName}>
         <StatusScreen
           tone="neutral"
-          title="Cobrança indisponível"
-          message="Este link de pagamento expirou ou foi cancelado. Peça um novo ao comerciante."
+          title="Pagamento indisponível"
+          message={`${charge.merchantName} não está recebendo por este link no momento.`}
         />
       </PayShell>
     );
   }
+
+  // Valor vindo da URL (`?valor=150.50`): o operador já definiu quanto cobrar.
+  // Quando presente, a tela mostra o valor travado — o cliente não altera, para
+  // não pagar por engano um valor diferente do combinado.
+  const rawAmount = search[PAY_AMOUNT_PARAM];
+  const presetAmountCents = parsePayAmountCents(
+    Array.isArray(rawAmount) ? rawAmount[0] : rawAmount,
+  );
 
   return (
     <PayShell merchantName={charge.merchantName}>
@@ -49,8 +49,8 @@ export default async function PublicPaymentPage(props: {
         token={token}
         merchantName={charge.merchantName}
         description={charge.description}
-        amountCents={charge.amountCents}
-        amountOpen={charge.amountOpen}
+        amountCents={presetAmountCents}
+        amountOpen={presetAmountCents == null}
       />
     </PayShell>
   );

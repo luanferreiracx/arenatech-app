@@ -4,7 +4,7 @@ import Link from "next/link";
 import { AlertTriangle, ArrowDownLeft, ArrowUpRight, Copy, Link2, Send, Wallet } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { GenerateLinkDialog } from "./generate-link-dialog";
+import { ReceivingLinkDialog } from "./receiving-link-dialog";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 
@@ -141,11 +141,11 @@ export function BalanceHero({
               {/* Conversão DePix→USDT (Sideswap) DESATIVADA: a assinatura do PSET
                   de swap não é suportada pelo LWK 0.17 (o Sideswap rejeita).
                   Código mantido, mas inacessível até resolver (ver memória). */}
-              <GenerateLinkDialog
+              <ReceivingLinkDialog
                 trigger={
                   <Button size="lg" variant="outline">
                     <Link2 className="mr-2 h-4 w-4" />
-                    Gerar link
+                    Meu link
                   </Button>
                 }
               />

@@ -6,7 +6,6 @@ import {
   reconcileStaleDepixTransactions,
   resolveIndeterminateWithdrawals,
 } from "@/server/services/depix-transaction.service";
-import { expireStalePaymentLinks } from "@/server/services/payment-link.service";
 import { getEsploraHealth } from "@/lib/services/lwk-service";
 import { evaluateEsploraHealth } from "@/lib/services/esplora-health-alert";
 import { checkCentralLbtcRunway } from "@/server/services/depix-lbtc-refill.service";
@@ -65,7 +64,6 @@ export async function POST(request: NextRequest) {
 
   try {
     const results: Awaited<ReturnType<typeof reconcileStaleDepixTransactions>>[] = [];
-    let expiredLinks = 0;
     let expiredAuthorizations = 0;
     let indeterminate: Awaited<ReturnType<typeof resolveIndeterminateWithdrawals>> = {
       checked: 0,
@@ -80,8 +78,6 @@ export async function POST(request: NextRequest) {
     // Lock por job: evita duas instancias consultando/transicionando a mesma tx.
     const ran = await withCronLock("reconcile-depix-transactions", async () => {
       results.push(await reconcileStaleDepixTransactions());
-      // Aproveita o mesmo job pra expirar links de pagamento vencidos (12h).
-      expiredLinks = (await expireStalePaymentLinks()).expired;
       // ...e pra alertar ANTES de o L-BTC da central secar (gás dos repasses/saques).
       await checkCentralLbtcRunway();
       // ...e pra detectar cache do LWK com UTXOs gastos (saldo inflado — guard de
@@ -114,7 +110,6 @@ export async function POST(request: NextRequest) {
     if (!ran || !result) return NextResponse.json({ skipped: "locked" });
     logger.info("[cron-reconcile-depix] processed", {
       ...result,
-      expiredLinks,
       expiredAuthorizations,
       indeterminate,
       walletSync,
@@ -122,7 +117,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       ...result,
-      expiredLinks,
       expiredAuthorizations,
       indeterminate,
       walletSync,

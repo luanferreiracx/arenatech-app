@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/lib/toast";
+import { resolveQrImageSrc } from "@/lib/depix/qr-image-src";
 
 interface DepixQrDialogProps {
   open: boolean;
@@ -108,7 +109,7 @@ export function DepixQrDialog({
           setWalletTransactionId(res.walletTransactionId ?? null);
           setTransactionId(res.transactionId ?? res.walletTransactionId ?? null);
           setQrCode(res.qrCode ?? null);
-          setQrImageUrl(res.qrCodeBase64 ?? null);
+          setQrImageUrl(resolveQrImageSrc(res.qrCodeBase64));
         },
         onError: (err) => {
           toast.error(`Erro ao gerar PIX: ${err.message}`);

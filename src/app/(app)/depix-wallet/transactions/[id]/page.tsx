@@ -25,6 +25,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ExternalWithdrawDeposit } from "../../_components/external-withdraw-deposit";
+import { resolveQrImageSrc } from "@/lib/depix/qr-image-src";
 
 function formatBRL(cents: number | null | undefined): string {
   if (cents == null) return "—";
@@ -359,7 +360,7 @@ export default function TransactionDetailPage({ params }: { params: Promise<{ id
               <div className="flex flex-col items-center gap-3">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
-                  src={t.qrCodeBase64}
+                  src={resolveQrImageSrc(t.qrCodeBase64) ?? ""}
                   alt="QR PIX"
                   className="w-64 h-64 border rounded-md bg-white p-2"
                 />
