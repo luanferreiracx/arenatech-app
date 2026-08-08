@@ -1,43 +1,37 @@
-/// Link de pagamento DePix gerado no DePix Wallet. O cliente paga por
-/// /pay/<token> sem login (informa CPF/CNPJ + confirma titularidade). Quando
-/// pago, vincula-se ao deposito (walletTransactionId). NAO carrega conceito de
-/// "venda" (produto/quantidade) — e so a cobranca.
-enum PaymentLinkStatus {
-  ACTIVE
-  PAID
-  EXPIRED
-  CANCELLED
-}
-
+/// Link de pagamento DePix: UM link fixo por tenant, reutilizável.
+///
+/// O cliente paga por /pay/<token> sem login (informa CPF/CNPJ, valor e confirma
+/// titularidade). O operador pode mandar o valor já preenchido pela própria URL
+/// (/pay/<token>?valor=150) — sem criar registro novo para isso.
+///
+/// ## Por que deixou de ser "um link por cobrança" (2026-08-08)
+///
+/// O modelo antigo criava um link descartável por cobrança: valor gravado,
+/// expiração de 12h, `status PAID` e `walletTransactionId @unique` amarrando
+/// "1 link = 1 pagamento". Isso impedia o caso que a operação precisa — um link
+/// fixo, divulgado uma vez, que continua recebendo.
+///
+/// A rastreabilidade não se perde: ela nunca morou no link, e sim na
+/// `TenantDepixTransaction` de cada pagamento (valor, pagador, txid on-chain).
+/// O link é o endereço de cobrança; a transação é o registro do dinheiro.
 model PaymentLink {
-  id                  String            @id @default(uuid()) @db.Uuid
-  tenantId            String            @map("tenant_id") @db.Uuid
+  id          String   @id @default(uuid()) @db.Uuid
+  /// UM link por tenant: é o endereço de cobrança fixo dele.
+  tenantId    String   @unique @map("tenant_id") @db.Uuid
 
   /// Token publico nao-adivinhavel da URL /pay/<token>.
-  token               String            @unique
+  token       String   @unique
 
-  /// Valor em centavos. NULL = valor livre (o cliente define ao pagar).
-  amountCents         Int?              @map("amount_cents")
-  /// Descricao/observacao do que se refere o pagamento.
-  description         String?
+  /// Texto exibido ao cliente na tela de pagamento (ex.: referência da loja).
+  description String?
 
-  status              PaymentLinkStatus @default(ACTIVE)
+  /// Desligar suspende o recebimento SEM perder o token — religar devolve o
+  /// MESMO endereço, para não invalidar material já divulgado.
+  active      Boolean  @default(true)
 
-  /// Validade do link: nao pago ate aqui -> EXPIRED. Setado na criacao
-  /// (now + 12h). Pagamento ja iniciado (deposito gerado) nao e barrado por isto.
-  expiresAt           DateTime?         @map("expires_at")
+  createdById String   @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
 
-  /// Deposito DePix vinculado quando o link e pago (1 link = 1 pagamento).
-  walletTransactionId String?           @unique @map("wallet_transaction_id") @db.Uuid
-
-  createdById         String            @map("created_by_id") @db.Uuid
-  paidAt              DateTime?         @map("paid_at")
-  createdAt           DateTime          @default(now()) @map("created_at")
-  updatedAt           DateTime          @updatedAt @map("updated_at")
-
-  @@index([tenantId, status])
-  @@index([tenantId, createdAt])
-  /// Varredura do cron que expira links ACTIVE vencidos (cross-tenant).
-  @@index([status, expiresAt])
   @@map("payment_links")
 }

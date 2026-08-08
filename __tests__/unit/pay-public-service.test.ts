@@ -1,20 +1,26 @@
 /**
- * generatePublicPix (pagamento publico via PaymentLink): revalida TODAS as
- * regras no servidor — checkbox de titularidade, CPF obrigatorio+valido, limites
- * min/max e por documento, link ACTIVE. Idempotencia (nao recria deposito).
+ * generatePublicPix (pagamento publico via PaymentLink).
+ *
+ * O link virou FIXO e reutilizável (2026-08-08): não tem mais valor gravado,
+ * status nem expiração. O que o servidor continua revalidando, sempre — porque o
+ * cliente nunca é fonte de verdade — é titularidade, CPF/CNPJ, limites min/max e
+ * limite por documento.
+ *
+ * A idempotência mudou de chave: antes era o `walletTransactionId` do link
+ * ("1 link = 1 pagamento"); agora é (link, pagador, valor). É o que distingue
+ * "o cliente recarregou a página" de "outra pessoa está pagando este link
+ * agora" — sem isso, cada clique criaria uma cobrança nova na Eulen.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const linkFindUnique = vi.fn();
-const linkUpdate = vi.fn();
-const linkUpdateMany = vi.fn();
-const txFindUnique = vi.fn();
+const txFindFirst = vi.fn();
 const validateDepixLimit = vi.fn();
 const createDeposit = vi.fn();
 
 const tx = {
-  paymentLink: { findUnique: linkFindUnique, update: linkUpdate, updateMany: linkUpdateMany },
-  tenantDepixTransaction: { findUnique: txFindUnique },
+  paymentLink: { findUnique: linkFindUnique },
+  tenantDepixTransaction: { findFirst: txFindFirst },
 };
 
 vi.mock("@/server/db", () => ({
@@ -37,127 +43,122 @@ function paymentLink(over: Record<string, unknown> = {}) {
   return {
     id: "pl-1",
     tenantId: "tenant-1",
-    status: "ACTIVE",
-    amountCents: 5000, // R$50 fixo (null = livre)
-    description: "Mensalidade",
-    expiresAt: new Date(Date.now() + 6 * 60 * 60 * 1000), // valido (6h restantes)
-    walletTransactionId: null,
+    active: true,
+    description: "Loja do Zé",
     createdById: "user-1",
     ...over,
   };
 }
 
+function args(over: Record<string, unknown> = {}) {
+  return {
+    token: TOKEN,
+    taxId: CPF,
+    amountCents: 5000,
+    ownershipConfirmed: true,
+    ...over,
+  };
+}
+
 beforeEach(() => {
-  for (const m of [linkFindUnique, linkUpdate, linkUpdateMany, txFindUnique, validateDepixLimit, createDeposit]) m.mockReset();
-  linkUpdateMany.mockResolvedValue({ count: 1 });
+  for (const m of [linkFindUnique, txFindFirst, validateDepixLimit, createDeposit]) m.mockReset();
   linkFindUnique.mockResolvedValue(paymentLink());
-  linkUpdate.mockResolvedValue({});
+  txFindFirst.mockResolvedValue(null);
   validateDepixLimit.mockResolvedValue({ allowed: true });
   createDeposit.mockResolvedValue({
     id: "wtx-1",
     pixpayDepixId: "qr-eulen-1",
     qrCode: "000201...",
-    qrCodeBase64: "iVBOR...",
-    expiresAt: new Date("2026-06-27T03:00:00Z"),
+    qrCodeBase64: "https://resources.eulen.app/qr/pix/abc",
+    expiresAt: new Date("2026-08-08T03:00:00Z"),
   });
 });
 
-describe("generatePublicPix (PaymentLink)", () => {
+describe("generatePublicPix (PaymentLink fixo)", () => {
   it("rejeita sem confirmar titularidade (checkbox)", async () => {
-    const r = await generatePublicPix({ token: TOKEN, taxId: CPF, amountCents: null, ownershipConfirmed: false });
+    const r = await generatePublicPix(args({ ownershipConfirmed: false }));
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toContain("titular");
     expect(createDeposit).not.toHaveBeenCalled();
   });
 
   it("rejeita CPF/CNPJ invalido", async () => {
-    const r = await generatePublicPix({ token: TOKEN, taxId: "111", amountCents: null, ownershipConfirmed: true });
+    const r = await generatePublicPix(args({ taxId: "11111111111" }));
     expect(r.ok).toBe(false);
     expect(createDeposit).not.toHaveBeenCalled();
   });
 
-  it("rejeita link que nao esta ACTIVE", async () => {
-    linkFindUnique.mockResolvedValue(paymentLink({ status: "PAID" }));
-    const r = await generatePublicPix({ token: TOKEN, taxId: CPF, amountCents: null, ownershipConfirmed: true });
+  it("link desligado pelo comerciante NAO recebe", async () => {
+    linkFindUnique.mockResolvedValue(paymentLink({ active: false }));
+    const r = await generatePublicPix(args());
     expect(r.ok).toBe(false);
     expect(createDeposit).not.toHaveBeenCalled();
   });
 
-  it("rejeita link vencido (expiresAt no passado) e o marca EXPIRED", async () => {
-    linkFindUnique.mockResolvedValue(paymentLink({ expiresAt: new Date(Date.now() - 60_000) }));
-    const r = await generatePublicPix({ token: TOKEN, taxId: CPF, amountCents: null, ownershipConfirmed: true });
+  it("token inexistente nao gera cobranca", async () => {
+    linkFindUnique.mockResolvedValue(null);
+    const r = await generatePublicPix(args());
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toContain("expirou");
     expect(createDeposit).not.toHaveBeenCalled();
-    // Marcou EXPIRED (updateMany guardado por status ACTIVE).
-    const data = linkUpdateMany.mock.calls.at(-1)![0] as { data: { status: string } };
-    expect(data.data.status).toBe("EXPIRED");
   });
 
-  it("valor livre abaixo do minimo -> rejeita", async () => {
-    linkFindUnique.mockResolvedValue(paymentLink({ amountCents: null }));
-    const r = await generatePublicPix({ token: TOKEN, taxId: CPF, amountCents: 500, ownershipConfirmed: true });
+  it("valor abaixo do minimo -> rejeita", async () => {
+    const r = await generatePublicPix(args({ amountCents: 500 }));
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toContain("mínimo");
+    expect(createDeposit).not.toHaveBeenCalled();
   });
 
-  it("valor livre acima do maximo -> rejeita", async () => {
-    linkFindUnique.mockResolvedValue(paymentLink({ amountCents: null }));
-    const r = await generatePublicPix({ token: TOKEN, taxId: CPF, amountCents: 600000, ownershipConfirmed: true });
+  it("valor acima do maximo -> rejeita", async () => {
+    const r = await generatePublicPix(args({ amountCents: 99_999_99 }));
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toContain("máximo");
+    expect(createDeposit).not.toHaveBeenCalled();
   });
 
   it("respeita o limite por documento", async () => {
-    validateDepixLimit.mockResolvedValue({ allowed: false, reason: "Limite diário excedido." });
-    const r = await generatePublicPix({ token: TOKEN, taxId: CPF, amountCents: null, ownershipConfirmed: true });
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toContain("Limite");
+    validateDepixLimit.mockResolvedValue({ allowed: false, reason: "Limite excedido" });
+    const r = await generatePublicPix(args());
+    expect(r).toMatchObject({ ok: false, error: "Limite excedido" });
     expect(createDeposit).not.toHaveBeenCalled();
   });
 
-  it("caminho feliz (valor fixo): cria deposito com CPF + descricao do link", async () => {
-    const r = await generatePublicPix({ token: TOKEN, taxId: CPF, amountCents: null, ownershipConfirmed: true });
-    expect(r.ok).toBe(true);
-    if (r.ok) {
-      expect(r.qrCode).toBe("000201...");
-      expect(r.amountCents).toBe(5000);
-    }
+  it("caminho feliz: cria deposito com o valor do cliente e o CPF informado", async () => {
+    const r = await generatePublicPix(args({ amountCents: 15000 }));
+    expect(r).toMatchObject({ ok: true, amountCents: 15000 });
     expect(createDeposit).toHaveBeenCalledWith(
       expect.objectContaining({
         tenantId: "tenant-1",
+        grossAmountCents: 15000,
         sourceType: "PAYMENT_LINK",
         sourceId: "pl-1",
         payerTaxId: CPF,
-        grossAmountCents: 5000,
-        sourceDescription: "Mensalidade",
       }),
     );
-    // Vincula o deposito ao link.
-    expect(linkUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({ data: { walletTransactionId: "wtx-1" } }),
-    );
   });
 
-  it("valor livre: usa o valor do cliente", async () => {
-    linkFindUnique.mockResolvedValue(paymentLink({ amountCents: null }));
-    const r = await generatePublicPix({ token: TOKEN, taxId: CPF, amountCents: 12300, ownershipConfirmed: true });
-    expect(r.ok).toBe(true);
-    expect(createDeposit).toHaveBeenCalledWith(expect.objectContaining({ grossAmountCents: 12300 }));
-  });
-
-  it("idempotente: deposito PENDING valido existente -> retorna sem recriar", async () => {
-    linkFindUnique.mockResolvedValue(paymentLink({ walletTransactionId: "wtx-existente" }));
-    txFindUnique.mockResolvedValue({
-      status: "PENDING",
-      qrCode: "QR-EXISTENTE",
-      qrCodeBase64: "b64",
-      pixpayDepixId: "qr-x",
-      expiresAt: new Date(Date.now() + 10 * 60_000),
+  it("idempotente: mesmo pagador e mesmo valor reusam o QR pendente", async () => {
+    txFindFirst.mockResolvedValue({
+      qrCode: "000201-existente",
+      qrCodeBase64: "https://resources.eulen.app/qr/pix/ja-existe",
+      pixpayDepixId: "qr-eulen-existente",
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000),
     });
-    const r = await generatePublicPix({ token: TOKEN, taxId: CPF, amountCents: null, ownershipConfirmed: true });
-    expect(r.ok).toBe(true);
-    if (r.ok) expect(r.qrCode).toBe("QR-EXISTENTE");
+    const r = await generatePublicPix(args());
+    expect(r).toMatchObject({ ok: true, qrCode: "000201-existente" });
+    // O ponto do teste: NAO criou cobranca nova na Eulen.
     expect(createDeposit).not.toHaveBeenCalled();
+  });
+
+  it("link reutilizavel: OUTRO pagador no mesmo link gera cobranca propria", async () => {
+    // A busca de idempotência é por (link, pagador, valor) — como não há
+    // pendente para este pagador, tem de criar. Sem isso, o segundo cliente
+    // receberia o QR do primeiro e pagaria a cobrança errada.
+    txFindFirst.mockResolvedValue(null);
+    const r = await generatePublicPix(args({ taxId: "11144477735" }));
+    expect(r.ok).toBe(true);
+    expect(createDeposit).toHaveBeenCalledTimes(1);
+    expect(txFindFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ payerTaxId: "11144477735", sourceId: "pl-1" }),
+      }),
+    );
   });
 });

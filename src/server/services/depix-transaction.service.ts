@@ -1148,14 +1148,12 @@ async function applyDepositSaleEffects(row: {
   sourceId: string | null;
 }): Promise<{ applied: boolean; sourceType?: string | null; sourceId?: string | null }> {
   if (row.sourceType === "PAYMENT_LINK" && row.sourceId) {
-    // Link de pagamento (DePix Wallet) — marca PAID na hora do PIX recebido.
-    // Idempotente: so transiciona de ACTIVE.
-    await withTenant(row.tenantId, async (tx) => {
-      await tx.paymentLink.updateMany({
-        where: { id: row.sourceId!, walletTransactionId: row.id, status: "ACTIVE" },
-        data: { status: "PAID", paidAt: new Date() },
-      });
-    });
+    // Link de pagamento: nada a fazer no link.
+    //
+    // O link e FIXO e reutilizavel (2026-08-08) — nao "conclui" ao ser pago. O
+    // registro do dinheiro e esta propria transacao, que ja segue seu ciclo
+    // normal; marcar o link fecharia o recebimento apos o primeiro pagamento,
+    // que e exatamente o comportamento que saiu.
     return { applied: true, sourceType: row.sourceType, sourceId: row.sourceId };
   }
 

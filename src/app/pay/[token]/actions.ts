@@ -41,13 +41,22 @@ export async function generatePublicPixAction(
   return generatePublicPixService(parsed.data);
 }
 
-/** Consulta o status do pagamento (polling). Rate-limit generoso por IP. */
-export async function getPublicPixStatusAction(token: string): Promise<PublicPixStatus> {
+/**
+ * Consulta o status de UMA cobrança do link (polling). Rate-limit por IP.
+ *
+ * O `depixId` é obrigatório porque o link é reutilizável: sem ele, dois clientes
+ * pagando o mesmo link ao mesmo tempo veriam o status um do outro.
+ */
+export async function getPublicPixStatusAction(
+  token: string,
+  depixId: string,
+): Promise<PublicPixStatus> {
   const rl = await rateLimit({
     key: `pay-public-status:${await clientIp()}`,
     limit: degradedPublicLimit(120, 30),
     windowMs: 60 * 1000,
   });
   if (!rl.success) return "pending";
-  return getPublicPixStatusService(token);
+  if (!depixId) return "pending";
+  return getPublicPixStatusService(token, depixId);
 }

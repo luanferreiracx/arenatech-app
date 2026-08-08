@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { isValidTaxId } from "@/lib/utils/tax-id";
 import { generatePublicPixAction, getPublicPixStatusAction } from "../actions";
 import { StatusScreen } from "./pay-shell";
+import { resolveQrImageSrc } from "@/lib/depix/qr-image-src";
 
 const MIN_CENTS = 1000;
 const MAX_CENTS = 500000;
@@ -25,6 +26,9 @@ type Generated = {
   qrCodeBase64: string;
   amountCents: number;
   expiresAt: string | null;
+  /** Id da cobrança na Eulen: identifica ESTE pagamento no polling. O link é
+   *  reutilizável, então perguntar só pelo token devolveria o status de outro. */
+  depixId: string;
 };
 
 function formatBRL(cents: number): string {
@@ -93,6 +97,7 @@ export function PublicPaymentForm({
         qrCodeBase64: res.qrCodeBase64,
         amountCents: res.amountCents,
         expiresAt: res.expiresAt,
+        depixId: res.transactionId,
       });
     });
   }
@@ -115,6 +120,7 @@ export function PublicPaymentForm({
         amountCents={generated.amountCents}
         qrCode={generated.qrCode}
         qrCodeBase64={generated.qrCodeBase64}
+        depixId={generated.depixId}
         expiresAt={generated.expiresAt}
         copied={copied}
         onCopy={() => {
@@ -263,6 +269,7 @@ function QrStage({
   amountCents,
   qrCode,
   qrCodeBase64,
+  depixId,
   expiresAt,
   copied,
   onCopy,
@@ -274,6 +281,7 @@ function QrStage({
   amountCents: number;
   qrCode: string;
   qrCodeBase64: string;
+  depixId: string;
   expiresAt: string | null;
   copied: boolean;
   onCopy: () => void;
@@ -297,7 +305,7 @@ function QrStage({
   useEffect(() => {
     let active = true;
     const tick = async () => {
-      const status = await getPublicPixStatusAction(token);
+      const status = await getPublicPixStatusAction(token, depixId);
       if (!active) return;
       if (status === "paid") onPaidRef.current();
       else if (status === "expired" || status === "failed") onExpiredRef.current();
@@ -321,10 +329,7 @@ function QrStage({
   const mins = remaining != null ? Math.floor(remaining / 60) : null;
   const secs = remaining != null ? remaining % 60 : null;
 
-  const qrSrc = useMemo(() => {
-    if (!qrCodeBase64) return null;
-    return qrCodeBase64.startsWith("data:") ? qrCodeBase64 : `data:image/png;base64,${qrCodeBase64}`;
-  }, [qrCodeBase64]);
+  const qrSrc = useMemo(() => resolveQrImageSrc(qrCodeBase64), [qrCodeBase64]);
 
   return (
     <div className="space-y-5">

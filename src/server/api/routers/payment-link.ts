@@ -1,112 +1,122 @@
 import { z } from "zod";
-import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, tenantProcedure } from "@/server/api/trpc";
 import { generatePublicToken } from "@/lib/utils/public-link";
 import { getAppBaseUrl } from "@/lib/utils/app-url";
 import { generateDepositAddressQr } from "@/lib/services/depix-service";
 import { DEPIX_LIMITS } from "@/lib/services/depix-transaction-fee";
-import { PAYMENT_LINK_TTL_MS } from "@/server/services/payment-link.service";
+import { buildPayUrl } from "@/lib/payment-link/pay-url";
 import { logger } from "@/lib/logger";
 
-/** Monta a URL pública + QR (PNG data-url) de um token de link. */
-async function buildLinkArtifacts(token: string) {
-  const url = `${getAppBaseUrl()}/pay/${token}`;
-  const qrCodeDataUrl = await generateDepositAddressQr(url);
-  return { token, url, qrCodeDataUrl };
-}
-
+/**
+ * Link de pagamento DePix: UM por tenant, fixo e reutilizável.
+ *
+ * Não há mais "criar link por cobrança". Cobrar um valor específico é só montar
+ * a URL com `?valor=` — nada é gravado por cobrança, e o mesmo endereço serve
+ * para sempre. A rastreabilidade vem da transação de cada pagamento, não do link.
+ */
 export const paymentLinkRouter = createTRPCRouter({
   /**
-   * Cria um link de pagamento DePix. `amountCents` ausente = valor livre (o
-   * cliente define ao pagar, dentro dos limites). Retorna URL + QR do link.
+   * Devolve o link do tenant, criando-o na primeira chamada.
+   *
+   * Idempotente por construção (`tenantId` é único): chamar de novo devolve o
+   * MESMO token. Isso importa porque o link é material divulgado — gerar um novo
+   * a cada visita invalidaria QR já impresso.
    */
-  create: tenantProcedure
+  get: tenantProcedure.query(async ({ ctx }) => {
+    const link = await ctx.withTenant(async (tx) => {
+      const existing = await tx.paymentLink.findUnique({
+        where: { tenantId: ctx.tenantId },
+        select: { id: true, token: true, description: true, active: true },
+      });
+      if (existing) return existing;
+
+      const created = await tx.paymentLink.create({
+        data: {
+          tenantId: ctx.tenantId,
+          token: generatePublicToken(16),
+          createdById: ctx.session.user.id,
+        },
+        select: { id: true, token: true, description: true, active: true },
+      });
+      logger.info("PaymentLink do tenant criado", { id: created.id, tenantId: ctx.tenantId });
+      return created;
+    });
+
+    const url = buildPayUrl(getAppBaseUrl(), link.token);
+    return {
+      id: link.id,
+      token: link.token,
+      description: link.description,
+      active: link.active,
+      url,
+      qrCodeDataUrl: await generateDepositAddressQr(url),
+    };
+  }),
+
+  /**
+   * Monta a URL de cobrança com valor já preenchido.
+   *
+   * Não grava nada: o valor viaja na query string do MESMO link. É o que permite
+   * "link com valor" sem reintroduzir um registro por cobrança.
+   */
+  chargeUrl: tenantProcedure
     .input(
       z.object({
         amountCents: z
           .number()
           .int()
           .min(DEPIX_LIMITS.MIN_CENTS, "Valor mínimo R$ 10,00")
-          .max(DEPIX_LIMITS.MAX_CENTS, "Valor máximo R$ 5.000,00")
-          .nullable()
-          .optional(),
-        description: z.string().trim().max(200).optional().nullable(),
+          .max(DEPIX_LIMITS.MAX_CENTS, "Valor máximo R$ 5.000,00"),
       }),
     )
-    .mutation(async ({ ctx, input }) => {
-      const token = generatePublicToken(16);
+    .query(async ({ ctx, input }) => {
       const link = await ctx.withTenant(async (tx) =>
-        tx.paymentLink.create({
-          data: {
-            tenantId: ctx.tenantId,
-            token,
-            amountCents: input.amountCents ?? null,
-            description: input.description?.trim() || null,
-            createdById: ctx.session.user.id,
-            expiresAt: new Date(Date.now() + PAYMENT_LINK_TTL_MS),
-          },
-          select: { id: true, token: true, amountCents: true, description: true },
+        tx.paymentLink.findUnique({
+          where: { tenantId: ctx.tenantId },
+          select: { token: true },
         }),
       );
-      logger.info("PaymentLink criado", {
-        id: link.id,
-        amountOpen: link.amountCents == null,
-        tenantId: ctx.tenantId,
-      });
+      if (!link) {
+        // Sem link ainda: `get` cria na primeira chamada. Não criamos aqui para
+        // manter uma única porta de criação.
+        return { url: null as string | null, amountCents: input.amountCents };
+      }
+      const url = buildPayUrl(getAppBaseUrl(), link.token, input.amountCents);
       return {
-        id: link.id,
-        amountCents: link.amountCents,
-        description: link.description,
-        ...(await buildLinkArtifacts(link.token)),
+        url,
+        amountCents: input.amountCents,
+        qrCodeDataUrl: await generateDepositAddressQr(url),
       };
     }),
 
-  /** Lista os links do tenant (mais recentes primeiro). */
-  list: tenantProcedure
-    .input(z.object({ limit: z.number().int().min(1).max(100).default(50) }).optional())
-    .query(async ({ ctx, input }) => {
-      const links = await ctx.withTenant(async (tx) => {
-        // Expira on-read os ACTIVE ja vencidos deste tenant antes de listar.
-        await tx.paymentLink.updateMany({
-          where: { tenantId: ctx.tenantId, status: "ACTIVE", expiresAt: { lt: new Date() } },
-          data: { status: "EXPIRED" },
-        });
-        return tx.paymentLink.findMany({
-          where: { tenantId: ctx.tenantId },
-          orderBy: { createdAt: "desc" },
-          take: input?.limit ?? 50,
-          select: {
-            id: true,
-            token: true,
-            amountCents: true,
-            description: true,
-            status: true,
-            paidAt: true,
-            expiresAt: true,
-            createdAt: true,
-          },
-        });
-      });
-      const base = getAppBaseUrl();
-      return links.map((l) => ({ ...l, url: `${base}/pay/${l.token}` }));
-    }),
-
-  /** Cancela um link ainda ACTIVE (não pago). */
-  cancel: tenantProcedure
-    .input(z.object({ id: z.string().uuid() }))
+  /**
+   * Liga/desliga o recebimento sem trocar o token.
+   *
+   * Desligar é reversível de propósito: o link é material divulgado, e gerar um
+   * token novo invalidaria QR já impresso.
+   */
+  setActive: tenantProcedure
+    .input(z.object({ active: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
-      const updated = await ctx.withTenant(async (tx) =>
+      await ctx.withTenant(async (tx) =>
         tx.paymentLink.updateMany({
-          where: { id: input.id, tenantId: ctx.tenantId, status: "ACTIVE" },
-          data: { status: "CANCELLED" },
+          where: { tenantId: ctx.tenantId },
+          data: { active: input.active },
         }),
       );
-      if (updated.count === 0) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "Link não encontrado ou já não está ativo.",
-        });
-      }
+      return { ok: true, active: input.active };
+    }),
+
+  /** Texto exibido ao cliente na tela de pagamento. */
+  setDescription: tenantProcedure
+    .input(z.object({ description: z.string().trim().max(200).nullable() }))
+    .mutation(async ({ ctx, input }) => {
+      await ctx.withTenant(async (tx) =>
+        tx.paymentLink.updateMany({
+          where: { tenantId: ctx.tenantId },
+          data: { description: input.description?.trim() || null },
+        }),
+      );
       return { ok: true };
     }),
 });

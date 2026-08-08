@@ -17,33 +17,20 @@ import { createDeposit, checkTransactionStatus } from "@/server/services/depix-t
 
 export interface PublicChargeView {
   merchantName: string;
-  /** Descricao do que se refere o pagamento (pode ser vazio). */
+  /** Descricao exibida ao cliente (pode ser vazio). */
   description: string;
-  /** Centavos. `null` quando o cliente define o valor (amountOpen). */
-  amountCents: number | null;
-  amountOpen: boolean;
-  status: "ACTIVE" | "PAID" | "CANCELLED" | "EXPIRED";
-  alreadyPaid: boolean;
+  /** Link desligado pelo comerciante: a tela recusa o pagamento. */
+  active: boolean;
 }
 
-/** Carrega a cobranca publica por token (sem dados sensiveis do tenant). */
+/** Carrega o link publico por token (sem dados sensiveis do tenant). */
 export async function getPublicCharge(token: string): Promise<PublicChargeView | null> {
   return withAdmin(async (tx) => {
     const link = await tx.paymentLink.findUnique({
       where: { token },
-      select: { id: true, tenantId: true, status: true, description: true, amountCents: true, expiresAt: true },
+      select: { tenantId: true, description: true, active: true },
     });
     if (!link) return null;
-
-    // On-read: link ACTIVE vencido -> EXPIRED (nao depende do cron).
-    let status = link.status;
-    if (status === "ACTIVE" && link.expiresAt && link.expiresAt < new Date()) {
-      await tx.paymentLink.updateMany({
-        where: { id: link.id, status: "ACTIVE" },
-        data: { status: "EXPIRED" },
-      });
-      status = "EXPIRED";
-    }
 
     const tenant = await tx.tenant.findUnique({
       where: { id: link.tenantId },
@@ -52,10 +39,7 @@ export async function getPublicCharge(token: string): Promise<PublicChargeView |
     return {
       merchantName: tenant?.name ?? "Comerciante",
       description: link.description ?? "",
-      amountCents: link.amountCents,
-      amountOpen: link.amountCents == null,
-      status,
-      alreadyPaid: status === "PAID",
+      active: link.active,
     };
   });
 }
@@ -98,30 +82,20 @@ export async function generatePublicPix(args: {
       select: {
         id: true,
         tenantId: true,
-        status: true,
-        amountCents: true,
+        active: true,
         description: true,
-        expiresAt: true,
-        walletTransactionId: true,
         createdById: true,
       },
     }),
   );
-  if (!link) return { ok: false, error: "Cobrança não encontrada." };
-  if (link.status !== "ACTIVE") {
-    return { ok: false, error: "Esta cobrança não está mais disponível para pagamento." };
-  }
-  // Link vencido: expira e recusa (defesa server-side; nao gera QR novo).
-  if (link.expiresAt && link.expiresAt < new Date()) {
-    await withAdmin((tx) =>
-      tx.paymentLink.updateMany({ where: { id: link.id, status: "ACTIVE" }, data: { status: "EXPIRED" } }),
-    );
-    return { ok: false, error: "Este link de pagamento expirou. Peça um novo ao comerciante." };
+  if (!link) return { ok: false, error: "Link de pagamento não encontrado." };
+  if (!link.active) {
+    return { ok: false, error: "Este link de pagamento está desativado. Procure o comerciante." };
   }
 
-  // 3) Valor: livre -> usa o do cliente; fixo -> usa o do link. Limites sempre.
-  const amountOpen = link.amountCents == null;
-  const amountCents = amountOpen ? (args.amountCents ?? 0) : link.amountCents!;
+  // 3) Valor: sempre do cliente (o link é fixo e não carrega valor). Quando o
+  //    operador manda `?valor=`, a tela envia esse número já bloqueado.
+  const amountCents = args.amountCents ?? 0;
   if (!Number.isInteger(amountCents) || amountCents < DEPIX_LIMITS.MIN_CENTS) {
     return { ok: false, error: `Valor mínimo de R$ ${(DEPIX_LIMITS.MIN_CENTS / 100).toFixed(2)}.` };
   }
@@ -136,29 +110,42 @@ export async function generatePublicPix(args: {
     return { ok: false, error: limit.reason ?? "Limite DePix excedido." };
   }
 
-  // 5) Idempotencia: ja existe um deposito PENDING valido vinculado? Reusa o QR.
-  if (link.walletTransactionId) {
-    const existing = await withAdmin(async (tx) =>
-      tx.tenantDepixTransaction.findUnique({
-        where: { id: link.walletTransactionId! },
-        select: { status: true, qrCode: true, qrCodeBase64: true, pixpayDepixId: true, expiresAt: true },
-      }),
-    );
-    const notExpired = !existing?.expiresAt || existing.expiresAt > new Date();
-    if (existing?.qrCode && existing.status === "PENDING" && notExpired) {
-      return {
-        ok: true,
-        qrCode: existing.qrCode,
-        qrCodeBase64: existing.qrCodeBase64 ?? "",
-        transactionId: existing.pixpayDepixId ?? "",
-        amountCents,
-        expiresAt: existing.expiresAt ? existing.expiresAt.toISOString() : null,
-      };
-    }
+  // 5) Idempotência: reusa um QR PENDENTE do MESMO pagador e MESMO valor.
+  //
+  //    O link agora é reutilizável, então não dá mais para amarrar "o depósito
+  //    deste link" num campo único. A chave passa a ser (link, pagador, valor):
+  //    é o que distingue "o cliente recarregou a página" de "outra pessoa está
+  //    pagando agora". Sem isso, cada clique em Gerar QR criaria uma cobrança
+  //    nova na Eulen para o mesmo pagamento.
+  const existing = await withAdmin(async (tx) =>
+    tx.tenantDepixTransaction.findFirst({
+      where: {
+        tenantId: link.tenantId,
+        kind: "DEPOSIT",
+        status: "PENDING",
+        sourceType: "PAYMENT_LINK",
+        sourceId: link.id,
+        payerTaxId: taxDigits,
+        grossAmountCents: amountCents,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+      },
+      orderBy: { createdAt: "desc" },
+      select: { qrCode: true, qrCodeBase64: true, pixpayDepixId: true, expiresAt: true },
+    }),
+  );
+  if (existing?.qrCode) {
+    return {
+      ok: true,
+      qrCode: existing.qrCode,
+      qrCodeBase64: existing.qrCodeBase64 ?? "",
+      transactionId: existing.pixpayDepixId ?? "",
+      amountCents,
+      expiresAt: existing.expiresAt ? existing.expiresAt.toISOString() : null,
+    };
   }
 
-  // 6) Cria o deposito (mesmo caminho do balcao). A descricao do link vira a
-  // descricao do recebimento. sourceType PAYMENT_LINK liga o status na confirmacao.
+  // 6) Cria o deposito (mesmo caminho do balcao). `sourceId` continua apontando
+  //    para o link — é o que dá o histórico de "quanto entrou por este link".
   const deposit = await createDeposit({
     tenantId: link.tenantId,
     userId: link.createdById,
@@ -168,14 +155,6 @@ export async function generatePublicPix(args: {
     sourceDescription: link.description ?? "Link de pagamento",
     payerTaxId: taxDigits,
   });
-
-  // 7) Vincula o deposito ao link.
-  await withAdmin(async (tx) =>
-    tx.paymentLink.update({
-      where: { id: link.id },
-      data: { walletTransactionId: deposit.id },
-    }),
-  );
 
   logger.info("Pagamento publico: QR gerado", {
     paymentLinkId: link.id,
@@ -195,21 +174,43 @@ export async function generatePublicPix(args: {
 
 export type PublicPixStatus = "pending" | "paid" | "expired" | "failed";
 
-/** Consulta o status do pagamento publico (reusa checkTransactionStatus). */
-export async function getPublicPixStatus(token: string): Promise<PublicPixStatus> {
+/**
+ * Consulta o status de UM pagamento do link (reusa checkTransactionStatus).
+ *
+ * Recebe o `depixId` da cobrança, não só o token: o link é reutilizável e pode
+ * ter vários pagamentos em curso ao mesmo tempo. Perguntar "este link foi pago?"
+ * deixou de fazer sentido — a pergunta certa é "esta cobrança foi paga?".
+ *
+ * O `depixId` vem do QR que o próprio cliente acabou de gerar, e a busca é
+ * restrita ao tenant do token: ninguém consulta o pagamento de outro comerciante
+ * conhecendo só um identificador.
+ */
+export async function getPublicPixStatus(
+  token: string,
+  depixId: string,
+): Promise<PublicPixStatus> {
   const link = await withAdmin(async (tx) =>
     tx.paymentLink.findUnique({
       where: { token },
-      select: { tenantId: true, status: true, walletTransactionId: true },
+      select: { id: true, tenantId: true },
     }),
   );
   if (!link) return "failed";
-  if (link.status === "PAID") return "paid";
-  if (link.status === "EXPIRED") return "expired";
-  if (link.status === "CANCELLED") return "failed";
-  if (!link.walletTransactionId) return "pending";
 
-  const tx = await checkTransactionStatus(link.tenantId, link.walletTransactionId);
+  const deposit = await withAdmin(async (tx) =>
+    tx.tenantDepixTransaction.findFirst({
+      where: {
+        tenantId: link.tenantId,
+        sourceType: "PAYMENT_LINK",
+        sourceId: link.id,
+        pixpayDepixId: depixId,
+      },
+      select: { id: true },
+    }),
+  );
+  if (!deposit) return "pending";
+
+  const tx = await checkTransactionStatus(link.tenantId, deposit.id);
   if (!tx) return "pending";
   // PIX recebido (pixApprovedAt) ou concluido -> pago.
   if (tx.status === "COMPLETED" || tx.status === "COMPLETED_FEE_PENDING" || tx.pixApprovedAt != null) {
