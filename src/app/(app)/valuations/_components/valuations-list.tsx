@@ -194,10 +194,24 @@ function ModelSection({
                 <th className="sticky left-0 z-10 bg-card px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                   Bateria
                 </th>
+                {/* AVL-1 (Etapa 9, M13): `min-w-[110px]` era valor arbitrário
+                    (proibido pelo padrão do projeto) e não era a causa raiz —
+                    trocá-lo por `w-auto` levou a tabela de 533px para 506px, com
+                    3 dos 4 preços ainda fora da vista.
+
+                    O limite é o CONTEÚDO: "825GB - COM DISCO" precisa de 103px,
+                    e 4 capacidades × 103 + 93 da coluna Bateria = 506px numa área
+                    de 270. Espremer mais tornaria o rótulo ilegível — seria trocar
+                    um defeito por outro.
+
+                    A matriz é o formato certo para este dado, o scroll horizontal
+                    é estratégia válida da WCAG 1.4.10 para tabela, e a coluna
+                    Bateria já é sticky. O que faltava era o operador SABER que há
+                    mais à direita — ver o aviso abaixo da tabela. */}
                 {group.storageOptions.map((s) => (
                   <th
                     key={s}
-                    className="min-w-[110px] px-2 py-2.5 text-center text-[11px] font-medium uppercase tracking-wide text-muted-foreground"
+                    className="w-auto px-2 py-2.5 text-center text-[11px] font-medium uppercase leading-tight tracking-wide text-muted-foreground"
                   >
                     {s}
                   </th>
@@ -229,6 +243,20 @@ function ModelSection({
             </tbody>
           </table>
         </div>
+      )}
+      {/* AVL-1: sem isto o operador via UM preço e não tinha como saber que havia
+          mais à direita — a tabela some na borda do cartão sem nenhuma pista.
+          FORA do `overflow-x-auto`: dentro dele o aviso rolaria junto com a
+          tabela e sumiria com ela.
+
+          O limiar é `> 1`, não `> 2`. Medido a 320px: **já com DUAS capacidades**
+          a tabela transborda (285-299px numa área de 270) e esconde o segundo
+          preço. O primeiro palpite (`> 2`) deixava 3 dos 5 modelos sem aviso —
+          justamente os casos mais comuns. */}
+      {!collapsed && group.storageOptions.length > 1 && (
+        <p className="px-4 pb-2 pt-1 text-xs text-muted-foreground sm:hidden">
+          Arraste a tabela para ver as {group.storageOptions.length} capacidades →
+        </p>
       )}
     </div>
   );
