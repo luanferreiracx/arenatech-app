@@ -21,11 +21,20 @@ import { StatusBadge } from "@/components/domain/status-badge";
 import { SALE_STATUS_LABELS, PAYMENT_METHOD_LABELS } from "@/lib/validators/sale";
 
 
+/**
+ * VAR-1: a data trazia ano de 4 dígitos + hora ("05/08/2026, 12:34") e, com
+ * `whitespace-nowrap`, a coluna ficava com 139px. Somada a "Venda" (142px), as
+ * duas primeiras consumiam 281px dos 270 disponíveis a 320px — `Valor` começava
+ * em 306px mesmo depois de eu reordenar as colunas.
+ *
+ * Ano com 2 dígitos: a data continua legível e cabe. A hora fica, porque
+ * distingue vendas do mesmo dia.
+ */
 function formatDate(date: string | Date): string {
   return new Date(date).toLocaleDateString("pt-BR", {
     day: "2-digit",
     month: "2-digit",
-    year: "numeric",
+    year: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
   });
@@ -314,15 +323,13 @@ export function SalesTable() {
                     {renderSortIcon("saleDate")}
                   </button>
                 </th>
-                <th className="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Cliente
-                </th>
-                <th className="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Vendedor
-                </th>
-                <th className="text-center px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Itens
-                </th>
+                {/* VAR-1 (Etapa 9, varredura final): a ordem era
+                    Venda|Data|Cliente|Vendedor|Itens|Valor|Pagamento|Status|Acoes.
+                    A tabela mede 1033px numa área de 270 a 320px, e SETE das nove
+                    colunas nasciam fora de vista — inclusive `Valor` e `Status`,
+                    que são o que um histórico de vendas existe para mostrar.
+
+                    Sexta ocorrência da mesma classe nesta etapa. */}
                 <th className="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   <button
                     type="button"
@@ -334,10 +341,19 @@ export function SalesTable() {
                   </button>
                 </th>
                 <th className="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Pagamento
+                  Status
                 </th>
                 <th className="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Status
+                  Cliente
+                </th>
+                <th className="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Vendedor
+                </th>
+                <th className="text-center px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Itens
+                </th>
+                <th className="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Pagamento
                 </th>
                 <th className="text-center px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground w-20">
                   Acoes
@@ -409,24 +425,8 @@ export function SalesTable() {
                           ? formatDate(sale.saleDate as string)
                           : "-"}
                       </td>
-                      <td className="px-4 py-3 max-w-[180px] truncate">
-                        {(sale.customerName as string) ?? "-"}
-                      </td>
-                      <td className="px-4 py-3 text-xs text-muted-foreground">
-                        {sale.sellerName as string}
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        {sale.itemCount as number}
-                      </td>
                       <td className="px-4 py-3 text-right font-semibold tabular-nums whitespace-nowrap">
                         {formatCurrency(sale.subtotal as number)}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span
-                          className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold tracking-wider ${tag.className}`}
-                        >
-                          {tag.label}
-                        </span>
                       </td>
                       <td className="px-4 py-3">
                         <StatusBadge
@@ -436,6 +436,27 @@ export function SalesTable() {
                         >
                           {SALE_STATUS_LABELS[statusStr] ?? statusStr}
                         </StatusBadge>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span
+                          className="block max-w-[11rem] truncate"
+                          title={(sale.customerName as string) ?? ""}
+                        >
+                          {(sale.customerName as string) ?? "-"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground">
+                        {sale.sellerName as string}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        {sale.itemCount as number}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold tracking-wider ${tag.className}`}
+                        >
+                          {tag.label}
+                        </span>
                       </td>
                       <td className="px-4 py-3 text-center whitespace-nowrap">
                         <Button

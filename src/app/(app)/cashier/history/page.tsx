@@ -134,13 +134,18 @@ export default function CashierHistoryPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    {/* VAR-1: a tabela mede 744px numa área de 270 a 320px, e
+                        CINCO das oito colunas nasciam fora de vista — incluindo
+                        `Status` e `Diferenca`, que é o que diz se o caixa fechou
+                        certo. Abertura|Fechamento ocupavam as duas primeiras
+                        posições com 2 datas completas. */}
+                    <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Diferenca</TableHead>
                     <TableHead>Abertura</TableHead>
                     <TableHead>Fechamento</TableHead>
-                    <TableHead>Status</TableHead>
                     <TableHead className="text-right">Saldo Inicial</TableHead>
                     <TableHead className="text-right">Esperado</TableHead>
                     <TableHead className="text-right">Informado</TableHead>
-                    <TableHead className="text-right">Diferenca</TableHead>
                     <TableHead className="w-10"></TableHead>
                   </TableRow>
                 </TableHeader>
@@ -165,14 +170,6 @@ export default function CashierHistoryPage() {
                         onClick={() => router.push(`/cashier/${reg.id}`)}
                         onKeyDown={onActivateKey(() => router.push(`/cashier/${reg.id}`))}
                       >
-                        <TableCell className="text-sm">
-                          {formatDateTime(reg.openedAt)}
-                        </TableCell>
-                        <TableCell className="text-sm">
-                          {reg.closedAt
-                            ? formatDateTime(reg.closedAt)
-                            : "-"}
-                        </TableCell>
                         <TableCell>
                           <Badge
                             variant={
@@ -182,20 +179,7 @@ export default function CashierHistoryPage() {
                             {reg.status === "OPEN" ? "Aberto" : "Fechado"}
                           </Badge>
                         </TableCell>
-                        <TableCell className="text-right font-mono text-sm">
-                          {formatCents(reg.openingBalance)}
-                        </TableCell>
-                        <TableCell className="text-right font-mono text-sm">
-                          {reg.expectedBalance != null
-                            ? formatCents(reg.expectedBalance)
-                            : "-"}
-                        </TableCell>
-                        <TableCell className="text-right font-mono text-sm">
-                          {reg.closingBalance != null
-                            ? formatCents(reg.closingBalance)
-                            : "-"}
-                        </TableCell>
-                        <TableCell className="text-right font-mono text-sm">
+                        <TableCell className="text-right font-mono text-sm whitespace-nowrap">
                           {reg.difference != null ? (
                             <span
                               className={
@@ -216,6 +200,27 @@ export default function CashierHistoryPage() {
                           ) : (
                             "-"
                           )}
+                        </TableCell>
+                        <TableCell className="text-sm">
+                          {formatDateTime(reg.openedAt)}
+                        </TableCell>
+                        <TableCell className="text-sm">
+                          {reg.closedAt
+                            ? formatDateTime(reg.closedAt)
+                            : "-"}
+                        </TableCell>
+                        <TableCell className="text-right font-mono text-sm">
+                          {formatCents(reg.openingBalance)}
+                        </TableCell>
+                        <TableCell className="text-right font-mono text-sm">
+                          {reg.expectedBalance != null
+                            ? formatCents(reg.expectedBalance)
+                            : "-"}
+                        </TableCell>
+                        <TableCell className="text-right font-mono text-sm">
+                          {reg.closingBalance != null
+                            ? formatCents(reg.closingBalance)
+                            : "-"}
                         </TableCell>
                         <TableCell>
                           <Button variant="ghost" size="icon" aria-label="Ver detalhes do caixa">
