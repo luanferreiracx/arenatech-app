@@ -25,6 +25,25 @@ import { loginAs } from "./helpers/cashier.helper";
 const NARROW = { width: 320, height: 800 };
 
 /** Telas que o operador usa o dia inteiro, com listas de dado do usuário. */
+/**
+ * LIMITE CONHECIDO desta suíte (auditoria 2026-08-07, E9-2).
+ *
+ * O seed do CI **não cria ordens de serviço** (`grep serviceOrder prisma/seed.ts`
+ * → 0). Sem linhas, a tabela e a barra de paginação **não renderizam**, e estas
+ * telas são medidas VAZIAS — o teste passa sem exercitar o layout real.
+ *
+ * Foi exatamente assim que o estouro da paginação (271px de flex rígido → 347px
+ * a 320px de viewport) sobreviveu: `/service-orders` está na lista abaixo desde
+ * a criação da suíte, o full pós-merge passou verde, e o defeito só apareceu
+ * quando a auditoria mediu contra a **cópia de produção**, que tem 255 OS.
+ *
+ * O teste em si é bom — reproduzido com o banco cheio, ele falha sem o fix e
+ * passa com ele. O que falta é DADO, não asserção.
+ *
+ * Para fechar de verdade: semear ao menos 11 linhas (acima do `pageSize` de 10)
+ * nas entidades destas telas, ou medir contra um tenant de demonstração já
+ * populado.
+ */
 const TELAS = [
   "/painel",
   "/customers",
