@@ -97,17 +97,31 @@ function Kpi({
 }) {
   const valueClass =
     tone === "positive" ? "text-success" : tone === "alert" ? "text-destructive" : "text-foreground";
+  // PNL-1 (Etapa 9, M16): a 320px o cartão dá 72px ao rótulo, e SEIS dos oito
+  // eram cortados — "FATURAM…", "VENDAS H…", "TICKET MÉ…", "OS ABERT…",
+  // "CONTAS V…", "ESTOQUE …". Dois viravam "FATURAM…" idênticos lado a lado
+  // (faturamento de hoje e do mês), indistinguíveis.
+  //
+  // O `truncate` estava certo; o problema era o espaço. Três causas somadas:
+  // `uppercase` (maiúsculas são mais largas), `tracking-wide` (espaçamento
+  // extra) e o ícone consumindo 16px + gap da mesma linha.
+  //
+  // No celular o rótulo vem em caixa normal, sem espaçamento extra e com o gap
+  // menor — "Contas vencidas" passa de 114px para caber nos 72. A partir de `sm`
+  // volta o visual original, onde há espaço.
   const body = (
     <div className="flex flex-col gap-1.5">
-      <div className="flex items-center gap-2 text-muted-foreground">
+      <div className="flex min-w-0 items-center gap-1.5 text-muted-foreground sm:gap-2">
         <Icon className="h-4 w-4 shrink-0" />
-        <span className="truncate text-xs font-medium uppercase tracking-wide">{label}</span>
+        <span className="truncate text-xs font-medium sm:uppercase sm:tracking-wide">
+          {label}
+        </span>
       </div>
       <p className={`truncate text-2xl font-semibold tracking-tight tabular-nums ${valueClass}`}>{value}</p>
     </div>
   );
   const base =
-    "rounded-xl border border-border bg-card px-4 py-3.5 transition-colors";
+    "min-w-0 rounded-xl border border-border bg-card px-2.5 py-3.5 transition-colors sm:px-4";
   if (href) {
     return (
       <Link href={href} className={`${base} block hover:border-primary/40 hover:bg-primary/5`}>
@@ -142,7 +156,11 @@ function CashierStatusBanner() {
         />
         <div className="min-w-0">
           <p className="truncate font-medium">Caixa {cashier.isOpen ? "aberto" : "fechado"}</p>
-          <p className="truncate text-sm text-muted-foreground">
+          {/* PNL-4: `truncate` cortava "Abra o caixa para inicia…" a 320px. Aqui
+              o texto é ORIENTAÇÃO, não dado tabular — pode ocupar duas linhas.
+              `line-clamp-2` mantém o teto (não empurra o botão para fora) sem
+              comer a instrução. */}
+          <p className="line-clamp-2 text-sm text-muted-foreground">
             {cashier.isOpen
               ? `${cashier.salesCount} movimentações nesta abertura`
               : "Abra o caixa para iniciar as vendas do dia"}
@@ -493,8 +511,17 @@ function QuickLinks({ tenantSlug, allowedModules }: { tenantSlug?: string; allow
         <Zap className="h-3.5 w-3.5 text-primary" />
         Acesso rápido
       </h2>
-      {/* Ícone monocromático (herda cor no hover): sem rainbow. Grid denso. */}
-      <div className="grid [&>*]:min-w-0 grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-8">
+      {/* Ícone monocromático (herda cor no hover): sem rainbow. Grid denso.
+
+          PNL-3 (Etapa 9, M16): era `grid-cols-2` já a partir de 320px, e CINCO
+          dos oito atalhos ficavam cortados — "Histórico d…" (-49px), "Ordens
+          de …" (-38px), "Posição d…" (-48px), "Carteira D…", "Buscar iPh…".
+          São botões de NAVEGAÇÃO: o operador precisa saber para onde vai.
+
+          Diferente dos KPIs, onde o valor é o conteúdo e o rótulo acompanha,
+          aqui o rótulo é TUDO. Uma coluna no celular resolve sem espremer nada;
+          a partir de `min-[420px]` voltam as duas. */}
+      <div className="grid [&>*]:min-w-0 grid-cols-1 gap-2 min-[420px]:grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-8">
         {links.map((link) => (
           <Link
             key={link.href}
@@ -612,9 +639,22 @@ export function DashboardContent({
         </div>
       ) : stats ? (
         <div className="grid [&>*]:min-w-0 grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+          {/* PNL-2: os rótulos eram "Faturamento hoje" e "Faturamento mês (N)".
+              A 320px o cartão dá 72px ao rótulo, e ambos viravam "Faturamento …"
+              — dois cartões idênticos lado a lado, com valores diferentes e nada
+              dizendo qual era qual.
+
+              O que distingue é "hoje"/"mês", e era exatamente o que o corte
+              comia. Trocado por "Vendido hoje"/"Vendido no mês": a palavra que
+              diferencia vem no fim mas o rótulo INTEIRO cabe, e "vendido" mantém
+              claro que é dinheiro (só o ícone não bastaria).
+
+              O sufixo `(N)` do mês saiu — era a CONTAGEM de vendas, que o cartão
+              "Vendas hoje" já cobre para o dia, e empurrava a palavra decisiva
+              para fora. */}
           <Kpi
             icon={DollarSign}
-            label="Faturamento hoje"
+            label="Vendido hoje"
             value={formatCurrency(stats.sales.todayTotal)}
             tone="positive"
           />
@@ -622,7 +662,7 @@ export function DashboardContent({
           <Kpi icon={TrendingUp} label="Ticket médio" value={formatCurrency(stats.sales.ticketMedio)} />
           <Kpi
             icon={Calendar}
-            label={`Faturamento mês (${stats.sales.monthCount})`}
+            label="Vendido no mês"
             value={formatCurrency(stats.sales.monthTotal)}
           />
           <Kpi
