@@ -68,10 +68,31 @@ export type UpdateBotConfigInput = z.infer<typeof updateBotConfigSchema>;
 
 // ── Horário de atendimento (fuso, janela e dias) — consciência temporal do bot ──
 
-/** Fusos comuns no Brasil, para o seletor da UI (rótulo → IANA). */
+/**
+ * Fusos comuns no Brasil, para o seletor da UI (rótulo → IANA).
+ *
+ * CFG-1 (Etapa 9, M14): o rótulo do Nordeste era
+ * `"Nordeste (Fortaleza/Teresina/Recife, UTC-3)"` — 283px de texto numa caixa de
+ * 222 a 320px. O gatilho do Select mostrava `"Nordeste (Fortaleza/Teres…"` e
+ * cortava justamente o **UTC**, que é o que distingue um fuso do outro.
+ *
+ * A correção é no RÓTULO, não no CSS: `min-w-0` e `w-full` já estavam corretos na
+ * tela, e nenhuma largura acomoda 283px em 222.
+ *
+ * **Tentei manter as três cidades** num campo `detail` exibido só na lista
+ * aberta. Não funciona: o `SelectItem` do projeto envolve todo o `children` em
+ * `SelectPrimitive.ItemText`, então o Radix **copia o conteúdo inteiro** para o
+ * gatilho — o corte foi de 61px para **73px**, pior que o original. Separar
+ * exigiria alterar o componente base compartilhado, o que o padrão do projeto
+ * desaconselha.
+ *
+ * Ficou o rótulo curto, no mesmo padrão dos outros sete: `"Região (Cidade,
+ * UTC-x)"`. Teresina e Recife estão no mesmo fuso de Fortaleza — quem é de lá
+ * escolhe "Nordeste" —, mas registro a perda: o rótulo não diz mais isso.
+ */
 export const COMMON_TIMEZONES: ReadonlyArray<{ value: string; label: string }> = [
   { value: "America/Sao_Paulo", label: "Brasília / São Paulo (BRT, UTC-3)" },
-  { value: "America/Fortaleza", label: "Nordeste (Fortaleza/Teresina/Recife, UTC-3)" },
+  { value: "America/Fortaleza", label: "Nordeste (Fortaleza, UTC-3)" },
   { value: "America/Bahia", label: "Bahia (Salvador, UTC-3)" },
   { value: "America/Manaus", label: "Amazonas (Manaus, UTC-4)" },
   { value: "America/Cuiaba", label: "Mato Grosso (Cuiabá, UTC-4)" },
