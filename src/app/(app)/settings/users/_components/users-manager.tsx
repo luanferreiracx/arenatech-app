@@ -235,10 +235,14 @@ export function UsersManager() {
           <Table>
             <TableHeader>
               <TableRow>
+                {/* VAR-3 (varredura final): `Perfil`, `Email` e `Acoes` nasciam
+                    fora de vista (tabela de 799px em 270). O perfil define o que
+                    a pessoa PODE fazer no sistema — é a coluna que se confere ao
+                    abrir esta tela. */}
                 <TableHead>Nome</TableHead>
+                <TableHead>Perfil</TableHead>
                 <TableHead>CPF</TableHead>
                 <TableHead>Email</TableHead>
-                <TableHead>Perfil</TableHead>
                 {canManage && <TableHead className="text-right">Acoes</TableHead>}
               </TableRow>
             </TableHeader>
@@ -259,8 +263,6 @@ export function UsersManager() {
                       )}
                     </div>
                   </TableCell>
-                  <TableCell className="font-mono text-sm">{formatCpf(u.cpf)}</TableCell>
-                  <TableCell className="text-sm text-muted-foreground">{u.email ?? "—"}</TableCell>
                   <TableCell>
                     <div className="flex flex-wrap gap-1">
                       <Badge variant="outline" className={ROLE_COLORS[u.role] ?? ""}>
@@ -270,6 +272,8 @@ export function UsersManager() {
                       {u.isCashier && <Badge variant="outline" className="bg-green-500/10 text-green-500 border-green-500/20">Caixa</Badge>}
                     </div>
                   </TableCell>
+                  <TableCell className="font-mono text-sm">{formatCpf(u.cpf)}</TableCell>
+                  <TableCell className="text-sm text-muted-foreground">{u.email ?? "—"}</TableCell>
                   {canManage && (
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
