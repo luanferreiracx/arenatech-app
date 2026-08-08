@@ -36,7 +36,13 @@ test.describe("Painel", () => {
 
     // Os quatro rótulos que resumem a operação. Se a query falhar e o bloco
     // voltar a ser `null`, este teste cai — que é o ponto.
-    for (const rotulo of [/Faturamento hoje/i, /Vendas hoje/i, /OS abertas/i, /Clientes/i]) {
+    //
+    // PNL-2 (Etapa 9, M16): "Faturamento hoje" e "Faturamento mês" viravam AMBOS
+    // "Faturamento …" a 320px — dois cartões idênticos lado a lado, com valores
+    // diferentes e nada dizendo qual era qual. Viraram "Vendido hoje" e "Vendido
+    // no mês", que cabem inteiros. Este teste pegou a renomeação, que é
+    // exatamente o que se espera dele.
+    for (const rotulo of [/Vendido hoje/i, /Vendas hoje/i, /OS abertas/i, /Clientes/i]) {
       await expect(page.locator("main")).toContainText(rotulo, { timeout: 20000 });
     }
   });
