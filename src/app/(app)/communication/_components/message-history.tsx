@@ -33,26 +33,17 @@ export function MessageHistory() {
     }),
   );
 
+  // CMN-1 (Etapa 9, M10): a ordem era Canal | Destinatario | Mensagem | Status |
+  // Data. A tabela mede 906px num contêiner de 270 a 320px, então TRÊS das cinco
+  // colunas nasciam fora de vista — `Status` começava em **707px**, exigindo
+  // rolar 437px para saber se a mensagem chegou. Num histórico de envios, "chegou
+  // ou falhou" é a razão de a tela existir.
+  //
+  // E a coluna que ocupava a posição mais nobre era a que menos informa: `Canal`
+  // exibia "WhatsApp" idêntico em 100% das 20 linhas (o e-mail tem canal próprio
+  // e o filtro já permite separar). Status e Data vêm primeiro; Canal vai para o
+  // fim, onde repetição custa pouco.
   const columns = [
-    {
-      accessorKey: "channel",
-      header: "Canal",
-      cell: ({ row }: { row: { original: { channel: string } } }) =>
-        MESSAGE_CHANNEL_LABELS[row.original.channel] ?? row.original.channel,
-    },
-    {
-      accessorKey: "recipientName",
-      header: "Destinatario",
-      cell: ({ row }: { row: { original: { recipientName: string | null; recipientPhone: string | null; recipientEmail: string | null } } }) =>
-        row.original.recipientName ?? row.original.recipientPhone ?? row.original.recipientEmail ?? "-",
-    },
-    {
-      accessorKey: "body",
-      header: "Mensagem",
-      cell: ({ row }: { row: { original: { body: string } } }) => (
-        <span className="truncate max-w-xs block">{row.original.body.slice(0, 60)}...</span>
-      ),
-    },
     {
       accessorKey: "status",
       header: "Status",
@@ -67,6 +58,30 @@ export function MessageHistory() {
       header: "Data",
       cell: ({ row }: { row: { original: { createdAt: string | Date } } }) =>
         new Date(row.original.createdAt).toLocaleDateString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+    },
+    {
+      accessorKey: "recipientName",
+      header: "Destinatario",
+      cell: ({ row }: { row: { original: { recipientName: string | null; recipientPhone: string | null; recipientEmail: string | null } } }) =>
+        row.original.recipientName ?? row.original.recipientPhone ?? row.original.recipientEmail ?? "-",
+    },
+    {
+      accessorKey: "body",
+      header: "Mensagem",
+      // `slice(0, 60) + "..."` colava reticências mesmo em mensagem curta ("Ok...")
+      // e brigava com o `truncate`, que já corta no tamanho real da coluna.
+      // Deixa o CSS cortar e mostra o texto inteiro no title.
+      cell: ({ row }: { row: { original: { body: string } } }) => (
+        <span className="truncate max-w-xs block" title={row.original.body}>
+          {row.original.body}
+        </span>
+      ),
+    },
+    {
+      accessorKey: "channel",
+      header: "Canal",
+      cell: ({ row }: { row: { original: { channel: string } } }) =>
+        MESSAGE_CHANNEL_LABELS[row.original.channel] ?? row.original.channel,
     },
   ];
 
