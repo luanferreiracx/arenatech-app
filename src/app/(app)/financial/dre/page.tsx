@@ -113,7 +113,7 @@ function DreContent() {
 
       {dreQuery.isLoading ? (
         <div className="space-y-4">
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+          <div className="grid grid-cols-1 min-[420px]:grid-cols-2 lg:grid-cols-5 gap-3 [&>*]:min-w-0">
             {[1, 2, 3, 4, 5].map((i) => (
               <Skeleton key={i} className="h-20" />
             ))}
@@ -123,7 +123,7 @@ function DreContent() {
       ) : dreQuery.data ? (
         <div className="space-y-6">
           {/* Summary cards */}
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+          <div className="grid grid-cols-1 min-[420px]:grid-cols-2 lg:grid-cols-5 gap-3 [&>*]:min-w-0">
             <Card>
               <CardContent className="pt-4 pb-4">
                 <p className="text-xs text-muted-foreground uppercase tracking-wide">Receita</p>
