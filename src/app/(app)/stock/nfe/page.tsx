@@ -129,10 +129,15 @@ export default function NfeImportListPage() {
             <p className="text-sm text-muted-foreground mb-3">
               {isDragging ? "Solte o XML aqui" : "Arraste o XML da NF-e ou clique para selecionar"}
             </p>
+            {/* `max-w-full` + `block` (auditoria 2026-08-08, E9-5): o
+                `input[type=file]` nativo tem largura INTRÍNSECA — o Chrome a
+                calcula pelo texto do botão mais o nome do arquivo, e ignora o
+                container. Medido a 320px: 361px de largura, estourando a página
+                em 50px (WCAG 1.4.10). `mx-auto` centraliza, mas não limita. */}
             <input
               type="file"
               accept=".xml"
-              className="mx-auto"
+              className="mx-auto block max-w-full"
               disabled={uploading || processMutation.isPending}
               onChange={(e) => {
                 const f = e.target.files?.[0];
