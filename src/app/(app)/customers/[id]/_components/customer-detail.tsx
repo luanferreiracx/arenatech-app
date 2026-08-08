@@ -20,8 +20,17 @@ import { toast } from "@/lib/toast";
 import { CUSTOMER_TYPE_LABELS } from "@/lib/validators/customer";
 import { SALE_STATUS_LABELS } from "@/lib/validators/sale";
 
-/** Link do WhatsApp a partir de um telefone BR (só dígitos, DDI 55). */
-function whatsappHref(phone: string | null): string | null {
+/**
+ * Link do WhatsApp a partir de um telefone BR (só dígitos, DDI 55).
+ *
+ * Devolve `null` quando o cliente pediu para NÃO receber comunicações
+ * (auditoria 2026-08-08, E9-6): o `CustomerMessageDialog` já bloqueava o envio
+ * pelo sistema, mas a ficha oferecia um `wa.me` direto — um atalho que contorna
+ * o opt-out e sai do rastro. O telefone continua VISÍVEL (o operador precisa
+ * dele para atender quem ligou); o que some é o convite a iniciar contato.
+ */
+function whatsappHref(phone: string | null, unsubscribed?: boolean): string | null {
+  if (unsubscribed) return null;
   if (!phone) return null;
   const digits = phone.replace(/\D/g, "");
   if (digits.length < 10) return null;
@@ -170,6 +179,20 @@ export function CustomerDetail({ customerId }: { customerId: string }) {
             <CardTitle className="text-lg">Dados pessoais</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
+            {/* Opt-out em destaque (E9-6): sem isto, o operador via CPF,
+                WhatsApp e telefone sem nenhum sinal de que a pessoa pediu para
+                não ser contatada. O link `wa.me` some junto (ver
+                `whatsappHref`), mas botão que some sem explicação é pior que
+                botão que nega — o aviso é o que fecha o par. */}
+            {customer.unsubscribed && (
+              <p
+                role="status"
+                className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive break-words"
+              >
+                Cliente optou por não receber comunicações (LGPD). Não inicie
+                contato — atenda apenas se ele procurar a loja.
+              </p>
+            )}
             <div className="flex justify-between">
               <span className="text-muted-foreground">Tipo</span>
               <StatusBadge variant="default">{CUSTOMER_TYPE_LABELS[customer.type] ?? customer.type}</StatusBadge>
@@ -200,9 +223,9 @@ export function CustomerDetail({ customerId }: { customerId: string }) {
             )}
             <div className="flex justify-between gap-2">
               <span className="text-muted-foreground">WhatsApp</span>
-              {whatsappHref(customer.phone) ? (
+              {whatsappHref(customer.phone, customer.unsubscribed) ? (
                 <a
-                  href={whatsappHref(customer.phone)!}
+                  href={whatsappHref(customer.phone, customer.unsubscribed)!}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-primary hover:underline"
@@ -216,9 +239,9 @@ export function CustomerDetail({ customerId }: { customerId: string }) {
             {customer.phoneSecondary && (
               <div className="flex justify-between gap-2">
                 <span className="text-muted-foreground">Tel. alternativo</span>
-                {whatsappHref(customer.phoneSecondary) ? (
+                {whatsappHref(customer.phoneSecondary, customer.unsubscribed) ? (
                   <a
-                    href={whatsappHref(customer.phoneSecondary)!}
+                    href={whatsappHref(customer.phoneSecondary, customer.unsubscribed)!}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-primary hover:underline"
