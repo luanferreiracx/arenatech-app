@@ -370,6 +370,22 @@ export function DeviceCatalogAdmin() {
       toast.error("Informe um nome com pelo menos 2 caracteres");
       return;
     }
+    // CAT-1 (Etapa 9, M12): o campo se chama "Preço PIX" e o próprio diálogo diz
+    // "deixe em branco se não houver desconto" — mas aceitava qualquer valor.
+    // Medido no navegador: cartão R$ 1.000 + PIX R$ 1.500 salvava sem aviso.
+    //
+    // Não é erro cosmético: este campo é o que o BOT usa para responder preço ao
+    // cliente (`promotionalPrice` → `pixPrice`). Um dígito a mais faz o Talison
+    // anunciar PIX mais caro que o cartão, contradizendo a própria oferta.
+    const precoCartao = deviceDialog.price != null ? Number(deviceDialog.price) : null;
+    const precoPix =
+      deviceDialog.promotionalPrice != null ? Number(deviceDialog.promotionalPrice) : null;
+    if (precoPix != null && precoCartao != null && precoPix > precoCartao) {
+      toast.error(
+        "O preço PIX é o valor com desconto — não pode ser maior que o preço do cartão.",
+      );
+      return;
+    }
     const payload = {
       categoryId: deviceDialog.categoryId ?? selectedCategoryId ?? null,
       name: deviceDialog.name,
