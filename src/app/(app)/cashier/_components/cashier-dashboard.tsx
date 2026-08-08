@@ -710,6 +710,15 @@ function WithdrawalDialog({
           <div>
             <Label htmlFor="valor-2">Valor *</Label>
             <MoneyInput id="valor-2" value={amount} onChange={setAmount} autoFocus />
+            {/* Aviso ANTES do envio (auditoria 2026-08-07, E9-3): o servidor já
+                recusa com "Saldo em dinheiro insuficiente", mas o operador só
+                descobria depois de clicar. O diálogo já recebia
+                `availableBalance` e o exibia — não o usava para validar. */}
+            {amount > availableBalance && (
+              <p className="mt-1 text-xs text-destructive break-words" role="alert">
+                Valor acima do disponível em dinheiro ({formatCents(availableBalance)}).
+              </p>
+            )}
           </div>
           <div>
             <Label htmlFor="motivo">Motivo *</Label>
@@ -733,7 +742,9 @@ function WithdrawalDialog({
             variant="default"
             className="bg-warning text-warning-foreground hover:bg-warning/90"
             onClick={onSubmit}
-            disabled={isPending || amount <= 0 || !description.trim()}
+            disabled={
+              isPending || amount <= 0 || amount > availableBalance || !description.trim()
+            }
           >
             {isPending ? "Registrando..." : "Registrar Sangria"}
           </Button>
