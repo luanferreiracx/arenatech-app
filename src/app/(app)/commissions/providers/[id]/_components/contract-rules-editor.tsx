@@ -306,8 +306,16 @@ export function ContractRulesEditor({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm">
-          <Settings2 className="h-4 w-4 mr-1" />
+        {/* CMU-8: o rótulo tem 27 caracteres e o `Button` base traz `shrink-0`
+            + `whitespace-nowrap` — o botão ficava com 221px irredutíveis e
+            terminava em 325px numa tela de 320. Deixa quebrar em duas linhas em
+            vez de empurrar a página inteira. */}
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-auto max-w-full shrink whitespace-normal text-left"
+        >
+          <Settings2 className="h-4 w-4 mr-1 shrink-0" />
           {currentContract ? "Editar contrato e aliquotas" : "Cadastrar contrato e aliquotas"}
         </Button>
       </DialogTrigger>
