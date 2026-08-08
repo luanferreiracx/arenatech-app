@@ -136,16 +136,20 @@ export default function InterestsPage() {
         }
       />
 
-      {/* Stats cards */}
+      {/* Stats cards — INT-2: `md:grid-cols-6` sem passo intermediário dava UMA
+          coluna abaixo de 768px. No celular, seis cartões empilhados consomem
+          ~900px de rolagem antes de a lista de leads aparecer: o operador rola a
+          tela inteira de números para chegar ao trabalho. Dois por linha já no
+          celular, três em tablet, seis no desktop. */}
       {stats && (
-        <div className="grid gap-4 md:grid-cols-6">
-          <Card><CardContent className="pt-4"><div className="text-2xl font-bold">{stats.total}</div><p className="text-xs text-muted-foreground">Total</p></CardContent></Card>
-          <Card><CardContent className="pt-4"><div className="text-2xl font-bold text-yellow-600">{stats.waiting}</div><p className="text-xs text-muted-foreground">Em espera</p></CardContent></Card>
-          <Card><CardContent className="pt-4"><div className="text-2xl font-bold text-blue-600">{stats.contacted}</div><p className="text-xs text-muted-foreground">Contatados</p></CardContent></Card>
-          <Card><CardContent className="pt-4"><div className="text-2xl font-bold text-green-600">{stats.completed}</div><p className="text-xs text-muted-foreground">Finalizados</p></CardContent></Card>
-          <Card><CardContent className="pt-4"><div className="text-2xl font-bold text-red-600">{stats.cancelled}</div><p className="text-xs text-muted-foreground">Cancelados</p></CardContent></Card>
+        <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 md:grid-cols-6 [&>*]:min-w-0">
+          <Card><CardContent className="pt-4 px-3 sm:px-6"><div className="text-2xl font-bold">{stats.total}</div><p className="text-xs text-muted-foreground">Total</p></CardContent></Card>
+          <Card><CardContent className="pt-4 px-3 sm:px-6"><div className="text-2xl font-bold text-yellow-600">{stats.waiting}</div><p className="text-xs text-muted-foreground">Em espera</p></CardContent></Card>
+          <Card><CardContent className="pt-4 px-3 sm:px-6"><div className="text-2xl font-bold text-blue-600">{stats.contacted}</div><p className="text-xs text-muted-foreground">Contatados</p></CardContent></Card>
+          <Card><CardContent className="pt-4 px-3 sm:px-6"><div className="text-2xl font-bold text-green-600">{stats.completed}</div><p className="text-xs text-muted-foreground">Finalizados</p></CardContent></Card>
+          <Card><CardContent className="pt-4 px-3 sm:px-6"><div className="text-2xl font-bold text-red-600">{stats.cancelled}</div><p className="text-xs text-muted-foreground">Cancelados</p></CardContent></Card>
           <Card>
-            <CardContent className="pt-4">
+            <CardContent className="pt-4 px-3 sm:px-6">
               <div className="text-2xl font-bold text-emerald-600">
                 {conversion ? `${conversion.conversionRate}%` : "—"}
               </div>
@@ -216,11 +220,21 @@ export default function InterestsPage() {
                     aria-label="Selecionar todos"
                   />
                 </TableHead>
+                {/* INT-1 (Etapa 9, M11): a ordem era
+                    Nome|Telefone|Tipo|Modelo|Status|Data|Ações. A tabela mede
+                    751px numa área de 222 a 320px, então CINCO das oito colunas
+                    nasciam fora de vista — `Status` começava em 475px. Num
+                    módulo de leads, "em espera / contatado / finalizado" é o que
+                    organiza o trabalho: sem ele a lista não diz o que fazer.
+
+                    Terceira ocorrência da mesma classe nesta etapa (CMU-9 no M8,
+                    CMN-1 no M10): a coluna que decide a ação fica por último e
+                    nasce fora da tela. */}
                 <TableHead>Nome</TableHead>
+                <TableHead>Status</TableHead>
                 <TableHead>Telefone</TableHead>
                 <TableHead>Tipo</TableHead>
                 <TableHead>Modelo</TableHead>
-                <TableHead>Status</TableHead>
                 <TableHead>Data</TableHead>
                 <TableHead className="w-24">Ações</TableHead>
               </TableRow>
@@ -236,14 +250,14 @@ export default function InterestsPage() {
                     />
                   </TableCell>
                   <TableCell className="font-medium">{interest.customerName}</TableCell>
+                  <TableCell>
+                    <StatusBadge variant="default">{INTEREST_STATUS_LABELS[interest.status] ?? interest.status}</StatusBadge>
+                  </TableCell>
                   <TableCell>{interest.phone ?? "—"}</TableCell>
                   <TableCell>
                     <StatusBadge variant="default">{INTEREST_TYPE_LABELS[interest.type] ?? interest.type}</StatusBadge>
                   </TableCell>
                   <TableCell>{interest.desiredModel ?? "—"}</TableCell>
-                  <TableCell>
-                    <StatusBadge variant="default">{INTEREST_STATUS_LABELS[interest.status] ?? interest.status}</StatusBadge>
-                  </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     {format(new Date(interest.createdAt), "dd/MM/yyyy HH:mm", { locale: ptBR })}
                   </TableCell>
