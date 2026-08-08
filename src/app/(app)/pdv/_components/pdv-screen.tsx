@@ -749,7 +749,7 @@ export function PdvScreen() {
     // — o mesmo defeito do menu que oferece caminho fechado.
     if (draftRetailBlocked) {
       return (
-        <div className="flex h-[calc(100vh-80px)] items-center justify-center">
+        <div className="flex min-h-[calc(100dvh-80px)] items-center justify-center">
           <Card className="w-full max-w-md">
             <CardContent className="space-y-4 p-8 text-center">
               <LockIcon className="mx-auto size-12 text-muted-foreground opacity-60" aria-hidden />
