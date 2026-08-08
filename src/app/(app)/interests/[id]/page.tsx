@@ -225,7 +225,10 @@ export default function InterestDetailPage({ params }: { params: Promise<{ id: s
 
       {/* Interações */}
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
+        {/* VAR-4: `flex-row justify-between` sem quebra empurrava "Nova
+            interação" para 321px numa tela de 320, fazendo a página rolar.
+            Mesma classe do CMU-8 (M8). */}
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
           <CardTitle className="text-lg">Interações</CardTitle>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>

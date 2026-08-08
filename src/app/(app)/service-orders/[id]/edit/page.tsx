@@ -364,7 +364,11 @@ function EditForm({ order, onSubmit, onAttachNfse, attachNfsePending, onDetachNf
           <p className="text-sm text-muted-foreground mb-4">
             Clique para alternar: <Check className="inline h-3 w-3 text-success" /> OK, <X className="inline h-3 w-3 text-destructive" /> NOK, <Minus className="inline h-3 w-3 text-gray-400" /> N/A
           </p>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+          {/* VAR-4: `grid-cols-2` já a 320px cortava os rótulos do checklist
+              ("Aparelho liga", "Aparelho vibra", "Vidro traseiro"). São itens que
+              o técnico MARCA — cortado, ele não sabe o que está confirmando.
+              Uma coluna no celular; a partir de 420px voltam as duas. */}
+          <div className="grid grid-cols-1 min-[420px]:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
             {CHECKLIST_ITEMS.map(({ key, label }) => {
               const val = exitChecklist[key];
               return (

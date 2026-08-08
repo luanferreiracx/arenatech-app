@@ -347,18 +347,22 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
     customerPhoneSecondary ? { label: "Telefone alternativo", value: customerPhoneSecondary } : null,
   ].filter((o): o is PhoneOption => o !== null);
 
+  // VAR-4 (varredura das rotas de detalhe): o `title` do PageHeader era um
+  // `flex gap-3` sem quebra com botão + ícone + "Venda VND202603242" + badge de
+  // status. A 320px o badge "Rascunho" terminava em 350px e a PÁGINA rolava
+  // 30px — o pior caso das telas de detalhe.
   return (
     <div>
       <PageHeader
         title={
-          <div className="flex items-center gap-3">
-            <Button variant="ghost" size="icon" className="h-8 w-8" asChild aria-label="Voltar para historico de vendas">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" asChild aria-label="Voltar para historico de vendas">
               <Link href="/pdv/history">
                 <ArrowLeft className="h-4 w-4" />
               </Link>
             </Button>
-            <ShoppingCart className="h-5 w-5 text-primary" />
-            <span>Venda {sale.number}</span>
+            <ShoppingCart className="h-5 w-5 shrink-0 text-primary" />
+            <span className="min-w-0 break-all">Venda {sale.number}</span>
             <StatusBadge variant={STATUS_VARIANTS[statusStr] ?? "default"}>
               {SALE_STATUS_LABELS[statusStr] ?? statusStr}
             </StatusBadge>
@@ -613,30 +617,37 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
           <CardTitle className="text-sm">Itens da Venda</CardTitle>
         </CardHeader>
         <CardContent className="p-0 overflow-x-auto">
-          <table className="w-full min-w-[32rem] text-sm">
+          {/* VAR-4: `min-w-[32rem]` (512px) forçava a tabela a 512px numa área de
+              ~270 a 320px, e é valor arbitrário — com 4 colunas ela cabe sem
+              piso. `Total` vem antes do unitário: é o que soma na venda. */}
+          <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-primary/20 bg-muted/50">
-                <th className="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                <th className="text-left px-2 py-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground sm:px-4">
                   Produto
                 </th>
-                <th className="text-center px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground w-20">
+                <th className="text-right px-2 py-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground sm:px-4">
+                  Total
+                </th>
+                <th className="text-center px-2 py-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground sm:px-4">
                   Qtd
                 </th>
-                <th className="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground w-28">
+                <th className="text-right px-2 py-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground sm:px-4">
                   Preco Unit.
-                </th>
-                <th className="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground w-28">
-                  Total
                 </th>
               </tr>
             </thead>
             <tbody>
               {items.map((item) => (
                 <tr key={item.id} className="border-b border-border">
-                  <td className="px-4 py-3 font-medium">{item.description}</td>
-                  <td className="px-4 py-3 text-center">{item.quantity}</td>
-                  <td className="px-4 py-3 text-right tabular-nums">{formatCurrency(Number(item.unitPrice))}</td>
-                  <td className="px-4 py-3 text-right font-medium tabular-nums">{formatCurrency(Number(item.total))}</td>
+                  <td className="px-2 py-3 font-medium sm:px-4">
+                    <span className="block max-w-[10rem] truncate sm:max-w-none" title={item.description}>
+                      {item.description}
+                    </span>
+                  </td>
+                  <td className="px-2 py-3 text-right font-medium tabular-nums whitespace-nowrap sm:px-4">{formatCurrency(Number(item.total))}</td>
+                  <td className="px-2 py-3 text-center sm:px-4">{item.quantity}</td>
+                  <td className="px-2 py-3 text-right tabular-nums whitespace-nowrap sm:px-4">{formatCurrency(Number(item.unitPrice))}</td>
                 </tr>
               ))}
             </tbody>
