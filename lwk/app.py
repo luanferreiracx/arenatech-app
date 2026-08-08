@@ -188,6 +188,18 @@ _WALLET_LOCKS_META = threading.Lock()  # protege a criacao de locks no dict
 _STATE_LOCKS = defaultdict(threading.Lock)
 _STATE_LOCKS_META = threading.Lock()
 
+# Quanto esperar pelo `wallet_lock` antes de desistir.
+#
+# Quem NAO vai sincronizar so le o cache local e pode rodar em paralelo, entao
+# espera quase nada: o valor existe apenas para nao competir com quem esta
+# prestes a soltar o lock. Quem VAI sincronizar precisa mesmo do lock (vai
+# escrever no cache), entao espera um pouco mais antes de devolver 503.
+#
+# O teto NAO deve chegar perto do timeout do app (30s em ADDRESS_TIMEOUT_MS):
+# falhar rapido e explicito e melhor que o cliente olhando uma tela travada.
+LOCK_WAIT_NO_SYNC_S = 1
+LOCK_WAIT_SYNC_S = 15
+
 
 def wallet_lock(tenant_id):
     with _WALLET_LOCKS_META:
@@ -1336,7 +1348,27 @@ def new_address(tenant_id):
         do_sync = str(data.get("sync", "false")).lower() == "true"
 
         p = WalletPaths(tenant_id)
-        with wallet_lock(tenant_id):
+        # NAO espera indefinidamente pelo lock quando nao ha sync a fazer.
+        #
+        # O cron de sync segura o `wallet_lock` durante todo o full_scan (~70s
+        # com a Esplora propria). Enquanto isso, um `address/new` concorrente
+        # ficava na fila e o app abortava aos 30s com "LWK indisponivel" — QR de
+        # deposito falhando por azar de horario, no balcao e no link publico.
+        # Medido: sync 69,3s / address/new disparado 3s depois demorou 66,7s.
+        #
+        # Sem sync, derivar endereco so LE o cache local (`wollet.address()` nao
+        # toca a rede), entao rodar em paralelo ao full_scan e seguro — mesmo
+        # raciocinio que `/balance` ja aplica com `sync=false`.
+        #
+        # Com `sync=true` o lock continua obrigatorio: ai vamos escrever no cache
+        # da carteira, e duas escritas simultaneas o corrompem.
+        lock = wallet_lock(tenant_id)
+        acquired = lock.acquire(timeout=LOCK_WAIT_SYNC_S if do_sync else LOCK_WAIT_NO_SYNC_S)
+        if do_sync and not acquired:
+            # So falha quando o sync foi PEDIDO: quem pediu quer a garantia forte,
+            # e servir do cache seria mentir sobre isso.
+            return fail("carteira ocupada sincronizando; tente novamente", 503)
+        try:
             # Watch-only: nunca auto-cria. 404 se a carteira nao existe.
             try:
                 wollet, _ = load_watch_only(tenant_id)
@@ -1345,6 +1377,9 @@ def new_address(tenant_id):
             if do_sync:
                 sync_wallet(wollet, silent=True)
             addr_info = wollet.address(index)
+        finally:
+            if acquired:
+                lock.release()
 
         address    = str(addr_info.address())
         idx        = addr_info.index()
