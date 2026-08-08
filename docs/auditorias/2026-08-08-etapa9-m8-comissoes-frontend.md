@@ -173,6 +173,11 @@ abril–julho foram apurados — mitigado pelo backup e pelo `upsert` do "Calcul
 Fica como lacuna conhecida: um módulo de dinheiro sem tela de histórico depende
 de o operador saber qual mês procurar.
 
+> **Registrado como pendência** a pedido do dono (2026-08-08): **P-1** em
+> [`2026-08-05-CONSOLIDADO.md`](2026-08-05-CONSOLIDADO.md), seção "Pendências de
+> código em aberto (Etapa 9)", com o escopo provável de quando for resolvido.
+> Sem prazo.
+
 ---
 
 ### R1 (registro original, para contexto da decisão acima)

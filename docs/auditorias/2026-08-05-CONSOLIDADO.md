@@ -195,6 +195,47 @@ O Financeiro **resistiu a toda tentativa de derrubá-lo**: 1.341 obrigações e
 cross-tenant. Os defeitos deste programa não estão no núcleo contábil — estão
 nas bordas: rótulo, papel, formato legado, lock esquecido.
 
+## Pendências de código em aberto (Etapa 9)
+
+### P-1 — Comissões não têm tela de histórico de apurações
+
+**Registrado em 2026-08-08, a pedido do dono. Sem prazo.**
+
+Hoje a apuração de comissão só é acessível pela ficha do prestador
+(`/commissions/providers/[id]`), através do **seletor de mês** — 12 meses para
+trás, um prestador de cada vez. Não existe:
+
+- lista de todas as apurações (nem por prestador, nem por período)
+- visão consolidada de quanto a loja pagou de comissão em X
+- indicação de **quais meses foram apurados** — o operador precisa adivinhar o
+  mês e clicar para descobrir se há algo lá
+
+O histórico **é** a linha em `provider_apuracoes`, com `memory_json` guardando o
+detalhe do cálculo. Não há camada de leitura acima disso.
+
+**Por que isso ficou visível agora:** o dono decidiu excluir as 9 apurações de
+abril–julho (já pagas por fora — ver R1 do relatório do M8). Ao perguntar *"onde
+fica o registro com o histórico de apurações?"*, ficou claro que a resposta é
+"em lugar nenhum além da própria linha".
+
+**Mitigação atual:** a apuração é `upsert` — o botão "Calcular" recria o registro
+a partir das vendas e OS do período. Nenhum dado é perdido em definitivo; o que
+falta é a **visão**, não o dado.
+
+**Escopo provável quando for feito** (não estimado, não priorizado):
+
+| item | por quê |
+|---|---|
+| lista de apurações com filtro por período e prestador | hoje não há como saber o que existe sem clicar mês a mês |
+| indicador de meses apurados no seletor | evita procurar mês vazio |
+| total de comissão por período (todos os prestadores) | a pergunta "quanto paguei de comissão em julho" não tem resposta na tela |
+| estado da apuração visível na lista | `OPEN` vs `CLOSED` decide se virou conta a pagar |
+
+Relacionado: **R2 do M8** — a tela não avisa que "Aberta" significa "fora do
+financeiro". Os dois se resolvem bem juntos.
+
+---
+
 ## Pendências suas (não dependem de código)
 
 1. **Abastecer L-BTC da central** — **CRUZOU o piso em 05/08** (9.992 contra
